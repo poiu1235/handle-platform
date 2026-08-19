@@ -44,7 +44,7 @@ export default function Login() {
           },
         })
         if (signUpError) throw signUpError
-        setNotice('如果这个邮箱还没注册过，确认邮件已经发出，请去邮箱点击链接完成验证；如果这个邮箱之前已经注册并验证过，则不会收到新邮件，直接登录即可。')
+        setNotice('如果这个邮箱还没注册过，确认邮件已经发出，请去邮箱点击链接完成验证；如果这个邮箱之前已经注册并验证过，则不会收到新邮件，直接登录即可')
         setMode('signin')
       }
     } catch (err) {
