@@ -1,0 +1,5 @@
+# 本地用 wrangler pages dev 跑 functions/ 时会读取这个文件
+# 复制为 .dev.vars（已在 .gitignore 中）
+# 部署到 Cloudflare 后，需要在 Pages 项目的 Settings -> Environment variables 里同样配置一份
+
+SUPABASE_URL=https://your-project-ref.supabase.co

@@ -1,0 +1,362 @@
+:root {
+  --paper: #eceee6;
+  --paper-raised: #f7f8f3;
+  --ink: #1c2b3a;
+  --ink-soft: #56636d;
+  --ink-faint: #8b968f;
+  --rule: #cdd0c4;
+  --rule-strong: #aab0a0;
+  --amber: #b5792a;
+  --amber-soft: #f0e3cd;
+  --teal: #2f6f62;
+  --teal-soft: #dbe9e3;
+  --rust: #a3402a;
+  --rust-soft: #f1ddd6;
+
+  --font-display: 'Source Serif 4', 'Noto Serif SC', serif;
+  --font-body: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  background-image: linear-gradient(var(--rule) 1px, transparent 1px);
+  background-size: 100% 2.4rem;
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font-family: inherit;
+}
+
+a {
+  color: var(--teal);
+}
+
+/* ---------- 布局外壳 ---------- */
+
+.shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+}
+
+.brand .brand-mark {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  background: var(--amber);
+  transform: rotate(45deg);
+}
+
+.brand-sub {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.shell-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+/* ---------- 卡片 ---------- */
+
+.ledger-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule-strong);
+  box-shadow: 0 1px 0 var(--rule-strong);
+  padding: 2.4rem 2.2rem;
+}
+
+.ledger-card-wide {
+  max-width: 640px;
+}
+
+.ledger-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 0.5rem;
+}
+
+.ledger-title {
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  font-weight: 600;
+  margin: 0 0 1.6rem;
+  line-height: 1.3;
+}
+
+/* ---------- 表单 ---------- */
+
+.field {
+  margin-bottom: 1.2rem;
+}
+
+.field label {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  margin-bottom: 0.4rem;
+}
+
+.field input {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--rule-strong);
+  background: #fff;
+  font-size: 0.95rem;
+  color: var(--ink);
+  border-radius: 2px;
+}
+
+.field input:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: var(--ink);
+  color: var(--paper-raised);
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: #0f1922;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--rule-strong);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--paper);
+}
+
+.toggle-row {
+  margin-top: 1.4rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.toggle-row button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--teal);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.notice {
+  font-size: 0.85rem;
+  padding: 0.7rem 0.85rem;
+  border-left: 3px solid var(--teal);
+  background: var(--teal-soft);
+  color: #234a41;
+  margin-bottom: 1.2rem;
+  line-height: 1.5;
+}
+
+.notice-error {
+  border-left-color: var(--rust);
+  background: var(--rust-soft);
+  color: #6e2717;
+}
+
+/* ---------- Hello / 数据展示 ---------- */
+
+.hello-greeting {
+  font-family: var(--font-display);
+  font-size: 1.9rem;
+  font-weight: 600;
+  margin: 0 0 0.3rem;
+}
+
+.hello-sub {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  margin: 0 0 1.8rem;
+}
+
+.tally {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.tally:last-of-type {
+  border-bottom: none;
+}
+
+.tally-label {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.tally-value {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.tally-value.tag-high {
+  color: var(--amber);
+}
+
+.tally-value.tag-low {
+  color: var(--teal);
+}
+
+.tally-bar-track {
+  height: 3px;
+  background: var(--rule);
+  margin-top: 1.6rem;
+}
+
+.tally-bar-fill {
+  height: 100%;
+  background: var(--amber);
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  margin-top: 1.8rem;
+}
+
+.status-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--teal);
+}
+
+.status-dot.status-dot-error {
+  background: var(--rust);
+}
+
+.status-dot.status-dot-pending {
+  background: var(--ink-faint);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+.link-row {
+  margin-top: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.text-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tally-bar-fill {
+    transition: none;
+  }
+  .status-dot-pending {
+    animation: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .shell-header {
+    padding: 1.1rem 1.2rem;
+  }
+  .ledger-card {
+    padding: 1.8rem 1.4rem;
+  }
+}
