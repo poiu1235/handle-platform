@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Turnstile } from '@marsidev/react-turnstile'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext'
+
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY
 
 export default function Login() {
   const [mode, setMode] = useState('signin') // 'signin' | 'signup'
@@ -10,9 +13,11 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [captchaToken, setCaptchaToken] = useState('')
 
   const navigate = useNavigate()
   const { session } = useAuth()
+  const turnstileRef = useRef(null)
 
   // 已经登录了就不用再看登录页
   if (session) {
@@ -20,10 +25,21 @@ export default function Login() {
     return null
   }
 
+  function resetCaptcha() {
+    turnstileRef.current?.reset()
+    setCaptchaToken('')
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
     setNotice('')
+
+    if (!captchaToken) {
+      setError('请先完成人机验证')
+      return
+    }
+
     setSubmitting(true)
 
     try {
@@ -31,6 +47,7 @@ export default function Login() {
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password,
+          options: { captchaToken },
         })
         if (signInError) throw signInError
         navigate('/', { replace: true })
@@ -41,6 +58,7 @@ export default function Login() {
           password,
           options: {
             emailRedirectTo: `${window.location.origin}/auth/callback`,
+            captchaToken,
           },
         })
         if (signUpError) throw signUpError
@@ -50,6 +68,8 @@ export default function Login() {
     } catch (err) {
       setError(translateError(err.message))
     } finally {
+      // Turnstile token 是一次性的，无论成功失败都要重置，否则下次提交会被拒绝
+      resetCaptcha()
       setSubmitting(false)
     }
   }
@@ -97,7 +117,17 @@ export default function Login() {
               />
             </div>
 
-            <button className="btn" type="submit" disabled={submitting}>
+            <div className="field">
+              <Turnstile
+                ref={turnstileRef}
+                siteKey={TURNSTILE_SITE_KEY}
+                onSuccess={(token) => setCaptchaToken(token)}
+                onExpire={() => setCaptchaToken('')}
+                onError={() => setCaptchaToken('')}
+              />
+            </div>
+
+            <button className="btn" type="submit" disabled={submitting || !captchaToken}>
               {submitting ? '处理中…' : mode === 'signin' ? '登录' : '注册'}
             </button>
           </form>
@@ -106,14 +136,14 @@ export default function Login() {
             {mode === 'signin' ? (
               <>
                 还没有账号？
-                <button type="button" onClick={() => { setMode('signup'); setError(''); setNotice('') }}>
+                <button type="button" onClick={() => { setMode('signup'); setError(''); setNotice(''); resetCaptcha() }}>
                   去注册
                 </button>
               </>
             ) : (
               <>
                 已经有账号？
-                <button type="button" onClick={() => { setMode('signin'); setError(''); setNotice('') }}>
+                <button type="button" onClick={() => { setMode('signin'); setError(''); setNotice(''); resetCaptcha() }}>
                   去登录
                 </button>
               </>
@@ -131,6 +161,7 @@ function translateError(message) {
     'User already registered': '该邮箱已经注册过了，直接登录即可',
     'Email not confirmed': '邮箱还未验证，请先去邮箱点击确认链接',
     'Password should be at least 6 characters': '密码至少需要 6 位',
+    'captcha protection: request disallowed': '人机验证未通过，请重试',
   }
   return map[message] || message
 }
