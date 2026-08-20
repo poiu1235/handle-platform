@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './lib/AuthContext'
 import Login from './pages/Login'
 import AuthCallback from './pages/AuthCallback'
 import Hello from './pages/Hello'
+import BalanceImport from './pages/BalanceImport'
 
 function RequireAuth({ children }) {
   const { session, loading } = useAuth()
@@ -38,6 +39,14 @@ export default function App() {
           element={
             <RequireAuth>
               <Hello />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/balance-import"
+          element={
+            <RequireAuth>
+              <BalanceImport />
             </RequireAuth>
           }
         />

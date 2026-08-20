@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabaseClient'
 
@@ -158,9 +159,14 @@ export default function Hello() {
             <p className="ledger-eyebrow">Assets Overview</p>
             <h1 className="board-title">Handle 管理端</h1>
           </div>
-          <button className="text-btn" onClick={signOut}>
-            退出登录
-          </button>
+          <div className="board-header-actions">
+            <Link className="text-btn" to="/balance-import">
+              批量导入余额
+            </Link>
+            <button className="text-btn" onClick={signOut}>
+              退出登录
+            </button>
+          </div>
         </div>
 
         <div className="board-status">

@@ -667,3 +667,8 @@ a {
     padding: 1.2rem 0.9rem 2.4rem;
   }
 }
+.board-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
