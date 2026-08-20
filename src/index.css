@@ -548,3 +548,122 @@ a {
     font-size: 1.35rem;
   }
 }
+
+/* ---------- Balance Import（余额批量导入） ---------- */
+
+.import-shell {
+  min-height: 100dvh;
+  background: var(--paper);
+  padding: 1.6rem 1.2rem 3rem;
+}
+
+.import-header {
+  max-width: 640px;
+  margin: 0 auto 1.4rem;
+}
+
+.import-hint {
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+  line-height: 1.6;
+  margin: 0.6rem 0 0;
+}
+
+.import-body {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.import-textarea {
+  width: 100%;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  line-height: 1.6;
+  border-radius: 4px;
+  resize: vertical;
+}
+
+.import-textarea:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
+.import-preview {
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  padding: 1rem 1.1rem;
+  border-radius: 4px;
+}
+
+.import-preview-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 0.7rem;
+}
+
+.import-preview-note {
+  margin-left: 0.5rem;
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--amber);
+}
+
+.import-errors {
+  margin-bottom: 0.8rem;
+}
+
+.import-error-line {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: #6e2717;
+  background: var(--rust-soft);
+  border-left: 3px solid var(--rust);
+  padding: 0.35rem 0.6rem;
+  margin: 0 0 0.4rem;
+  line-height: 1.5;
+}
+
+.import-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.import-table th,
+.import-table td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.import-table th {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+
+.import-table td {
+  color: var(--ink);
+  font-family: var(--font-mono);
+}
+
+.import-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+@media (max-width: 480px) {
+  .import-shell {
+    padding: 1.2rem 0.9rem 2.4rem;
+  }
+}
