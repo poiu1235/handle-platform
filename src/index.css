@@ -360,3 +360,191 @@ a {
     padding: 1.8rem 1.4rem;
   }
 }
+
+/* ---------- Assets Board（余额 / 会籍 / 优惠券 台账） ---------- */
+/* 卡片色卡（约50色，按标签分三组随机分配）定义在 AssetsBoard.jsx 的 PALETTES 里，
+   直接以内联 style 写入 background，此处不再需要颜色变量。 */
+
+.board-shell {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.board-header {
+  padding: 1.4rem 1.2rem 0.6rem;
+  flex-shrink: 0;
+}
+
+.board-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.55rem;
+  margin: 0.15rem 0 0;
+  line-height: 1.25;
+}
+
+.board-tabs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.6rem 1.2rem;
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: none;
+}
+
+.board-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.board-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.board-tab-active {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff;
+}
+
+.board-tab-count {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  opacity: 0.75;
+}
+
+.board-sort-row {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.2rem 1.2rem 0.8rem;
+  flex-shrink: 0;
+}
+
+.board-sort-btn {
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.board-sort-btn-active {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--amber-soft);
+}
+
+.board-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding: 0.2rem 0.9rem 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.stamp-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 1.05rem 1.2rem;
+  border-radius: 16px;
+  box-shadow: 0 1px 0 rgba(28, 43, 58, 0.08);
+}
+
+.stamp-main {
+  min-width: 0;
+}
+
+.stamp-name {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: var(--ink);
+  margin: 0 0 0.3rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stamp-mark {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--ink);
+  opacity: 0.35;
+  transform: rotate(45deg);
+  flex-shrink: 0;
+}
+
+.stamp-meta {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: rgba(28, 43, 58, 0.55);
+  margin: 0;
+}
+
+.stamp-value {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.stamp-amount {
+  font-family: var(--font-mono);
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.stamp-unit {
+  font-size: 0.78rem;
+  color: rgba(28, 43, 58, 0.6);
+}
+
+@media (max-width: 480px) {
+  .board-header {
+    padding: 1.1rem 1rem 0.5rem;
+  }
+  .board-tabs,
+  .board-sort-row {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  .board-list {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+  .stamp-card {
+    padding: 0.9rem 1rem;
+    border-radius: 14px;
+  }
+  .stamp-amount {
+    font-size: 1.35rem;
+  }
+}
