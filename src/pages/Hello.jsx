@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabaseClient'
 
-// ---------- Mock 数据（接入真实数据时按同结构替换） ----------
+// ---------- 数据 ----------
+// 余额（balance）已接入 Supabase `balances` 表，见下方 fetchBalances。
+// 会籍 / 优惠券仍是 mock，接入真实数据时按同结构替换即可。
 
 const TABS = [
   { key: 'balance', label: '余额' },
@@ -12,12 +14,6 @@ const TABS = [
 ]
 
 const DATA = {
-  balance: [
-    { id: 'b1', name: '主账户余额', amount: 8600, unit: '元', updatedAt: '2026-08-19' },
-    { id: 'b2', name: '储备备用金', amount: 1200, unit: '元', updatedAt: '2026-08-15' },
-    { id: 'b3', name: '提现待入账', amount: 350, unit: '元', updatedAt: '2026-08-10' },
-    { id: 'b4', name: '退款待处理', amount: 86, unit: '元', updatedAt: '2026-08-05' },
-  ],
   membership: [
     { id: 'm1', name: '黄金会员', amount: 120, unit: '天', updatedAt: '2026-08-01' },
     { id: 'm2', name: '视频会员', amount: 30, unit: '天', updatedAt: '2026-08-10' },
@@ -59,25 +55,19 @@ const PALETTES = {
   ],
 }
 
-function shuffle(arr) {
-  const a = [...arr]
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[a[i], a[j]] = [a[j], a[i]]
+// 按 item.id 哈希取色（同一 id 永远拿到同一个颜色），
+// 不依赖挂载时机或数据来源，异步加载的余额数据也不会导致颜色跳动。
+function hashString(str) {
+  let h = 0
+  for (let i = 0; i < str.length; i++) {
+    h = (h * 31 + str.charCodeAt(i)) >>> 0
   }
-  return a
+  return h
 }
 
-// 为每个 tab 的每一项从对应色系里不重复随机取色；调用一次即固定下来
-function buildColorAssignments() {
-  const map = {}
-  for (const tabKey of Object.keys(DATA)) {
-    const shuffled = shuffle(PALETTES[tabKey])
-    DATA[tabKey].forEach((item, i) => {
-      map[item.id] = shuffled[i % shuffled.length]
-    })
-  }
-  return map
+function colorFor(tabKey, id) {
+  const palette = PALETTES[tabKey]
+  return palette[hashString(String(id)) % palette.length]
 }
 
 function formatUpdated(dateStr) {
@@ -105,7 +95,48 @@ export default function Hello() {
   const [activeTab, setActiveTab] = useState('balance')
   const [sortKey, setSortKey] = useState('time') // 'time' | 'amount'
   const [sortDir, setSortDir] = useState('desc') // 'desc' | 'asc'
-  const [colorMap] = useState(buildColorAssignments) // 只在挂载时随机分配一次
+
+  const [balanceItems, setBalanceItems] = useState([])
+  const [balanceState, setBalanceState] = useState({ status: 'pending', message: '' })
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchBalances() {
+      if (!user) return
+
+      setBalanceState({ status: 'pending', message: '' })
+
+      const { data, error } = await supabase
+        .from('balances')
+        .select('id, app_name, amount, updated_at')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+
+      if (cancelled) return
+
+      if (error) {
+        setBalanceState({ status: 'error', message: error.message })
+        return
+      }
+
+      setBalanceItems(
+        data.map((row) => ({
+          id: row.id,
+          name: row.app_name,
+          amount: Number(row.amount),
+          unit: '元',
+          updatedAt: row.updated_at,
+        }))
+      )
+      setBalanceState({ status: 'ok', message: '' })
+    }
+
+    fetchBalances()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   useEffect(() => {
     let cancelled = false
@@ -136,7 +167,7 @@ export default function Hello() {
     }
   }, [])
 
-  const items = DATA[activeTab]
+  const items = activeTab === 'balance' ? balanceItems : DATA[activeTab]
   const sorted = useMemo(
     () => sortItems(items, sortKey, sortDir),
     [items, sortKey, sortDir]
@@ -194,7 +225,9 @@ export default function Hello() {
             onClick={() => setActiveTab(tab.key)}
           >
             {tab.label}
-            <span className="board-tab-count">{DATA[tab.key].length}</span>
+            <span className="board-tab-count">
+              {tab.key === 'balance' ? balanceItems.length : DATA[tab.key].length}
+            </span>
           </button>
         ))}
       </div>
@@ -215,11 +248,30 @@ export default function Hello() {
       </div>
 
       <div className="board-list">
+        {activeTab === 'balance' && balanceState.status === 'pending' && (
+          <div className="status-line">
+            <span className="status-dot status-dot-pending" />
+            正在加载余额…
+          </div>
+        )}
+        {activeTab === 'balance' && balanceState.status === 'error' && (
+          <div className="notice notice-error">加载余额失败：{balanceState.message}</div>
+        )}
+        {activeTab === 'balance' &&
+          balanceState.status === 'ok' &&
+          balanceItems.length === 0 && (
+            <div className="notice">
+              还没有余额数据，去
+              <Link to="/balance-import">批量导入余额</Link>
+              页面提交一批吧。
+            </div>
+          )}
+
         {sorted.map((item) => (
           <div
             key={item.id}
             className="stamp-card"
-            style={{ background: colorMap[item.id] }}
+            style={{ background: colorFor(activeTab, item.id) }}
           >
             <div className="stamp-main">
               <p className="stamp-name">
