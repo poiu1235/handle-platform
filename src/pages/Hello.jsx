@@ -95,9 +95,18 @@ function SwipeableBalanceCard({ item, expanded, onToggleExpand, onEdit, onDelete
   const [dragX, setDragX] = useState(0)
   const [openDir, setOpenDir] = useState(null) // 'left' | 'right' | null
   const drag = useRef({ active: false, startX: 0, baseX: 0, moved: false })
+  const rowRef = useRef(null)
 
   const isZero = item.amount === 0
   const maxRight = isZero ? 0 : REVEAL_CLEAR // 余额为0时不允许右滑清零
+
+  // 展开时把这张卡片滚动到可视区域中间，视觉上像"从卡包里抽出来"，
+  // 其余堆叠的卡片自然被滚走。
+  useEffect(() => {
+    if (expanded) {
+      rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [expanded])
 
   function handlePointerDown(e) {
     if (!expanded) return // 折叠状态不响应拖动，点击交给 onClick 展开
@@ -150,7 +159,7 @@ function SwipeableBalanceCard({ item, expanded, onToggleExpand, onEdit, onDelete
   }
 
   return (
-    <div className={`stamp-row ${expanded ? 'stamp-row-expanded' : 'stamp-row-collapsed'}`}>
+    <div ref={rowRef} className={`stamp-row ${expanded ? 'stamp-row-expanded' : 'stamp-row-collapsed'}`}>
       {expanded && !isZero && (
         <div className="stamp-actions stamp-actions-left">
           <button

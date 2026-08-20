@@ -472,6 +472,7 @@ a {
   padding: 1.05rem 1.2rem;
   border-radius: 16px;
   box-shadow: 0 1px 0 rgba(28, 43, 58, 0.08);
+  flex-shrink: 0;
 }
 
 .stamp-main {
@@ -714,6 +715,7 @@ a {
   position: relative;
   border-radius: 16px;
   overflow: hidden;
+  flex-shrink: 0; /* 关键修复：不让行被压缩，超出高度交给 .board-list 滚动 */
 }
 
 .stamp-row .stamp-card {
@@ -835,9 +837,7 @@ a {
   transform: rotate(45deg);
 }
 
-.board-list {
-  padding-bottom: 5.5rem;
-}
+/* “+” 按钮是绝对定位的悬浮层，不占用文档流空间，这里不再给列表留出额外底部空间 */
 
 /* ---------- 新增/修改共用表单弹窗 ---------- */
 
