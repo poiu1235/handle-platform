@@ -790,8 +790,8 @@ a {
   position: relative;
   z-index: 20;
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  flex-direction: row;
+  gap: 0.6rem;
   align-items: center;
 }
 
@@ -880,4 +880,62 @@ a {
 .modal-actions .btn-ghost {
   width: auto;
   padding: 0.6rem 1.15rem;
+}
+
+/* ---------- 余额卡片折叠 / 展开 ---------- */
+/* 默认折叠：只有名称+金额、更矮的行高，像叠在一起的卡包；
+   点开才展开出更新时间、以及左右滑动修改/删除/清零。 */
+
+.board-list {
+  gap: 0.45rem;
+}
+
+.stamp-row-expanded {
+  margin: 0.15rem 0;
+}
+
+.stamp-card-collapsed {
+  padding: 0.6rem 1.2rem;
+}
+
+.stamp-card-collapsed .stamp-name {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.stamp-card-collapsed .stamp-amount {
+  font-size: 1.2rem;
+}
+
+.stamp-card-expanded {
+  padding: 1.05rem 1.2rem;
+}
+
+.stamp-card {
+  transition: padding 0.15s ease, transform 0.2s ease;
+}
+
+@media (max-width: 480px) {
+  .stamp-card-collapsed {
+    padding: 0.55rem 1rem;
+  }
+}
+
+/* ---------- 余额导入页 header：标题与"返回/退出登录"并排 ---------- */
+
+.import-header-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+/* 之前遗漏的定义：header 顶部一行让标题和右侧操作区分居两端 */
+.board-header-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
 }

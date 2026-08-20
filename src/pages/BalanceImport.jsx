@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabaseClient'
 
@@ -59,7 +60,7 @@ function dedupeRows(rows) {
 }
 
 export default function BalanceImport() {
-  const { user } = useAuth()
+  const { user, signOut } = useAuth()
   const [rawText, setRawText] = useState('')
   const [submitState, setSubmitState] = useState({ status: 'idle', message: '' })
 
@@ -106,8 +107,20 @@ export default function BalanceImport() {
   return (
     <div className="import-shell">
       <header className="import-header">
-        <p className="ledger-eyebrow">Balance Import</p>
-        <h1 className="board-title">余额批量导入</h1>
+        <div className="import-header-top">
+          <div>
+            <p className="ledger-eyebrow">Balance Import</p>
+            <h1 className="board-title">余额批量导入</h1>
+          </div>
+          <div className="board-header-actions">
+            <Link className="text-btn" to="/">
+              返回台账
+            </Link>
+            <button className="text-btn" onClick={signOut}>
+              退出登录
+            </button>
+          </div>
+        </div>
         <p className="import-hint">
           从表格里复制两列（小程序名、余额）直接粘贴到下方，每行一条。相同名称会覆盖原有余额，新名称会新增一条记录，更新时间统一记为本次提交时刻。
         </p>

@@ -91,16 +91,21 @@ const REVEAL_EDIT = 132 // 左滑露出的"修改/删除"区域宽度
 const REVEAL_CLEAR = 92 // 右滑露出的"清零"区域宽度
 const SWIPE_THRESHOLD = 40
 
-function SwipeableBalanceCard({ item, onEdit, onDelete, onClear }) {
+function SwipeableBalanceCard({ item, expanded, onToggleExpand, onEdit, onDelete, onClear }) {
   const [dragX, setDragX] = useState(0)
   const [openDir, setOpenDir] = useState(null) // 'left' | 'right' | null
-  const drag = useRef({ active: false, startX: 0, baseX: 0 })
+  const drag = useRef({ active: false, startX: 0, baseX: 0, moved: false })
+
+  const isZero = item.amount === 0
+  const maxRight = isZero ? 0 : REVEAL_CLEAR // 余额为0时不允许右滑清零
 
   function handlePointerDown(e) {
+    if (!expanded) return // 折叠状态不响应拖动，点击交给 onClick 展开
     drag.current = {
       active: true,
       startX: e.clientX,
-      baseX: openDir === 'left' ? -REVEAL_EDIT : openDir === 'right' ? REVEAL_CLEAR : 0,
+      baseX: openDir === 'left' ? -REVEAL_EDIT : openDir === 'right' ? maxRight : 0,
+      moved: false,
     }
     e.currentTarget.setPointerCapture(e.pointerId)
   }
@@ -108,7 +113,8 @@ function SwipeableBalanceCard({ item, onEdit, onDelete, onClear }) {
   function handlePointerMove(e) {
     if (!drag.current.active) return
     const delta = e.clientX - drag.current.startX
-    const next = Math.max(-REVEAL_EDIT, Math.min(REVEAL_CLEAR, drag.current.baseX + delta))
+    if (Math.abs(delta) > 4) drag.current.moved = true
+    const next = Math.max(-REVEAL_EDIT, Math.min(maxRight, drag.current.baseX + delta))
     setDragX(next)
   }
 
@@ -120,9 +126,9 @@ function SwipeableBalanceCard({ item, onEdit, onDelete, onClear }) {
         setOpenDir('left')
         return -REVEAL_EDIT
       }
-      if (x >= SWIPE_THRESHOLD) {
+      if (x >= SWIPE_THRESHOLD && maxRight > 0) {
         setOpenDir('right')
-        return REVEAL_CLEAR
+        return maxRight
       }
       setOpenDir(null)
       return 0
@@ -134,44 +140,55 @@ function SwipeableBalanceCard({ item, onEdit, onDelete, onClear }) {
     setDragX(0)
   }
 
-  const isZero = item.amount === 0
+  function handleCardClick() {
+    if (drag.current.moved) return // 刚拖动完不算点击
+    if (openDir) {
+      closeSwipe()
+      return
+    }
+    onToggleExpand(item.id) // 折叠态：展开；展开态且未滑动：收起
+  }
 
   return (
-    <div className="stamp-row">
-      <div className="stamp-actions stamp-actions-left">
-        <button
-          className="stamp-action-btn stamp-action-clear"
-          onClick={() => {
-            onClear(item)
-            closeSwipe()
-          }}
-        >
-          清零
-        </button>
-      </div>
-      <div className="stamp-actions stamp-actions-right">
-        <button
-          className="stamp-action-btn stamp-action-edit"
-          onClick={() => {
-            onEdit(item)
-            closeSwipe()
-          }}
-        >
-          修改
-        </button>
-        <button
-          className="stamp-action-btn stamp-action-delete"
-          onClick={() => {
-            onDelete(item)
-            closeSwipe()
-          }}
-        >
-          删除
-        </button>
-      </div>
+    <div className={`stamp-row ${expanded ? 'stamp-row-expanded' : 'stamp-row-collapsed'}`}>
+      {expanded && !isZero && (
+        <div className="stamp-actions stamp-actions-left">
+          <button
+            className="stamp-action-btn stamp-action-clear"
+            onClick={() => {
+              onClear(item)
+              closeSwipe()
+            }}
+          >
+            清零
+          </button>
+        </div>
+      )}
+      {expanded && (
+        <div className="stamp-actions stamp-actions-right">
+          <button
+            className="stamp-action-btn stamp-action-edit"
+            onClick={() => {
+              onEdit(item)
+              closeSwipe()
+            }}
+          >
+            修改
+          </button>
+          <button
+            className="stamp-action-btn stamp-action-delete"
+            onClick={() => {
+              onDelete(item)
+              closeSwipe()
+            }}
+          >
+            删除
+          </button>
+        </div>
+      )}
 
       <div
-        className={`stamp-card ${isZero ? 'stamp-card-zero' : ''}`}
+        className={`stamp-card ${isZero ? 'stamp-card-zero' : ''} ${expanded ? 'stamp-card-expanded' : 'stamp-card-collapsed'}`}
         style={{
           background: isZero ? 'var(--zero-card)' : colorFor('balance', item.id),
           transform: `translateX(${dragX}px)`,
@@ -181,16 +198,14 @@ function SwipeableBalanceCard({ item, onEdit, onDelete, onClear }) {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        onClick={() => {
-          if (openDir) closeSwipe()
-        }}
+        onClick={handleCardClick}
       >
         <div className="stamp-main">
           <p className="stamp-name">
             <span className="stamp-mark" />
             {item.name}
           </p>
-          <p className="stamp-meta">{formatUpdated(item.updatedAt)}</p>
+          {expanded && <p className="stamp-meta">{formatUpdated(item.updatedAt)}</p>}
         </div>
         <div className="stamp-value">
           <span className="stamp-amount">{item.amount.toLocaleString()}</span>
@@ -269,6 +284,7 @@ export default function Hello() {
   const [includeZero, setIncludeZero] = useState(false) // 默认不加载余额为 0 的记录
 
   const [fabOpen, setFabOpen] = useState(false)
+  const [expandedId, setExpandedId] = useState(null) // 当前展开的余额卡片 id，同时只展开一张
   const [modalState, setModalState] = useState({ open: false, mode: 'add', item: null })
   const [modalSubmitting, setModalSubmitting] = useState(false)
   const [modalError, setModalError] = useState('')
@@ -360,6 +376,10 @@ export default function Hello() {
     }
   }
 
+  function toggleExpand(id) {
+    setExpandedId((cur) => (cur === id ? null : id))
+  }
+
   function handleToggleZero() {
     const next = !includeZero
     setIncludeZero(next)
@@ -414,8 +434,12 @@ export default function Hello() {
   }
 
   async function handleDeleteItem(item) {
-    if (!window.confirm(`确定删除「${item.name}」这条记录吗？`)) return
+    const confirmed = window.confirm(
+      `确定删除「${item.name}」这条记录吗？\n删除后会从数据库中彻底移除，之后查询不到；如果只是想把余额归零、以后还想保留这条记录，请用"清零"。`
+    )
+    if (!confirmed) return
 
+    setExpandedId((cur) => (cur === item.id ? null : cur))
     setBalanceItems((prev) => prev.filter((it) => it.id !== item.id))
 
     const { error } = await supabase.from('balances').delete().eq('id', item.id)
@@ -428,6 +452,9 @@ export default function Hello() {
   async function handleClearItem(item) {
     const submitTime = new Date().toISOString()
 
+    if (!includeZero) {
+      setExpandedId((cur) => (cur === item.id ? null : cur))
+    }
     setBalanceItems((prev) => {
       if (!includeZero) return prev.filter((it) => it.id !== item.id)
       return prev.map((it) =>
@@ -455,9 +482,6 @@ export default function Hello() {
             <h1 className="board-title">Handle 管理端</h1>
           </div>
           <div className="board-header-actions">
-            <Link className="text-btn" to="/balance-import">
-              批量导入余额
-            </Link>
             <button className="text-btn" onClick={signOut}>
               退出登录
             </button>
@@ -541,6 +565,8 @@ export default function Hello() {
             <SwipeableBalanceCard
               key={item.id}
               item={item}
+              expanded={expandedId === item.id}
+              onToggleExpand={toggleExpand}
               onEdit={openEditModal}
               onDelete={handleDeleteItem}
               onClear={handleClearItem}
