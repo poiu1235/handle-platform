@@ -741,17 +741,16 @@ export default function Hello() {
 
       {activeTab === 'balance' && (
         <div className="board-zero-row">
-          <button
-            className={`zero-toggle ${includeZero ? 'zero-toggle-on' : ''}`}
-            onClick={handleToggleZero}
-            role="switch"
-            aria-checked={includeZero}
-          >
-            <span className="zero-toggle-track">
-              <span className="zero-toggle-thumb" />
-            </span>
-            <span className="zero-toggle-label">显示余额为0</span>
-          </button>
+          <label className="zero-toggle">
+            <input
+              type="checkbox"
+              className="tgl tgl-ios"
+              checked={includeZero}
+              onChange={handleToggleZero}
+            />
+            <span className="tgl-btn" />
+            <span className="zero-toggle-label">显示余额为0的小程序列表</span>
+          </label>
         </div>
       )}
 

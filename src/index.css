@@ -690,7 +690,7 @@ a {
   }
 }
 
-/* ---------- 余额为0开关（独立一行，开关样式，和排序按钮区分开） ---------- */
+/* ---------- 余额为0开关（独立一行，tgl-ios 风格） ---------- */
 
 .board-zero-row {
   padding: 0 1.2rem 0.7rem;
@@ -701,10 +701,8 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
-  background: none;
-  border: none;
   cursor: pointer;
-  padding: 0.15rem 0;
+  user-select: none;
   color: var(--ink-faint);
   font-size: 0.8rem;
 }
@@ -713,38 +711,87 @@ a {
   color: var(--ink-soft);
 }
 
-.zero-toggle-track {
-  position: relative;
-  width: 34px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--rule-strong);
-  flex-shrink: 0;
-  transition: background 0.15s ease;
-}
-
-.zero-toggle-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(28, 43, 58, 0.35);
-  transition: transform 0.15s ease;
-}
-
-.zero-toggle-on .zero-toggle-track {
-  background: var(--ink-faint); /* 打开也保持灰色调，不用高亮色，和排序按钮的强调色区分开 */
-}
-
-.zero-toggle-on .zero-toggle-thumb {
-  transform: translateX(14px);
-}
-
 .zero-toggle-label {
   white-space: nowrap;
+}
+
+/* 隐藏原生 checkbox，交给紧跟着的 .tgl-btn 展示轨道和滑块 */
+.tgl {
+  display: none;
+}
+
+.tgl + .tgl-btn {
+  outline: 0;
+  display: block;
+  width: 2.3em;
+  height: 1.3em;
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.tgl + .tgl-btn:after,
+.tgl + .tgl-btn:before {
+  position: relative;
+  display: block;
+  content: "";
+  width: 50%;
+  height: 100%;
+}
+
+.tgl + .tgl-btn:after {
+  left: 0;
+}
+
+.tgl + .tgl-btn:before {
+  display: none;
+}
+
+.tgl:checked + .tgl-btn:after {
+  left: 50%;
+}
+
+.tgl-ios + .tgl-btn {
+  background: var(--paper-raised);
+  border-radius: 2em;
+  padding: 2px;
+  border: 1px solid var(--rule-strong);
+  transition: background 0.3s ease, border-color 0.3s ease;
+}
+
+.tgl-ios + .tgl-btn:after {
+  border-radius: 2em;
+  background: #fff;
+  transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), padding 0.3s ease,
+    margin 0.3s ease;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+}
+
+.tgl-ios + .tgl-btn:before {
+  transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.tgl-ios:active + .tgl-btn {
+  box-shadow: inset 0 0 0 2em var(--rule);
+}
+
+.tgl-ios:active + .tgl-btn:after {
+  padding-right: 0.4em;
+}
+
+/* 打开时仍保持灰色调（不用高亮色），跟排序按钮的强调色区分开 */
+.tgl-ios:checked + .tgl-btn {
+  background: var(--ink-faint);
+  border-color: var(--ink-faint);
+}
+
+.tgl-ios:checked + .tgl-btn:active {
+  box-shadow: none;
+}
+
+.tgl-ios:checked + .tgl-btn:active:after {
+  margin-left: -0.4em;
 }
 
 /* 余额为0的卡片统一灰色展示 */
