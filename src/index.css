@@ -476,6 +476,14 @@ a {
   flex-shrink: 0;
 }
 
+.stamp-card-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  width: 100%;
+}
+
 .stamp-main {
   min-width: 0;
 }

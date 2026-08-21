@@ -153,6 +153,7 @@ function SwipeableBalanceCard({
       setOpenDir(null)
       dragXRef.current = 0
       setDragX(0)
+      drag.current.moved = false // 关键修复：折叠时把"是否发生过拖动"也复位，否则被别的卡片顶替折叠后再也点不开
     }
   }, [expanded])
 
@@ -298,16 +299,24 @@ function SwipeableBalanceCard({
         onPointerCancel={handlePointerUp}
         onClick={handleCardClick}
       >
-        <div className="stamp-main">
-          <p className="stamp-name">
-            <span className="stamp-mark" />
-            {item.name}
-          </p>
-          {expanded && <p className="stamp-meta">{formatUpdated(item.updatedAt)}</p>}
-        </div>
-        <div className="stamp-value">
-          <span className="stamp-amount">{item.amount.toLocaleString()}</span>
-          <span className="stamp-unit">{item.unit}</span>
+        <div
+          className="stamp-card-inner"
+          style={{
+            transform: `translateX(${-dragX}px)`,
+            transition: drag.current.active ? 'none' : 'transform 0.2s ease',
+          }}
+        >
+          <div className="stamp-main">
+            <p className="stamp-name">
+              <span className="stamp-mark" />
+              {item.name}
+            </p>
+            {expanded && <p className="stamp-meta">{formatUpdated(item.updatedAt)}</p>}
+          </div>
+          <div className="stamp-value">
+            <span className="stamp-amount">{item.amount.toLocaleString()}</span>
+            <span className="stamp-unit">{item.unit}</span>
+          </div>
         </div>
       </div>
     </div>
