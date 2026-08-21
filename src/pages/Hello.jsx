@@ -324,10 +324,6 @@ function SwipeableBalanceCard({
     </div>
   )
 }
-      </div>
-    </div>
-  )
-}
 
 
 // ---------- 新增 / 修改共用表单弹窗 ----------
