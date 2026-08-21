@@ -24,7 +24,7 @@ export default function AuthCallback() {
       <header className="shell-header">
         <div className="brand">
           <span className="brand-mark" />
-          台账
+          Handle 数据管理端
         </div>
         <span className="brand-sub">Handle Platform</span>
       </header>

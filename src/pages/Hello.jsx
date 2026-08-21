@@ -677,7 +677,7 @@ export default function Hello() {
         <div className="board-header-top">
           <div>
             <p className="ledger-eyebrow">Assets Overview</p>
-            <h1 className="board-title">Handle 管理端</h1>
+            <h1 className="board-title">Handle 数据管理端</h1>
           </div>
           <div className="board-header-actions">
             <button className="text-btn" onClick={signOut}>
@@ -749,7 +749,7 @@ export default function Hello() {
               onChange={handleToggleZero}
             />
             <span className="tgl-btn" />
-            <span className="zero-toggle-label">显示余额为0的小程序列表</span>
+            <span className="zero-toggle-label">展示余额为0的小程序列表</span>
           </label>
         </div>
       )}
@@ -829,7 +829,7 @@ export default function Hello() {
                     openAddModal()
                   }}
                 >
-                  增加
+                  增加一条
                 </button>
               </div>
             </>
