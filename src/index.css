@@ -772,42 +772,6 @@ a {
   transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-.tgl-btn-label {
-  position: absolute;
-  top: 0;
-  width: 50%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.55em;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  pointer-events: none;
-  z-index: 5; /* 始终盖在滑块上面，不管滑块此刻在哪半边都能看清文字 */
-  transition: opacity 0.2s ease;
-}
-
-.tgl-btn-label-off {
-  left: 0;
-  color: var(--ink-faint);
-  opacity: 1;
-}
-
-.tgl-btn-label-on {
-  left: 50%;
-  color: #fff;
-  opacity: 0;
-}
-
-.tgl:checked + .tgl-btn .tgl-btn-label-off {
-  opacity: 0;
-}
-
-.tgl:checked + .tgl-btn .tgl-btn-label-on {
-  opacity: 1;
-}
-
 .tgl-ios:active + .tgl-btn {
   box-shadow: inset 0 0 0 2em var(--rule);
 }
@@ -816,10 +780,10 @@ a {
   padding-right: 0.4em;
 }
 
-/* 打开时用高亮色（跟"余额"tab 激活色一致），一眼看出开关状态 */
+/* 打开时仍保持灰色调（不用高亮色），跟排序按钮的强调色区分开 */
 .tgl-ios:checked + .tgl-btn {
-  background: var(--teal);
-  border-color: var(--teal);
+  background: var(--ink-faint);
+  border-color: var(--ink-faint);
 }
 
 .tgl-ios:checked + .tgl-btn:active {
