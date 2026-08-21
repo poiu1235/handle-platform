@@ -67,9 +67,10 @@ function colorFor(tabKey, id) {
 
 function formatUpdated(dateStr) {
   const d = new Date(dateStr)
+  const yyyy = d.getFullYear()
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
-  return `${mm}月${dd}日更新`
+  return `${yyyy}年${mm}月${dd}日更新`
 }
 
 // 按名称排序：中文用拼音顺序，英文/数字转大写后按标准 ASCII 顺序——
@@ -342,6 +343,12 @@ function BalanceFormModal({ mode, initialItem, submitting, errorMessage, onClose
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         <h2 className="modal-title">{mode === 'add' ? '新增余额记录' : '修改余额记录'}</h2>
+
+        {mode === 'add' && (
+          <p className="modal-hint">
+            小程序名如果和已有记录重名，会直接覆盖那条记录、更新它的余额，不会新建一条重复的。
+          </p>
+        )}
 
         <div className="field">
           <label>小程序名</label>

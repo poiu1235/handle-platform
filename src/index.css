@@ -508,6 +508,9 @@ a {
   font-size: 0.72rem;
   color: rgba(28, 43, 58, 0.55);
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stamp-value {
@@ -871,6 +874,17 @@ a {
   font-size: 1.2rem;
   font-weight: 700;
   margin: 0 0 1.1rem;
+}
+
+.modal-hint {
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+  background: var(--amber-soft);
+  border-left: 3px solid var(--amber);
+  padding: 0.6rem 0.75rem;
+  margin: -0.4rem 0 1.1rem;
+  border-radius: 2px;
 }
 
 .modal-actions {
