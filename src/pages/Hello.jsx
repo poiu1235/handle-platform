@@ -74,6 +74,11 @@ function formatUpdated(dateStr) {
 
 function sortItems(items, sortKey, sortDir) {
   const sorted = [...items].sort((a, b) => {
+    // 零余额永远沉底，不参与主排序，只在各自分组内按选定规则排
+    const aZero = a.amount === 0 ? 1 : 0
+    const bZero = b.amount === 0 ? 1 : 0
+    if (aZero !== bZero) return aZero - bZero
+
     const cmp =
       sortKey === 'amount'
         ? a.amount - b.amount
@@ -91,14 +96,30 @@ const REVEAL_EDIT = 132 // 左滑露出的"修改/删除"区域宽度
 const REVEAL_CLEAR = 92 // 右滑露出的"清零"区域宽度
 const SWIPE_THRESHOLD = 40
 
-function SwipeableBalanceCard({ item, expanded, onToggleExpand, onEdit, onDelete, onClear }) {
+function SwipeableBalanceCard({
+  item,
+  expanded,
+  onToggleExpand,
+  onEdit,
+  onDelete,
+  onClear,
+  stackIndex,
+  stackTotal,
+}) {
   const [dragX, setDragX] = useState(0)
   const [openDir, setOpenDir] = useState(null) // 'left' | 'right' | null
-  const drag = useRef({ active: false, startX: 0, baseX: 0, moved: false })
+  const drag = useRef({ active: false, startX: 0, baseX: 0, moved: false, rowWidth: 300 })
   const rowRef = useRef(null)
 
   const isZero = item.amount === 0
   const maxRight = isZero ? 0 : REVEAL_CLEAR // 余额为0时不允许右滑清零
+
+  // 左滑超过卡片宽度一半 = 深滑，松手直接清零，不需要点按钮；
+  // 零余额本身已经是0，不需要这个深滑手势。
+  const rowWidth = drag.current.rowWidth || 300
+  const commitThreshold = rowWidth * 0.5
+  const overCommit = !isZero && dragX <= -commitThreshold
+  const rightPanelWidth = Math.min(Math.max(REVEAL_EDIT, -dragX), rowWidth)
 
   // 展开时把这张卡片滚动到可视区域中间，视觉上像"从卡包里抽出来"，
   // 其余堆叠的卡片自然被滚走。
@@ -115,6 +136,7 @@ function SwipeableBalanceCard({ item, expanded, onToggleExpand, onEdit, onDelete
       startX: e.clientX,
       baseX: openDir === 'left' ? -REVEAL_EDIT : openDir === 'right' ? maxRight : 0,
       moved: false,
+      rowWidth: rowRef.current?.offsetWidth ?? 300,
     }
     e.currentTarget.setPointerCapture(e.pointerId)
   }
@@ -123,25 +145,36 @@ function SwipeableBalanceCard({ item, expanded, onToggleExpand, onEdit, onDelete
     if (!drag.current.active) return
     const delta = e.clientX - drag.current.startX
     if (Math.abs(delta) > 4) drag.current.moved = true
-    const next = Math.max(-REVEAL_EDIT, Math.min(maxRight, drag.current.baseX + delta))
+    // 零余额不允许深滑（超出修改/删除面板宽度）；非零可以一路滑到接近卡片宽度触发自动清零
+    const minX = isZero ? -REVEAL_EDIT : -Math.max(REVEAL_EDIT, drag.current.rowWidth * 0.92)
+    const next = Math.max(minX, Math.min(maxRight, drag.current.baseX + delta))
     setDragX(next)
   }
 
   function handlePointerUp() {
     if (!drag.current.active) return
     drag.current.active = false
-    setDragX((x) => {
-      if (x <= -SWIPE_THRESHOLD) {
-        setOpenDir('left')
-        return -REVEAL_EDIT
-      }
-      if (x >= SWIPE_THRESHOLD && maxRight > 0) {
-        setOpenDir('right')
-        return maxRight
-      }
+    const threshold = (drag.current.rowWidth || 300) * 0.5
+
+    if (!isZero && dragX <= -threshold) {
+      // 深滑过半，松手即清零，不用再点按钮
+      onClear(item)
       setOpenDir(null)
-      return 0
-    })
+      setDragX(0)
+      return
+    }
+    if (dragX <= -SWIPE_THRESHOLD) {
+      setOpenDir('left')
+      setDragX(-REVEAL_EDIT)
+      return
+    }
+    if (dragX >= SWIPE_THRESHOLD && maxRight > 0) {
+      setOpenDir('right')
+      setDragX(maxRight)
+      return
+    }
+    setOpenDir(null)
+    setDragX(0)
   }
 
   function closeSwipe() {
@@ -158,8 +191,16 @@ function SwipeableBalanceCard({ item, expanded, onToggleExpand, onEdit, onDelete
     onToggleExpand(item.id) // 折叠态：展开；展开态且未滑动：收起
   }
 
+  // 折叠态层叠效果：越靠前的卡片盖住越靠后卡片的下边缘，露出后者顶边一小截；
+  // 展开时跳到最上层，不被相邻卡片盖住。
+  const stackZIndex = expanded ? 1000 : (stackTotal ?? 0) - (stackIndex ?? 0)
+
   return (
-    <div ref={rowRef} className={`stamp-row ${expanded ? 'stamp-row-expanded' : 'stamp-row-collapsed'}`}>
+    <div
+      ref={rowRef}
+      className={`stamp-row ${expanded ? 'stamp-row-expanded' : 'stamp-row-collapsed'}`}
+      style={{ zIndex: stackZIndex }}
+    >
       {expanded && !isZero && (
         <div className="stamp-actions stamp-actions-left">
           <button
@@ -174,25 +215,31 @@ function SwipeableBalanceCard({ item, expanded, onToggleExpand, onEdit, onDelete
         </div>
       )}
       {expanded && (
-        <div className="stamp-actions stamp-actions-right">
-          <button
-            className="stamp-action-btn stamp-action-edit"
-            onClick={() => {
-              onEdit(item)
-              closeSwipe()
-            }}
-          >
-            修改
-          </button>
-          <button
-            className="stamp-action-btn stamp-action-delete"
-            onClick={() => {
-              onDelete(item)
-              closeSwipe()
-            }}
-          >
-            删除
-          </button>
+        <div className="stamp-actions stamp-actions-right" style={{ width: rightPanelWidth }}>
+          {overCommit ? (
+            <div className="stamp-action-btn stamp-action-commit">清零</div>
+          ) : (
+            <>
+              <button
+                className="stamp-action-btn stamp-action-edit"
+                onClick={() => {
+                  onEdit(item)
+                  closeSwipe()
+                }}
+              >
+                修改
+              </button>
+              <button
+                className="stamp-action-btn stamp-action-delete"
+                onClick={() => {
+                  onDelete(item)
+                  closeSwipe()
+                }}
+              >
+                删除
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -569,7 +616,7 @@ export default function Hello() {
             </div>
           )}
 
-        {sorted.map((item) =>
+        {sorted.map((item, idx) =>
           activeTab === 'balance' ? (
             <SwipeableBalanceCard
               key={item.id}
@@ -579,6 +626,8 @@ export default function Hello() {
               onEdit={openEditModal}
               onDelete={handleDeleteItem}
               onClear={handleClearItem}
+              stackIndex={idx}
+              stackTotal={sorted.length}
             />
           ) : (
             <div
