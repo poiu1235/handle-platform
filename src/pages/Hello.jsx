@@ -748,7 +748,10 @@ export default function Hello() {
               checked={includeZero}
               onChange={handleToggleZero}
             />
-            <span className="tgl-btn" />
+            <span className="tgl-btn">
+              <span className="tgl-btn-label tgl-btn-label-off">NO</span>
+              <span className="tgl-btn-label tgl-btn-label-on">YES</span>
+            </span>
             <span className="zero-toggle-label">显示余额为0的小程序列表</span>
           </label>
         </div>
