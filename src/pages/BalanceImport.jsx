@@ -114,7 +114,7 @@ export default function BalanceImport() {
           </div>
           <div className="board-header-actions">
             <Link className="text-btn" to="/">
-              返回台账
+              返回管理端
             </Link>
             <button className="text-btn" onClick={signOut}>
               退出登录

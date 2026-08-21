@@ -466,6 +466,34 @@ function BalanceFormModal({ mode, initialItem, submitting, errorMessage, onClose
   )
 }
 
+// ---------- 自定义删除确认弹窗 ----------
+// 用和新增/修改共用的 modal-backdrop/modal-card 同一套底子，
+// 只是把操作按钮换成危险色，视觉上和系统自带的 window.confirm 区分开。
+
+function ConfirmDeleteModal({ itemName, onCancel, onConfirm }) {
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <h2 className="modal-title">删除这条记录？</h2>
+
+        <p className="modal-hint modal-hint-danger">
+          确定删除「{itemName}」这条记录吗？删除后会从数据库中彻底移除，之后查询不到；
+          如果只是想把余额归零、以后还想保留这条记录，请用"清零"。
+        </p>
+
+        <div className="modal-actions">
+          <button className="btn-ghost" onClick={onCancel}>
+            取消
+          </button>
+          <button className="btn btn-danger" onClick={onConfirm}>
+            确定删除
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Hello() {
   const { user, signOut } = useAuth()
   const [apiState, setApiState] = useState({ status: 'pending', message: '' })
@@ -483,6 +511,7 @@ export default function Hello() {
   const [modalState, setModalState] = useState({ open: false, mode: 'add', item: null })
   const [modalSubmitting, setModalSubmitting] = useState(false)
   const [modalError, setModalError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null) // 待确认删除的 item，非空时弹出自定义确认框
 
   const fetchBalances = useCallback(
     async (opts = {}) => {
@@ -631,11 +660,14 @@ export default function Hello() {
     fetchBalances()
   }
 
-  async function handleDeleteItem(item) {
-    const confirmed = window.confirm(
-      `确定删除「${item.name}」这条记录吗？\n删除后会从数据库中彻底移除，之后查询不到；如果只是想把余额归零、以后还想保留这条记录，请用"清零"。`
-    )
-    if (!confirmed) return
+  function handleDeleteItem(item) {
+    setDeleteTarget(item) // 只是打开自定义确认框，真正的删除动作放到 confirmDeleteItem 里
+  }
+
+  async function confirmDeleteItem() {
+    const item = deleteTarget
+    if (!item) return
+    setDeleteTarget(null)
 
     setExpandedId((cur) => (cur === item.id ? null : cur))
     setBalanceItems((prev) => prev.filter((it) => it.id !== item.id))
@@ -852,6 +884,14 @@ export default function Hello() {
           errorMessage={modalError}
           onClose={closeModal}
           onSubmit={handleModalSubmit}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          itemName={deleteTarget.name}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={confirmDeleteItem}
         />
       )}
     </div>

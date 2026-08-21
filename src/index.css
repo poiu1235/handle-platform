@@ -1,1071 +1,899 @@
-:root {
-  --paper: #eceee6;
-  --paper-raised: #f7f8f3;
-  --ink: #1c2b3a;
-  --ink-soft: #56636d;
-  --ink-faint: #8b968f;
-  --rule: #cdd0c4;
-  --rule-strong: #aab0a0;
-  --amber: #b5792a;
-  --amber-soft: #f0e3cd;
-  --teal: #2f6f62;
-  --teal-soft: #dbe9e3;
-  --rust: #a3402a;
-  --rust-soft: #f1ddd6;
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useAuth } from '../lib/AuthContext'
+import { supabase } from '../lib/supabaseClient'
 
-  --font-display: 'Source Serif 4', 'Noto Serif SC', serif;
-  --font-body: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+// ---------- 数据 ----------
+// 余额（balance）已接入 Supabase `balances` 表，见下方 fetchBalances。
+// 会籍 / 优惠券仍是 mock，接入真实数据时按同结构替换即可；
+// 滑动修改/删除/清零、新增按钮目前只对余额生效（因为只有余额有真实后端）。
 
-  color-scheme: light;
+const TABS = [
+  { key: 'balance', label: '余额' },
+  { key: 'membership', label: '会籍' },
+  { key: 'coupon', label: '优惠券' },
+]
+
+const DATA = {
+  membership: [
+    { id: 'm1', name: '黄金会员', amount: 120, unit: '天', updatedAt: '2026-08-01' },
+    { id: 'm2', name: '视频会员', amount: 30, unit: '天', updatedAt: '2026-08-10' },
+    { id: 'm3', name: '音乐会员', amount: 7, unit: '天', updatedAt: '2026-08-18' },
+  ],
+  coupon: [
+    { id: 'c1', name: '满100减20', amount: 20, unit: '元', updatedAt: '2026-08-12' },
+    { id: 'c2', name: '新人立减券', amount: 15, unit: '元', updatedAt: '2026-08-01' },
+    { id: 'c3', name: '生日专属券', amount: 50, unit: '元', updatedAt: '2026-07-20' },
+    { id: 'c4', name: '会员日折扣', amount: 95, unit: '折', updatedAt: '2026-08-16' },
+  ],
 }
 
-* {
-  box-sizing: border-box;
+// ---------- 卡片色卡（约 50 色，全部为浅亮色，深色墨字始终可读） ----------
+
+const PALETTES = {
+  balance: [
+    '#f4a261', '#e76f51', '#f2cc8f', '#e9c46a', '#d68c45',
+    '#efb366', '#e07a5f', '#f4d35e', '#dda15e', '#eaac8b',
+    '#c97b63', '#f6bd60', '#e8998d', '#d4a276', '#f28482',
+    '#efc88b',
+  ],
+  membership: [
+    '#a9dace', '#b7e5df', '#a2e4e2', '#bbe0e3', '#a8d7e2',
+    '#b6dbeb', '#adcbdf', '#bbd1e9', '#a6bfe8', '#bfcae8',
+    '#abb5e6', '#c3c5e6', '#b3b0e4', '#c7bfed', '#c2b5e2',
+    '#d3c4ec', '#cdb0ea',
+  ],
+  coupon: [
+    '#e6a8c7', '#eeb8cf', '#eda3bd', '#edbcc9', '#eba8b5',
+    '#f2b9c0', '#eaadaf', '#f1bfbd', '#f0b0a8', '#f0cac1',
+    '#efbead', '#efd3c5', '#d8e0ae', '#d8e8b9', '#c8e7a9',
+    '#cae7bc',
+  ],
 }
 
-html,
-body,
-#root {
-  height: 100%;
-}
-
-body {
-  margin: 0;
-  background: var(--paper);
-  background-image: linear-gradient(var(--rule) 1px, transparent 1px);
-  background-size: 100% 2.4rem;
-  color: var(--ink);
-  font-family: var(--font-body);
-  -webkit-font-smoothing: antialiased;
-}
-
-button,
-input {
-  font-family: inherit;
-}
-
-a {
-  color: var(--teal);
-}
-
-/* ---------- 布局外壳 ---------- */
-
-.shell {
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-}
-
-.shell-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 1.5rem 2rem;
-  border-bottom: 1px solid var(--rule-strong);
-}
-
-.brand {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 1.15rem;
-  letter-spacing: 0.02em;
-}
-
-.brand .brand-mark {
-  display: inline-block;
-  width: 0.6rem;
-  height: 0.6rem;
-  background: var(--amber);
-  transform: rotate(45deg);
-}
-
-.brand-sub {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--ink-faint);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.shell-main {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
-}
-
-/* ---------- 卡片 ---------- */
-
-.ledger-card {
-  width: 100%;
-  max-width: 420px;
-  background: var(--paper-raised);
-  border: 1px solid var(--rule-strong);
-  box-shadow: 0 1px 0 var(--rule-strong);
-  padding: 2.4rem 2.2rem;
-}
-
-.ledger-card-wide {
-  max-width: 640px;
-}
-
-.ledger-eyebrow {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  margin: 0 0 0.5rem;
-}
-
-.ledger-title {
-  font-family: var(--font-display);
-  font-size: 1.7rem;
-  font-weight: 600;
-  margin: 0 0 1.6rem;
-  line-height: 1.3;
-}
-
-/* ---------- 表单 ---------- */
-
-.field {
-  margin-bottom: 1.2rem;
-}
-
-.field label {
-  display: block;
-  font-size: 0.82rem;
-  color: var(--ink-soft);
-  margin-bottom: 0.4rem;
-}
-
-.field input {
-  width: 100%;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--rule-strong);
-  background: #fff;
-  font-size: 0.95rem;
-  color: var(--ink);
-  border-radius: 2px;
-}
-
-.field input:focus-visible {
-  outline: 2px solid var(--amber);
-  outline-offset: 1px;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.75rem 1rem;
-  background: var(--ink);
-  color: var(--paper-raised);
-  border: none;
-  font-size: 0.95rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  border-radius: 2px;
-  transition: background 0.15s ease;
-}
-
-.btn:hover:not(:disabled) {
-  background: #0f1922;
-}
-
-.btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.btn:focus-visible {
-  outline: 2px solid var(--amber);
-  outline-offset: 2px;
-}
-
-.btn-ghost {
-  background: transparent;
-  color: var(--ink);
-  border: 1px solid var(--rule-strong);
-}
-
-.btn-ghost:hover:not(:disabled) {
-  background: var(--paper);
-}
-
-.toggle-row {
-  margin-top: 1.4rem;
-  text-align: center;
-  font-size: 0.85rem;
-  color: var(--ink-soft);
-}
-
-.toggle-row button {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--teal);
-  font-weight: 600;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.notice {
-  font-size: 0.85rem;
-  padding: 0.7rem 0.85rem;
-  border-left: 3px solid var(--teal);
-  background: var(--teal-soft);
-  color: #234a41;
-  margin-bottom: 1.2rem;
-  line-height: 1.5;
-}
-
-.notice-error {
-  border-left-color: var(--rust);
-  background: var(--rust-soft);
-  color: #6e2717;
-}
-
-/* ---------- Hello / 数据展示 ---------- */
-
-.hello-greeting {
-  font-family: var(--font-display);
-  font-size: 1.9rem;
-  font-weight: 600;
-  margin: 0 0 0.3rem;
-}
-
-.hello-sub {
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  color: var(--ink-faint);
-  margin: 0 0 1.8rem;
-}
-
-.tally {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 0.9rem 0;
-  border-bottom: 1px solid var(--rule);
-}
-
-.tally:last-of-type {
-  border-bottom: none;
-}
-
-.tally-label {
-  font-size: 0.9rem;
-  color: var(--ink-soft);
-}
-
-.tally-value {
-  font-family: var(--font-mono);
-  font-size: 1.05rem;
-  font-weight: 500;
-}
-
-.tally-value.tag-high {
-  color: var(--amber);
-}
-
-.tally-value.tag-low {
-  color: var(--teal);
-}
-
-.tally-bar-track {
-  height: 3px;
-  background: var(--rule);
-  margin-top: 1.6rem;
-}
-
-.tally-bar-fill {
-  height: 100%;
-  background: var(--amber);
-  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.status-line {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--ink-faint);
-  margin-top: 1.8rem;
-}
-
-.status-dot {
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 50%;
-  background: var(--teal);
-}
-
-.status-dot.status-dot-error {
-  background: var(--rust);
-}
-
-.status-dot.status-dot-pending {
-  background: var(--ink-faint);
-  animation: pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 1; }
-}
-
-.link-row {
-  margin-top: 2rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.text-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  font-size: 0.85rem;
-  color: var(--ink-soft);
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tally-bar-fill {
-    transition: none;
+// 按 item.id 哈希取色（同一 id 永远拿到同一个颜色），异步数据也不会导致颜色跳动。
+function hashString(str) {
+  let h = 0
+  for (let i = 0; i < str.length; i++) {
+    h = (h * 31 + str.charCodeAt(i)) >>> 0
   }
-  .status-dot-pending {
-    animation: none;
+  return h
+}
+
+function colorFor(tabKey, id) {
+  const palette = PALETTES[tabKey]
+  return palette[hashString(String(id)) % palette.length]
+}
+
+function formatUpdated(dateStr) {
+  const d = new Date(dateStr)
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}年${mm}月${dd}日更新`
+}
+
+// 按名称排序：中文用拼音顺序，英文/数字转大写后按标准 ASCII 顺序——
+// 用浏览器自带的 Intl.Collator 拼音排序（pinyin collation），不用额外引入拼音库。
+let pinyinCollator = null
+try {
+  pinyinCollator = new Intl.Collator('zh-Hans-CN-u-co-pinyin', { sensitivity: 'base' })
+} catch (e) {
+  pinyinCollator = null // 极少数不支持 pinyin collation 的环境，下面会退回纯 ASCII 比较
+}
+
+function compareByName(a, b) {
+  const nameA = (a.name || '').trim()
+  const nameB = (b.name || '').trim()
+  if (pinyinCollator) return pinyinCollator.compare(nameA, nameB)
+  const upperA = nameA.toUpperCase()
+  const upperB = nameB.toUpperCase()
+  return upperA < upperB ? -1 : upperA > upperB ? 1 : 0
+}
+
+function sortItems(items, sortKey, sortDir) {
+  const sorted = [...items].sort((a, b) => {
+    // 零余额永远沉底，不参与主排序，只在各自分组内按选定规则排
+    const aZero = a.amount === 0 ? 1 : 0
+    const bZero = b.amount === 0 ? 1 : 0
+    if (aZero !== bZero) return aZero - bZero
+
+    let cmp
+    if (sortKey === 'amount') {
+      cmp = a.amount - b.amount
+    } else if (sortKey === 'name') {
+      cmp = compareByName(a, b)
+    } else {
+      cmp = new Date(a.updatedAt) - new Date(b.updatedAt)
+    }
+    return sortDir === 'desc' ? -cmp : cmp
+  })
+  return sorted
+}
+
+// ---------- 可左右拖动的余额卡片 ----------
+// 左滑（PC 向左拖）露出"修改/删除"；右滑（PC 向右拖）露出"清零"。
+// 用 Pointer Events 统一处理触屏和鼠标拖动。
+
+const ACTION_BTN_WIDTH = 66 // 每个操作按钮的固定宽度
+const SWIPE_THRESHOLD = 40 // 滑动超过这个距离才算"要打开"，松手会自动吸附
+const FLING_VELOCITY = 0.5 // px/ms，超过这个速度算"快速一甩"，即使没拖多远也按甩的方向处理
+const MOMENTUM_MIN_DURATION = 120 // ms
+const MOMENTUM_MAX_DURATION = 320 // ms
+
+function SwipeableBalanceCard({
+  item,
+  expanded,
+  onToggleExpand,
+  onEdit,
+  onDelete,
+  onClear,
+  stackIndex,
+  stackTotal,
+}) {
+  const [dragX, setDragX] = useState(0)
+  const [openDir, setOpenDir] = useState(null) // 'left' | 'right' | null
+  const drag = useRef({
+    active: false,
+    startX: 0,
+    baseX: 0,
+    moved: false,
+    rowWidth: 300,
+    committing: false,
+    animating: false, // 惯性动画进行中时，CSS 的 width 过渡要让位，交给 rAF 逐帧驱动
+  })
+  const dragXRef = useRef(0) // 与 dragX state 同步，pointerup 读它而不是 state，避免读到过期值
+  const velocityRef = useRef(0) // px/ms，正数=向右，负数=向左
+  const lastSampleRef = useRef({ x: 0, t: 0 })
+  const momentumFrame = useRef(null)
+  const rowRef = useRef(null)
+
+  const isZero = item.amount === 0
+  const editDeleteWidth = ACTION_BTN_WIDTH * 2 // 左滑：修改+删除，固定封顶，不能再深滑
+  const clearRevealWidth = isZero ? 0 : ACTION_BTN_WIDTH * 1.4 // 右滑：清零，浅滑时的基础展开宽度
+
+  // 右滑超过卡片宽度一半 = 深滑，松手直接清零，不需要点按钮；
+  // 零余额本身已经是0，右滑整个禁用。
+  const rowWidthGuess = drag.current.rowWidth || 300
+  const commitThreshold = rowWidthGuess * 0.5
+  const overCommit = !isZero && dragX >= commitThreshold
+
+  // 面板宽度直接从拖动距离派生：dragX>0 是右滑露出左侧"清零"面板宽度，
+  // dragX<0 是左滑露出右侧"修改/删除"面板宽度；卡片本身用 flex:1 自动占满剩下的空间，
+  // 不再用 transform 位移整张卡片——标题贴左、金额贴右，谁都不会被滑出可视区。
+  const leftPanelWidth = Math.max(dragX, 0)
+  const rightPanelWidth = Math.max(-dragX, 0)
+
+  // 用速度驱动的缓动动画把卡片从当前位置带到目标位置，
+  // 时长由速度换算：滑得越快，动画时长越短（更快收尾），
+  // easeOutCubic 让它"先快后慢"，模拟惯性衰减到停止，而不是固定时长的匀速/缓动。
+  function animateMomentum(fromX, toX, velocity) {
+    if (momentumFrame.current) cancelAnimationFrame(momentumFrame.current)
+    const distance = toX - fromX
+    if (distance === 0) {
+      drag.current.animating = false
+      return
+    }
+    const speed = Math.max(Math.abs(velocity), 0.05) // px/ms，避免除0
+    const duration = Math.min(
+      MOMENTUM_MAX_DURATION,
+      Math.max(MOMENTUM_MIN_DURATION, Math.abs(distance) / speed)
+    )
+    const startTime = performance.now()
+    drag.current.animating = true
+
+    function tick(now) {
+      const elapsed = now - startTime
+      const t = Math.min(1, elapsed / duration)
+      const eased = 1 - Math.pow(1 - t, 3) // easeOutCubic
+      const x = fromX + distance * eased
+      dragXRef.current = x
+      setDragX(x)
+      if (t < 1) {
+        momentumFrame.current = requestAnimationFrame(tick)
+      } else {
+        drag.current.animating = false
+        momentumFrame.current = null
+      }
+    }
+    momentumFrame.current = requestAnimationFrame(tick)
   }
-}
 
-@media (max-width: 480px) {
-  .shell-header {
-    padding: 1.1rem 1.2rem;
+  useEffect(() => {
+    return () => {
+      if (momentumFrame.current) cancelAnimationFrame(momentumFrame.current)
+    }
+  }, [])
+
+  // 展开时把这张卡片滚动到可视区域中间，视觉上像"从卡包里抽出来"，
+  // 其余堆叠的卡片自然被滚走；收起时顺带把滑动状态复位。
+  useEffect(() => {
+    if (expanded) {
+      rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } else {
+      if (momentumFrame.current) {
+        cancelAnimationFrame(momentumFrame.current)
+        momentumFrame.current = null
+      }
+      drag.current.animating = false
+      setOpenDir(null)
+      dragXRef.current = 0
+      setDragX(0)
+      drag.current.moved = false // 关键修复：折叠时把"是否发生过拖动"也复位，否则被别的卡片顶替折叠后再也点不开
+    }
+  }, [expanded])
+
+  function handlePointerDown(e) {
+    if (!expanded || drag.current.committing) return // 折叠/退场中不响应拖动
+    if (momentumFrame.current) {
+      cancelAnimationFrame(momentumFrame.current)
+      momentumFrame.current = null
+    }
+    drag.current = {
+      active: true,
+      startX: e.clientX,
+      baseX: openDir === 'left' ? -editDeleteWidth : openDir === 'right' ? clearRevealWidth : 0,
+      moved: false,
+      rowWidth: rowRef.current?.offsetWidth ?? 300,
+      committing: false,
+      animating: false,
+    }
+    velocityRef.current = 0
+    lastSampleRef.current = { x: e.clientX, t: performance.now() }
+    e.currentTarget.setPointerCapture(e.pointerId)
   }
-  .ledger-card {
-    padding: 1.8rem 1.4rem;
+
+  function handlePointerMove(e) {
+    if (!drag.current.active) return
+    const delta = e.clientX - drag.current.startX
+    if (Math.abs(delta) > 4) drag.current.moved = true
+    // 左滑（修改/删除）固定封顶，不能再深滑；右滑（清零）可以一路滑到接近卡片宽度触发深滑自动清零
+    const minX = -editDeleteWidth
+    const maxX = isZero ? 0 : Math.max(clearRevealWidth, drag.current.rowWidth * 0.92)
+    const next = Math.max(minX, Math.min(maxX, drag.current.baseX + delta))
+    dragXRef.current = next
+    setDragX(next)
+
+    const now = performance.now()
+    const dt = now - lastSampleRef.current.t
+    if (dt > 0) {
+      velocityRef.current = (e.clientX - lastSampleRef.current.x) / dt
+    }
+    lastSampleRef.current = { x: e.clientX, t: now }
   }
-}
 
-/* ---------- Assets Board（余额 / 会籍 / 优惠券 台账） ---------- */
-/* 卡片色卡（约50色，按标签分三组随机分配）定义在 AssetsBoard.jsx 的 PALETTES 里，
-   直接以内联 style 写入 background，此处不再需要颜色变量。 */
+  function handlePointerUp() {
+    if (!drag.current.active) return
+    drag.current.active = false
+    const threshold = (drag.current.rowWidth || 300) * 0.5
+    const finalX = dragXRef.current // 用 ref 而不是 state，保证拿到的是最后一帧的真实位置
+    const v = velocityRef.current
 
-.board-shell {
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  background: var(--paper);
-  overflow: hidden;
-}
+    // 深滑过半，或者朝右快速一甩（哪怕没拖出多远）都直接提交清零
+    const flungRight = v > FLING_VELOCITY && finalX > 0
+    if (!isZero && (finalX >= threshold || flungRight)) {
+      // 像聊天软件划掉会话一样，卡片整体飞出屏幕消失，
+      // 动画结束后再真正提交清零（数据库那边是清零，不是删除）
+      drag.current.committing = true
+      setOpenDir(null)
+      const flyOutX = drag.current.rowWidth + 80
+      animateMomentum(finalX, flyOutX, Math.max(Math.abs(v), FLING_VELOCITY))
+      window.setTimeout(() => {
+        onClear(item)
+        drag.current.committing = false
+        dragXRef.current = 0
+        setDragX(0)
+      }, 220)
+      return
+    }
 
-.board-header {
-  padding: 1.4rem 1.2rem 0.6rem;
-  flex-shrink: 0;
-}
+    const flungLeftOpen = v < -FLING_VELOCITY && finalX < 0
+    if (finalX <= -SWIPE_THRESHOLD || flungLeftOpen) {
+      setOpenDir('left')
+      animateMomentum(finalX, -editDeleteWidth, v)
+      return
+    }
 
-.board-title {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 1.55rem;
-  margin: 0.15rem 0 0;
-  line-height: 1.25;
-}
+    const flungRightOpen = !isZero && v > FLING_VELOCITY && finalX >= 0
+    if ((finalX >= SWIPE_THRESHOLD && !isZero) || flungRightOpen) {
+      setOpenDir('right')
+      animateMomentum(finalX, clearRevealWidth, v)
+      return
+    }
 
-.board-tabs {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.6rem 1.2rem;
-  overflow-x: auto;
-  flex-shrink: 0;
-  scrollbar-width: none;
-}
-
-.board-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.board-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.5rem 1rem;
-  border-radius: 999px;
-  border: 1px solid var(--rule-strong);
-  background: var(--paper-raised);
-  color: var(--ink-soft);
-  font-size: 0.86rem;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-
-.board-tab-active {
-  background: var(--teal);
-  border-color: var(--teal);
-  color: #fff;
-}
-
-.board-tab-count {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  opacity: 0.75;
-}
-
-.board-sort-row {
-  display: flex;
-  gap: 0.6rem;
-  padding: 0.2rem 1.2rem 0.8rem;
-  flex-shrink: 0;
-}
-
-.board-sort-btn {
-  padding: 0.4rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid var(--rule);
-  background: transparent;
-  color: var(--ink-soft);
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-
-.board-sort-btn-active {
-  border-color: var(--ink);
-  color: var(--ink);
-  background: var(--amber-soft);
-}
-
-.board-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
-  padding: 0.2rem 0.9rem 1.6rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-}
-
-.stamp-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-  padding: 1.05rem 1.2rem;
-  border-radius: 16px;
-  border: 1px solid rgba(28, 43, 58, 0.16);
-  box-shadow: 0 1px 0 rgba(28, 43, 58, 0.08);
-  flex-shrink: 0;
-}
-
-.stamp-main {
-  min-width: 0;
-}
-
-.stamp-name {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 1.05rem;
-  color: var(--ink);
-  margin: 0 0 0.3rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.stamp-mark {
-  width: 0.5rem;
-  height: 0.5rem;
-  background: var(--ink);
-  opacity: 0.35;
-  transform: rotate(45deg);
-  flex-shrink: 0;
-}
-
-.stamp-meta {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: rgba(28, 43, 58, 0.55);
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.stamp-value {
-  display: flex;
-  align-items: baseline;
-  gap: 0.25rem;
-  flex-shrink: 0;
-}
-
-.stamp-amount {
-  font-family: var(--font-mono);
-  font-size: 1.55rem;
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.stamp-unit {
-  font-size: 0.78rem;
-  color: rgba(28, 43, 58, 0.6);
-}
-
-@media (max-width: 480px) {
-  .board-header {
-    padding: 1.1rem 1rem 0.5rem;
+    setOpenDir(null)
+    animateMomentum(finalX, 0, v)
   }
-  .board-tabs,
-  .board-sort-row,
-  .board-zero-row {
-    padding-left: 1rem;
-    padding-right: 1rem;
+
+  function closeSwipe() {
+    setOpenDir(null)
+    dragXRef.current = 0
+    setDragX(0)
   }
-  .board-list {
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
+
+  function handleCardClick() {
+    if (drag.current.moved) return // 刚拖动完不算点击
+    if (openDir) {
+      closeSwipe()
+      return
+    }
+    onToggleExpand(item.id) // 折叠态：展开；展开态且未滑动：收起
   }
-  .stamp-card {
-    padding: 0.9rem 1rem;
-    border-radius: 14px;
+
+  // 折叠态层叠效果：越靠前的卡片盖住越靠后卡片的下边缘，露出后者顶边一小截；
+  // 展开时跳到最上层，不被相邻卡片盖住。
+  const stackZIndex = expanded ? 1000 : (stackTotal ?? 0) - (stackIndex ?? 0)
+
+  return (
+    <div
+      ref={rowRef}
+      className={`stamp-row ${expanded ? 'stamp-row-expanded' : 'stamp-row-collapsed'}`}
+      style={{ zIndex: stackZIndex }}
+    >
+      {expanded && !isZero && (
+        <div
+          className="stamp-actions stamp-actions-left"
+          style={{ width: leftPanelWidth, transition: drag.current.active || drag.current.animating ? 'none' : 'width 0.2s ease' }}
+        >
+          {overCommit ? (
+            <div className="stamp-action-btn stamp-action-commit">清零</div>
+          ) : (
+            <button
+              className="stamp-action-btn stamp-action-clear"
+              onClick={() => {
+                onClear(item)
+                closeSwipe()
+              }}
+            >
+              清零
+            </button>
+          )}
+        </div>
+      )}
+
+      <div
+        className={`stamp-card ${isZero ? 'stamp-card-zero' : ''} ${expanded ? 'stamp-card-expanded' : 'stamp-card-collapsed'}`}
+        style={{
+          background: isZero ? 'var(--zero-card)' : colorFor('balance', item.id),
+        }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onClick={handleCardClick}
+      >
+        <div className="stamp-main">
+          <p className="stamp-name">
+            <span className="stamp-mark" />
+            {item.name}
+          </p>
+          {expanded && <p className="stamp-meta">{formatUpdated(item.updatedAt)}</p>}
+        </div>
+        <div className="stamp-value">
+          <span className="stamp-amount">{item.amount.toLocaleString()}</span>
+          <span className="stamp-unit">{item.unit}</span>
+        </div>
+      </div>
+
+      {expanded && (
+        <div
+          className="stamp-actions stamp-actions-right"
+          style={{ width: rightPanelWidth, transition: drag.current.active || drag.current.animating ? 'none' : 'width 0.2s ease' }}
+        >
+          <button
+            className="stamp-action-btn stamp-action-edit"
+            onClick={() => {
+              onEdit(item)
+              closeSwipe()
+            }}
+          >
+            修改
+          </button>
+          <button
+            className="stamp-action-btn stamp-action-delete"
+            onClick={() => {
+              onDelete(item)
+              closeSwipe()
+            }}
+          >
+            删除
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ---------- 新增 / 修改共用表单弹窗 ----------
+// mode='add'：输入框为空，展示占位提示值；mode='edit'：输入框预填列表里的真实值。
+
+function BalanceFormModal({ mode, initialItem, submitting, errorMessage, onClose, onSubmit }) {
+  const [name, setName] = useState(mode === 'edit' ? initialItem?.name ?? '' : '')
+  const [amountText, setAmountText] = useState(
+    mode === 'edit' ? String(initialItem?.amount ?? '') : ''
+  )
+
+  const amountNumber = Number(amountText)
+  const canSubmit = name.trim().length > 0 && amountText.trim().length > 0 && !Number.isNaN(amountNumber)
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <h2 className="modal-title">{mode === 'add' ? '新增余额记录' : '修改余额记录'}</h2>
+
+        {mode === 'add' && (
+          <p className="modal-hint">
+            小程序名如果和已有记录重名，会直接覆盖那条记录、更新它的余额，不会新建一条重复的。
+          </p>
+        )}
+
+        <div className="field">
+          <label>小程序名</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="如：肯德基"
+            autoFocus
+          />
+        </div>
+        <div className="field">
+          <label>余额</label>
+          <input
+            value={amountText}
+            onChange={(e) => setAmountText(e.target.value)}
+            placeholder="如：50"
+            inputMode="decimal"
+          />
+        </div>
+
+        {errorMessage && <div className="notice notice-error">{errorMessage}</div>}
+
+        <div className="modal-actions">
+          <button className="btn-ghost" onClick={onClose} disabled={submitting}>
+            取消
+          </button>
+          <button
+            className="btn"
+            disabled={!canSubmit || submitting}
+            onClick={() => onSubmit({ name: name.trim(), amount: amountNumber })}
+          >
+            {submitting ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------- 自定义删除确认弹窗 ----------
+// 用和新增/修改共用的 modal-backdrop/modal-card 同一套底子，
+// 只是把操作按钮换成危险色，视觉上和系统自带的 window.confirm 区分开。
+
+function ConfirmDeleteModal({ itemName, onCancel, onConfirm }) {
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <h2 className="modal-title">删除这条记录？</h2>
+
+        <p className="modal-hint modal-hint-danger">
+          确定删除「{itemName}」这条记录吗？删除后会从数据库中彻底移除，之后查询不到；
+          如果只是想把余额归零、以后还想保留这条记录，请用"清零"。
+        </p>
+
+        <div className="modal-actions">
+          <button className="btn-ghost" onClick={onCancel}>
+            取消
+          </button>
+          <button className="btn btn-danger" onClick={onConfirm}>
+            确定删除
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function Hello() {
+  const { user, signOut } = useAuth()
+  const [apiState, setApiState] = useState({ status: 'pending', message: '' })
+
+  const [activeTab, setActiveTab] = useState('balance')
+  const [sortKey, setSortKey] = useState('time') // 'time' | 'amount'
+  const [sortDir, setSortDir] = useState('desc') // 'desc' | 'asc'
+
+  const [balanceItems, setBalanceItems] = useState([])
+  const [balanceState, setBalanceState] = useState({ status: 'pending', message: '' })
+  const [includeZero, setIncludeZero] = useState(false) // 默认不加载余额为 0 的记录
+
+  const [fabOpen, setFabOpen] = useState(false)
+  const [expandedId, setExpandedId] = useState(null) // 当前展开的余额卡片 id，同时只展开一张
+  const [modalState, setModalState] = useState({ open: false, mode: 'add', item: null })
+  const [modalSubmitting, setModalSubmitting] = useState(false)
+  const [modalError, setModalError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null) // 待确认删除的 item，非空时弹出自定义确认框
+
+  const fetchBalances = useCallback(
+    async (opts = {}) => {
+      if (!user) return
+      const withZero = opts.includeZero ?? includeZero
+
+      setBalanceState({ status: 'pending', message: '' })
+
+      let query = supabase
+        .from('balances')
+        .select('id, app_name, amount, updated_at')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+
+      if (!withZero) {
+        query = query.neq('amount', 0)
+      }
+
+      const { data, error } = await query
+
+      if (error) {
+        setBalanceState({ status: 'error', message: error.message })
+        return
+      }
+
+      setBalanceItems(
+        data.map((row) => ({
+          id: row.id,
+          name: row.app_name,
+          amount: Number(row.amount),
+          unit: '元',
+          updatedAt: row.updated_at,
+        }))
+      )
+      setBalanceState({ status: 'ok', message: '' })
+    },
+    [user, includeZero]
+  )
+
+  useEffect(() => {
+    fetchBalances()
+    // 只依赖 user.id（稳定字符串），不依赖整个 user 对象引用——
+    // Supabase 后台静默刷新 token 时，AuthContext 给出的 user 可能是新对象但 id 不变，
+    // 依赖整个对象会导致这里被误触发，看起来像"隔一段时间就莫名其妙重新加载"。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function callHelloApi() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session) return
+
+      try {
+        const res = await fetch('/api/hello', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+        const body = await res.json()
+        if (cancelled) return
+        if (!res.ok) throw new Error(body.error || `请求失败（${res.status}）`)
+        setApiState({ status: 'ok', message: body.message })
+      } catch (err) {
+        if (!cancelled) setApiState({ status: 'error', message: err.message })
+      }
+    }
+
+    callHelloApi()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const items = activeTab === 'balance' ? balanceItems : DATA[activeTab]
+  const sorted = useMemo(
+    () => sortItems(items, sortKey, sortDir),
+    [items, sortKey, sortDir]
+  )
+
+  function toggleSort(key) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setSortKey(key)
+      setSortDir('desc')
+    }
   }
-  .stamp-amount {
-    font-size: 1.35rem;
+
+  function toggleExpand(id) {
+    setExpandedId((cur) => (cur === id ? null : id))
   }
-}
 
-/* ---------- Balance Import（余额批量导入） ---------- */
-
-.import-shell {
-  min-height: 100dvh;
-  background: var(--paper);
-  padding: 1.6rem 1.2rem 3rem;
-}
-
-.import-header {
-  max-width: 640px;
-  margin: 0 auto 1.4rem;
-}
-
-.import-hint {
-  font-size: 0.86rem;
-  color: var(--ink-soft);
-  line-height: 1.6;
-  margin: 0.6rem 0 0;
-}
-
-.import-body {
-  max-width: 640px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.import-textarea {
-  width: 100%;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--rule-strong);
-  background: var(--paper-raised);
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: 0.86rem;
-  line-height: 1.6;
-  border-radius: 4px;
-  resize: vertical;
-}
-
-.import-textarea:focus-visible {
-  outline: 2px solid var(--amber);
-  outline-offset: 1px;
-}
-
-.import-preview {
-  border: 1px solid var(--rule-strong);
-  background: var(--paper-raised);
-  padding: 1rem 1.1rem;
-  border-radius: 4px;
-}
-
-.import-preview-title {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--ink);
-  margin: 0 0 0.7rem;
-}
-
-.import-preview-note {
-  margin-left: 0.5rem;
-  font-weight: 400;
-  font-size: 0.78rem;
-  color: var(--amber);
-}
-
-.import-errors {
-  margin-bottom: 0.8rem;
-}
-
-.import-error-line {
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
-  color: #6e2717;
-  background: var(--rust-soft);
-  border-left: 3px solid var(--rust);
-  padding: 0.35rem 0.6rem;
-  margin: 0 0 0.4rem;
-  line-height: 1.5;
-}
-
-.import-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.86rem;
-}
-
-.import-table th,
-.import-table td {
-  text-align: left;
-  padding: 0.5rem 0.6rem;
-  border-bottom: 1px solid var(--rule);
-}
-
-.import-table th {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  font-weight: 600;
-}
-
-.import-table td {
-  color: var(--ink);
-  font-family: var(--font-mono);
-}
-
-.import-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-@media (max-width: 480px) {
-  .import-shell {
-    padding: 1.2rem 0.9rem 2.4rem;
+  function handleToggleZero() {
+    const next = !includeZero
+    setIncludeZero(next)
+    fetchBalances({ includeZero: next })
   }
-}
-.board-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
 
-/* ---------- 桌面端限宽（不再撑满整屏，左右留白） ---------- */
-
-@media (min-width: 720px) {
-  .board-shell {
-    max-width: 640px;
-    margin: 0 auto;
-    border-left: 1px solid var(--rule-strong);
-    border-right: 1px solid var(--rule-strong);
+  function openAddModal() {
+    setModalError('')
+    setModalState({ open: true, mode: 'add', item: null })
   }
-}
 
-/* ---------- 余额为0开关（独立一行，tgl-ios 风格） ---------- */
-
-.board-zero-row {
-  padding: 0 1.2rem 0.7rem;
-  flex-shrink: 0;
-}
-
-.zero-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  cursor: pointer;
-  user-select: none;
-  color: var(--ink-faint);
-  font-size: 0.8rem;
-}
-
-.zero-toggle:hover {
-  color: var(--ink-soft);
-}
-
-.zero-toggle-label {
-  white-space: nowrap;
-}
-
-/* 隐藏原生 checkbox，交给紧跟着的 .tgl-btn 展示轨道和滑块 */
-.tgl {
-  display: none;
-}
-
-.tgl + .tgl-btn {
-  outline: 0;
-  display: block;
-  width: 2.3em;
-  height: 1.3em;
-  position: relative;
-  cursor: pointer;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-.tgl + .tgl-btn:after,
-.tgl + .tgl-btn:before {
-  position: relative;
-  display: block;
-  content: "";
-  width: 50%;
-  height: 100%;
-}
-
-.tgl + .tgl-btn:after {
-  left: 0;
-}
-
-.tgl + .tgl-btn:before {
-  display: none;
-}
-
-.tgl:checked + .tgl-btn:after {
-  left: 50%;
-}
-
-.tgl-ios + .tgl-btn {
-  background: var(--paper-raised);
-  border-radius: 2em;
-  padding: 2px;
-  border: 1px solid var(--rule-strong);
-  transition: background 0.3s ease, border-color 0.3s ease;
-}
-
-.tgl-ios + .tgl-btn:after {
-  border-radius: 2em;
-  background: #fff;
-  transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), padding 0.3s ease,
-    margin 0.3s ease;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
-}
-
-.tgl-ios + .tgl-btn:before {
-  transition: left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-.tgl-ios:active + .tgl-btn {
-  box-shadow: inset 0 0 0 2em var(--rule);
-}
-
-.tgl-ios:active + .tgl-btn:after {
-  padding-right: 0.4em;
-}
-
-/* 打开时仍保持灰色调（不用高亮色），跟排序按钮的强调色区分开 */
-.tgl-ios:checked + .tgl-btn {
-  background: var(--ink-faint);
-  border-color: var(--ink-faint);
-}
-
-.tgl-ios:checked + .tgl-btn:active {
-  box-shadow: none;
-}
-
-.tgl-ios:checked + .tgl-btn:active:after {
-  margin-left: -0.4em;
-}
-
-/* 余额为0的卡片统一灰色展示 */
-:root {
-  --zero-card: #dfe1d7;
-}
-
-.stamp-card-zero .stamp-amount,
-.stamp-card-zero .stamp-name {
-  color: var(--ink-soft);
-}
-
-/* ---------- 余额卡片左右滑动（修改/删除 · 清零） ---------- */
-
-.board-shell {
-  position: relative;
-}
-
-.stamp-row {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  border-radius: 16px;
-  overflow: hidden;
-  flex-shrink: 0; /* 关键修复：不让行被压缩，超出高度交给 .board-list 滚动 */
-}
-
-.stamp-row .stamp-card {
-  flex: 1 1 auto;
-  min-width: 0; /* 允许被 flex 挤压变窄，而不是保持内容原始宽度 */
-  touch-action: pan-y;
-  cursor: grab;
-}
-
-.stamp-actions {
-  flex: 0 0 auto;
-  overflow: hidden; /* 宽度还没长到按钮自然宽度之前，裁掉多出来的部分 */
-  display: flex;
-}
-
-.stamp-action-btn {
-  flex: 1;
-  border: none;
-  cursor: pointer;
-  color: #fff;
-  font-size: 0.82rem;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.stamp-action-edit {
-  background: var(--teal);
-  border-top-left-radius: 16px;
-  border-bottom-left-radius: 16px;
-}
-
-.stamp-action-delete {
-  background: var(--rust);
-}
-
-.stamp-action-clear {
-  background: var(--amber);
-  border-top-right-radius: 16px;
-  border-bottom-right-radius: 16px;
-}
-
-/* 右滑超过一半（深滑）时，左侧面板整体变成这个填充态，松手直接清零 */
-.stamp-action-commit {
-  background: var(--amber);
-  border-top-right-radius: 16px;
-  border-bottom-right-radius: 16px;
-  width: 100%;
-  font-size: 0.95rem;
-  letter-spacing: 0.05em;
-}
-
-/* ---------- "+" 浮动新增按钮 ---------- */
-
-.fab-wrap {
-  position: absolute;
-  left: 50%;
-  bottom: 22px;
-  transform: translateX(-50%);
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.fab-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 15;
-}
-
-.fab-menu {
-  position: relative;
-  z-index: 20;
-  display: flex;
-  flex-direction: row;
-  gap: 0.6rem;
-  align-items: center;
-}
-
-.fab-menu-item {
-  padding: 0.55rem 1.15rem;
-  border-radius: 999px;
-  border: 1px solid var(--rule-strong);
-  background: var(--paper-raised);
-  color: var(--ink);
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(28, 43, 58, 0.16);
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.fab-btn {
-  position: relative;
-  z-index: 20;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--ink);
-  color: #fff;
-  font-size: 1.7rem;
-  line-height: 1;
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 3px 12px rgba(28, 43, 58, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.15s ease;
-}
-
-.fab-btn-open {
-  transform: rotate(45deg);
-}
-
-/* “+” 按钮是绝对定位的悬浮层，不占用文档流空间，这里不再给列表留出额外底部空间 */
-
-/* ---------- 新增/修改共用表单弹窗 ---------- */
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(28, 43, 58, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.2rem;
-  z-index: 3000;
-}
-
-.modal-card {
-  width: 100%;
-  max-width: 380px;
-  background: var(--paper-raised);
-  border: 1px solid var(--rule-strong);
-  border-radius: 10px;
-  padding: 1.6rem 1.4rem;
-  box-shadow: 0 10px 34px rgba(28, 43, 58, 0.3);
-}
-
-.modal-title {
-  font-family: var(--font-display);
-  font-size: 1.2rem;
-  font-weight: 700;
-  margin: 0 0 1.1rem;
-}
-
-.modal-hint {
-  font-size: 0.82rem;
-  color: var(--ink-soft);
-  line-height: 1.5;
-  background: var(--amber-soft);
-  border-left: 3px solid var(--amber);
-  padding: 0.6rem 0.75rem;
-  margin: -0.4rem 0 1.1rem;
-  border-radius: 2px;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.6rem;
-  margin-top: 0.4rem;
-}
-
-.modal-actions .btn,
-.modal-actions .btn-ghost {
-  width: auto;
-  padding: 0.6rem 1.15rem;
-}
-
-/* ---------- 余额卡片折叠 / 展开 ---------- */
-/* 默认折叠：只有名称+金额；相邻折叠卡片之间用负 margin 相互叠压，
-   靠 z-index（越靠前越高）盖住后一张的下边缘，露出它的一点顶边，
-   做出真正"一沓卡包"层叠的观感。点开会跳到最上层、跳出堆叠展开出
-   更新时间、以及左右滑动修改/删除/清零。 */
-
-.board-list {
-  gap: 0;
-  padding-top: 0.6rem;
-}
-
-.stamp-row-expanded {
-  margin: 0.8rem 0 !important;
-}
-
-.stamp-row-collapsed {
-  margin-top: 8px;
-}
-
-/* 只在两张都还折叠时才叠压；紧邻展开卡片的不叠，让展开卡片保持正常间距 */
-.stamp-row-collapsed + .stamp-row-collapsed {
-  margin-top: -18px;
-}
-
-.stamp-card-collapsed {
-  padding: 1.15rem 1.2rem;
-  box-shadow: 0 3px 6px rgba(28, 43, 58, 0.16);
-}
-
-.stamp-card-collapsed .stamp-name {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.stamp-card-collapsed .stamp-amount {
-  font-size: 1.25rem;
-}
-
-.stamp-card-expanded {
-  padding: 1.15rem 1.3rem;
-  box-shadow: 0 6px 18px rgba(28, 43, 58, 0.24);
-}
-
-.stamp-card {
-  transition: padding 0.15s ease, transform 0.2s ease, box-shadow 0.15s ease;
-}
-
-@media (max-width: 480px) {
-  .stamp-card-collapsed {
-    padding: 1rem 1rem;
+  function openEditModal(item) {
+    setModalError('')
+    setModalState({ open: true, mode: 'edit', item })
   }
-  .stamp-row-collapsed + .stamp-row-collapsed {
-    margin-top: -18px;
+
+  function closeModal() {
+    setModalState({ open: false, mode: 'add', item: null })
+    setModalError('')
   }
-}
 
-/* ---------- 余额导入页 header：标题与"返回/退出登录"并排 ---------- */
+  async function handleModalSubmit({ name, amount }) {
+    if (!user) return
+    setModalSubmitting(true)
+    setModalError('')
+    const submitTime = new Date().toISOString()
 
-.import-header-top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
+    const query =
+      modalState.mode === 'add'
+        ? supabase
+            .from('balances')
+            .upsert(
+              [{ user_id: user.id, app_name: name, amount, updated_at: submitTime }],
+              { onConflict: 'user_id,app_name' }
+            )
+        : supabase
+            .from('balances')
+            .update({ app_name: name, amount, updated_at: submitTime })
+            .eq('id', modalState.item.id)
 
-/* 之前遗漏的定义：header 顶部一行让标题和右侧操作区分居两端 */
-.board-header-top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
+    const { error } = await query
+
+    setModalSubmitting(false)
+
+    if (error) {
+      setModalError(error.message)
+      return
+    }
+
+    closeModal()
+    fetchBalances()
+  }
+
+  function handleDeleteItem(item) {
+    setDeleteTarget(item) // 只是打开自定义确认框，真正的删除动作放到 confirmDeleteItem 里
+  }
+
+  async function confirmDeleteItem() {
+    const item = deleteTarget
+    if (!item) return
+    setDeleteTarget(null)
+
+    setExpandedId((cur) => (cur === item.id ? null : cur))
+    setBalanceItems((prev) => prev.filter((it) => it.id !== item.id))
+
+    const { error } = await supabase.from('balances').delete().eq('id', item.id)
+    if (error) {
+      setBalanceState({ status: 'error', message: error.message })
+      fetchBalances()
+    }
+  }
+
+  async function handleClearItem(item) {
+    const submitTime = new Date().toISOString()
+
+    if (!includeZero) {
+      setExpandedId((cur) => (cur === item.id ? null : cur))
+    }
+    setBalanceItems((prev) => {
+      if (!includeZero) return prev.filter((it) => it.id !== item.id)
+      return prev.map((it) =>
+        it.id === item.id ? { ...it, amount: 0, updatedAt: submitTime } : it
+      )
+    })
+
+    const { error } = await supabase
+      .from('balances')
+      .update({ amount: 0, updated_at: submitTime })
+      .eq('id', item.id)
+
+    if (error) {
+      setBalanceState({ status: 'error', message: error.message })
+      fetchBalances()
+    }
+  }
+
+  return (
+    <div className="board-shell">
+      <header className="board-header">
+        <div className="board-header-top">
+          <div>
+            <p className="ledger-eyebrow">Assets Overview</p>
+            <h1 className="board-title">Handle 数据管理端</h1>
+          </div>
+          <div className="board-header-actions">
+            <button className="text-btn" onClick={signOut}>
+              退出登录
+            </button>
+          </div>
+        </div>
+
+        <div className="board-status">
+          <span
+            className={
+              'status-dot ' +
+              (apiState.status === 'ok'
+                ? ''
+                : apiState.status === 'error'
+                  ? 'status-dot-error'
+                  : 'status-dot-pending')
+            }
+          />
+          {apiState.status === 'pending' && `正在验证登录态…`}
+          {apiState.status === 'ok' && (user?.email || apiState.message)}
+          {apiState.status === 'error' && `接口调用失败：${apiState.message}`}
+        </div>
+      </header>
+
+      <div className="board-tabs">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            className={`board-tab ${activeTab === tab.key ? 'board-tab-active' : ''}`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+            <span className="board-tab-count">
+              {tab.key === 'balance' ? balanceItems.length : DATA[tab.key].length}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="board-sort-row">
+        <button
+          className={`board-sort-btn ${sortKey === 'time' ? 'board-sort-btn-active' : ''}`}
+          onClick={() => toggleSort('time')}
+        >
+          按更新时间 {sortKey === 'time' && (sortDir === 'desc' ? '↓' : '↑')}
+        </button>
+        <button
+          className={`board-sort-btn ${sortKey === 'amount' ? 'board-sort-btn-active' : ''}`}
+          onClick={() => toggleSort('amount')}
+        >
+          按金额 {sortKey === 'amount' && (sortDir === 'desc' ? '↓' : '↑')}
+        </button>
+        <button
+          className={`board-sort-btn ${sortKey === 'name' ? 'board-sort-btn-active' : ''}`}
+          onClick={() => toggleSort('name')}
+        >
+          按名称 {sortKey === 'name' && (sortDir === 'desc' ? '↓' : '↑')}
+        </button>
+      </div>
+
+      {activeTab === 'balance' && (
+        <div className="board-zero-row">
+          <label className="zero-toggle">
+            <input
+              type="checkbox"
+              className="tgl tgl-ios"
+              checked={includeZero}
+              onChange={handleToggleZero}
+            />
+            <span className="tgl-btn" />
+            <span className="zero-toggle-label">展示余额为0的小程序列表</span>
+          </label>
+        </div>
+      )}
+
+      <div className="board-list">
+        {activeTab === 'balance' && balanceState.status === 'pending' && (
+          <div className="status-line">
+            <span className="status-dot status-dot-pending" />
+            正在加载余额…
+          </div>
+        )}
+        {activeTab === 'balance' && balanceState.status === 'error' && (
+          <div className="notice notice-error">加载余额失败：{balanceState.message}</div>
+        )}
+        {activeTab === 'balance' &&
+          balanceState.status === 'ok' &&
+          balanceItems.length === 0 && (
+            <div className="notice">
+              还没有余额数据，去
+              <Link to="/balance-import">批量导入余额</Link>
+              页面提交一批，或者用下方的"+"新增一条。
+            </div>
+          )}
+
+        {sorted.map((item, idx) =>
+          activeTab === 'balance' ? (
+            <SwipeableBalanceCard
+              key={item.id}
+              item={item}
+              expanded={expandedId === item.id}
+              onToggleExpand={toggleExpand}
+              onEdit={openEditModal}
+              onDelete={handleDeleteItem}
+              onClear={handleClearItem}
+              stackIndex={idx}
+              stackTotal={sorted.length}
+            />
+          ) : (
+            <div
+              key={item.id}
+              className="stamp-card"
+              style={{ background: colorFor(activeTab, item.id) }}
+            >
+              <div className="stamp-main">
+                <p className="stamp-name">
+                  <span className="stamp-mark" />
+                  {item.name}
+                </p>
+                <p className="stamp-meta">{formatUpdated(item.updatedAt)}</p>
+              </div>
+              <div className="stamp-value">
+                <span className="stamp-amount">{item.amount.toLocaleString()}</span>
+                <span className="stamp-unit">{item.unit}</span>
+              </div>
+            </div>
+          )
+        )}
+      </div>
+
+      {activeTab === 'balance' && (
+        <div className="fab-wrap">
+          {fabOpen && (
+            <>
+              <div className="fab-backdrop" onClick={() => setFabOpen(false)} />
+              <div className="fab-menu">
+                <Link
+                  className="fab-menu-item"
+                  to="/balance-import"
+                  onClick={() => setFabOpen(false)}
+                >
+                  批量增加
+                </Link>
+                <button
+                  className="fab-menu-item"
+                  onClick={() => {
+                    setFabOpen(false)
+                    openAddModal()
+                  }}
+                >
+                  增加一条
+                </button>
+              </div>
+            </>
+          )}
+          <button
+            className={`fab-btn ${fabOpen ? 'fab-btn-open' : ''}`}
+            onClick={() => setFabOpen((v) => !v)}
+            aria-label="新增余额记录"
+          >
+            +
+          </button>
+        </div>
+      )}
+
+      {modalState.open && (
+        <BalanceFormModal
+          mode={modalState.mode}
+          initialItem={modalState.item}
+          submitting={modalSubmitting}
+          errorMessage={modalError}
+          onClose={closeModal}
+          onSubmit={handleModalSubmit}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          itemName={deleteTarget.name}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={confirmDeleteItem}
+        />
+      )}
+    </div>
+  )
 }
