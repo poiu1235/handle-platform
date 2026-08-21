@@ -471,6 +471,7 @@ a {
   gap: 0.8rem;
   padding: 1.05rem 1.2rem;
   border-radius: 16px;
+  border: 1px solid rgba(28, 43, 58, 0.16);
   box-shadow: 0 1px 0 rgba(28, 43, 58, 0.08);
   flex-shrink: 0;
 }
@@ -863,7 +864,7 @@ a {
   align-items: center;
   justify-content: center;
   padding: 1.2rem;
-  z-index: 50;
+  z-index: 3000;
 }
 
 .modal-card {
@@ -921,7 +922,7 @@ a {
 }
 
 .stamp-card-collapsed {
-  padding: 0.95rem 1.2rem;
+  padding: 1.15rem 1.2rem;
   box-shadow: 0 3px 6px rgba(28, 43, 58, 0.16);
 }
 
@@ -945,10 +946,10 @@ a {
 
 @media (max-width: 480px) {
   .stamp-card-collapsed {
-    padding: 0.85rem 1rem;
+    padding: 1rem 1rem;
   }
   .stamp-row-collapsed + .stamp-row-collapsed {
-    margin-top: -16px;
+    margin-top: -18px;
   }
 }
 

@@ -32,10 +32,10 @@ const DATA = {
 
 const PALETTES = {
   balance: [
-    '#e6b7a8', '#edc6b6', '#edbca3', '#eccdba', '#ebc4a7',
-    '#f2d2b6', '#e9cbac', '#f0d8ba', '#f0d2a7', '#efddbe',
-    '#eed8ac', '#eee1c2', '#edddb0', '#f3e8bf', '#ebe2b4',
-    '#f2ecc3', '#f1ecb0',
+    '#f0a58f', '#f3cf8c', '#e8935f', '#f7e2a3', '#e2795a',
+    '#f6b96b', '#eec36f', '#f8d9c2', '#dc8a63', '#f4e6b8',
+    '#ef9f7a', '#f0c454', '#e6ab86', '#f9c9a1', '#d97b52',
+    '#f5dd8f', '#eeb08f', '#f2ce5e',
   ],
   membership: [
     '#a9dace', '#b7e5df', '#a2e4e2', '#bbe0e3', '#a8d7e2',
@@ -108,7 +108,8 @@ function SwipeableBalanceCard({
 }) {
   const [dragX, setDragX] = useState(0)
   const [openDir, setOpenDir] = useState(null) // 'left' | 'right' | null
-  const drag = useRef({ active: false, startX: 0, baseX: 0, moved: false, rowWidth: 300 })
+  const drag = useRef({ active: false, startX: 0, baseX: 0, moved: false, rowWidth: 300, committing: false })
+  const dragXRef = useRef(0) // 与 dragX state 同步，pointerup 读它而不是 state，避免读到过期值
   const rowRef = useRef(null)
 
   const isZero = item.amount === 0
@@ -130,13 +131,14 @@ function SwipeableBalanceCard({
   }, [expanded])
 
   function handlePointerDown(e) {
-    if (!expanded) return // 折叠状态不响应拖动，点击交给 onClick 展开
+    if (!expanded || drag.current.committing) return // 折叠/退场中不响应拖动
     drag.current = {
       active: true,
       startX: e.clientX,
       baseX: openDir === 'left' ? -REVEAL_EDIT : openDir === 'right' ? maxRight : 0,
       moved: false,
       rowWidth: rowRef.current?.offsetWidth ?? 300,
+      committing: false,
     }
     e.currentTarget.setPointerCapture(e.pointerId)
   }
@@ -148,6 +150,7 @@ function SwipeableBalanceCard({
     // 零余额不允许深滑（超出修改/删除面板宽度）；非零可以一路滑到接近卡片宽度触发自动清零
     const minX = isZero ? -REVEAL_EDIT : -Math.max(REVEAL_EDIT, drag.current.rowWidth * 0.92)
     const next = Math.max(minX, Math.min(maxRight, drag.current.baseX + delta))
+    dragXRef.current = next
     setDragX(next)
   }
 
@@ -155,30 +158,44 @@ function SwipeableBalanceCard({
     if (!drag.current.active) return
     drag.current.active = false
     const threshold = (drag.current.rowWidth || 300) * 0.5
+    const finalX = dragXRef.current // 用 ref 而不是 state，保证拿到的是最后一帧的真实位置
 
-    if (!isZero && dragX <= -threshold) {
-      // 深滑过半，松手即清零，不用再点按钮
-      onClear(item)
+    if (!isZero && finalX <= -threshold) {
+      // 深滑过半：像聊天软件左滑划掉会话一样，卡片整体滑出屏幕消失，
+      // 动画结束后再真正提交清零（数据库那边是清零，不是删除）
+      drag.current.committing = true
       setOpenDir(null)
-      setDragX(0)
+      const flyOutX = -(drag.current.rowWidth + 80)
+      dragXRef.current = flyOutX
+      setDragX(flyOutX)
+      window.setTimeout(() => {
+        onClear(item)
+        drag.current.committing = false
+        dragXRef.current = 0
+        setDragX(0)
+      }, 220)
       return
     }
-    if (dragX <= -SWIPE_THRESHOLD) {
+    if (finalX <= -SWIPE_THRESHOLD) {
       setOpenDir('left')
+      dragXRef.current = -REVEAL_EDIT
       setDragX(-REVEAL_EDIT)
       return
     }
-    if (dragX >= SWIPE_THRESHOLD && maxRight > 0) {
+    if (finalX >= SWIPE_THRESHOLD && maxRight > 0) {
       setOpenDir('right')
+      dragXRef.current = maxRight
       setDragX(maxRight)
       return
     }
     setOpenDir(null)
+    dragXRef.current = 0
     setDragX(0)
   }
 
   function closeSwipe() {
     setOpenDir(null)
+    dragXRef.current = 0
     setDragX(0)
   }
 
