@@ -117,6 +117,9 @@ function sortItems(items, sortKey, sortDir) {
 
 const ACTION_BTN_WIDTH = 66 // 每个操作按钮的固定宽度
 const SWIPE_THRESHOLD = 40 // 滑动超过这个距离才算"要打开"，松手会自动吸附
+const FLING_VELOCITY = 0.5 // px/ms，超过这个速度算"快速一甩"，即使没拖多远也按甩的方向处理
+const MOMENTUM_MIN_DURATION = 120 // ms
+const MOMENTUM_MAX_DURATION = 320 // ms
 
 function SwipeableBalanceCard({
   item,
@@ -130,8 +133,19 @@ function SwipeableBalanceCard({
 }) {
   const [dragX, setDragX] = useState(0)
   const [openDir, setOpenDir] = useState(null) // 'left' | 'right' | null
-  const drag = useRef({ active: false, startX: 0, baseX: 0, moved: false, rowWidth: 300, committing: false })
+  const drag = useRef({
+    active: false,
+    startX: 0,
+    baseX: 0,
+    moved: false,
+    rowWidth: 300,
+    committing: false,
+    animating: false, // 惯性动画进行中时，CSS 的 width 过渡要让位，交给 rAF 逐帧驱动
+  })
   const dragXRef = useRef(0) // 与 dragX state 同步，pointerup 读它而不是 state，避免读到过期值
+  const velocityRef = useRef(0) // px/ms，正数=向右，负数=向左
+  const lastSampleRef = useRef({ x: 0, t: 0 })
+  const momentumFrame = useRef(null)
   const rowRef = useRef(null)
 
   const isZero = item.amount === 0
@@ -150,12 +164,58 @@ function SwipeableBalanceCard({
   const leftPanelWidth = Math.max(dragX, 0)
   const rightPanelWidth = Math.max(-dragX, 0)
 
+  // 用速度驱动的缓动动画把卡片从当前位置带到目标位置，
+  // 时长由速度换算：滑得越快，动画时长越短（更快收尾），
+  // easeOutCubic 让它"先快后慢"，模拟惯性衰减到停止，而不是固定时长的匀速/缓动。
+  function animateMomentum(fromX, toX, velocity) {
+    if (momentumFrame.current) cancelAnimationFrame(momentumFrame.current)
+    const distance = toX - fromX
+    if (distance === 0) {
+      drag.current.animating = false
+      return
+    }
+    const speed = Math.max(Math.abs(velocity), 0.05) // px/ms，避免除0
+    const duration = Math.min(
+      MOMENTUM_MAX_DURATION,
+      Math.max(MOMENTUM_MIN_DURATION, Math.abs(distance) / speed)
+    )
+    const startTime = performance.now()
+    drag.current.animating = true
+
+    function tick(now) {
+      const elapsed = now - startTime
+      const t = Math.min(1, elapsed / duration)
+      const eased = 1 - Math.pow(1 - t, 3) // easeOutCubic
+      const x = fromX + distance * eased
+      dragXRef.current = x
+      setDragX(x)
+      if (t < 1) {
+        momentumFrame.current = requestAnimationFrame(tick)
+      } else {
+        drag.current.animating = false
+        momentumFrame.current = null
+      }
+    }
+    momentumFrame.current = requestAnimationFrame(tick)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (momentumFrame.current) cancelAnimationFrame(momentumFrame.current)
+    }
+  }, [])
+
   // 展开时把这张卡片滚动到可视区域中间，视觉上像"从卡包里抽出来"，
   // 其余堆叠的卡片自然被滚走；收起时顺带把滑动状态复位。
   useEffect(() => {
     if (expanded) {
       rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     } else {
+      if (momentumFrame.current) {
+        cancelAnimationFrame(momentumFrame.current)
+        momentumFrame.current = null
+      }
+      drag.current.animating = false
       setOpenDir(null)
       dragXRef.current = 0
       setDragX(0)
@@ -165,6 +225,10 @@ function SwipeableBalanceCard({
 
   function handlePointerDown(e) {
     if (!expanded || drag.current.committing) return // 折叠/退场中不响应拖动
+    if (momentumFrame.current) {
+      cancelAnimationFrame(momentumFrame.current)
+      momentumFrame.current = null
+    }
     drag.current = {
       active: true,
       startX: e.clientX,
@@ -172,7 +236,10 @@ function SwipeableBalanceCard({
       moved: false,
       rowWidth: rowRef.current?.offsetWidth ?? 300,
       committing: false,
+      animating: false,
     }
+    velocityRef.current = 0
+    lastSampleRef.current = { x: e.clientX, t: performance.now() }
     e.currentTarget.setPointerCapture(e.pointerId)
   }
 
@@ -186,6 +253,13 @@ function SwipeableBalanceCard({
     const next = Math.max(minX, Math.min(maxX, drag.current.baseX + delta))
     dragXRef.current = next
     setDragX(next)
+
+    const now = performance.now()
+    const dt = now - lastSampleRef.current.t
+    if (dt > 0) {
+      velocityRef.current = (e.clientX - lastSampleRef.current.x) / dt
+    }
+    lastSampleRef.current = { x: e.clientX, t: now }
   }
 
   function handlePointerUp() {
@@ -193,15 +267,17 @@ function SwipeableBalanceCard({
     drag.current.active = false
     const threshold = (drag.current.rowWidth || 300) * 0.5
     const finalX = dragXRef.current // 用 ref 而不是 state，保证拿到的是最后一帧的真实位置
+    const v = velocityRef.current
 
-    if (!isZero && finalX >= threshold) {
-      // 右滑深滑过半：像聊天软件划掉会话一样，卡片整体飞出屏幕消失，
+    // 深滑过半，或者朝右快速一甩（哪怕没拖出多远）都直接提交清零
+    const flungRight = v > FLING_VELOCITY && finalX > 0
+    if (!isZero && (finalX >= threshold || flungRight)) {
+      // 像聊天软件划掉会话一样，卡片整体飞出屏幕消失，
       // 动画结束后再真正提交清零（数据库那边是清零，不是删除）
       drag.current.committing = true
       setOpenDir(null)
       const flyOutX = drag.current.rowWidth + 80
-      dragXRef.current = flyOutX
-      setDragX(flyOutX)
+      animateMomentum(finalX, flyOutX, Math.max(Math.abs(v), FLING_VELOCITY))
       window.setTimeout(() => {
         onClear(item)
         drag.current.committing = false
@@ -210,21 +286,23 @@ function SwipeableBalanceCard({
       }, 220)
       return
     }
-    if (finalX <= -SWIPE_THRESHOLD) {
+
+    const flungLeftOpen = v < -FLING_VELOCITY && finalX < 0
+    if (finalX <= -SWIPE_THRESHOLD || flungLeftOpen) {
       setOpenDir('left')
-      dragXRef.current = -editDeleteWidth
-      setDragX(-editDeleteWidth)
+      animateMomentum(finalX, -editDeleteWidth, v)
       return
     }
-    if (finalX >= SWIPE_THRESHOLD && !isZero) {
+
+    const flungRightOpen = !isZero && v > FLING_VELOCITY && finalX >= 0
+    if ((finalX >= SWIPE_THRESHOLD && !isZero) || flungRightOpen) {
       setOpenDir('right')
-      dragXRef.current = clearRevealWidth
-      setDragX(clearRevealWidth)
+      animateMomentum(finalX, clearRevealWidth, v)
       return
     }
+
     setOpenDir(null)
-    dragXRef.current = 0
-    setDragX(0)
+    animateMomentum(finalX, 0, v)
   }
 
   function closeSwipe() {
@@ -255,7 +333,7 @@ function SwipeableBalanceCard({
       {expanded && !isZero && (
         <div
           className="stamp-actions stamp-actions-left"
-          style={{ width: leftPanelWidth, transition: drag.current.active ? 'none' : 'width 0.2s ease' }}
+          style={{ width: leftPanelWidth, transition: drag.current.active || drag.current.animating ? 'none' : 'width 0.2s ease' }}
         >
           {overCommit ? (
             <div className="stamp-action-btn stamp-action-commit">清零</div>
@@ -300,7 +378,7 @@ function SwipeableBalanceCard({
       {expanded && (
         <div
           className="stamp-actions stamp-actions-right"
-          style={{ width: rightPanelWidth, transition: drag.current.active ? 'none' : 'width 0.2s ease' }}
+          style={{ width: rightPanelWidth, transition: drag.current.active || drag.current.animating ? 'none' : 'width 0.2s ease' }}
         >
           <button
             className="stamp-action-btn stamp-action-edit"
@@ -659,12 +737,23 @@ export default function Hello() {
         >
           按名称 {sortKey === 'name' && (sortDir === 'desc' ? '↓' : '↑')}
         </button>
-        {activeTab === 'balance' && (
-          <button className="board-sort-btn board-zero-toggle" onClick={handleToggleZero}>
-            {includeZero ? '☑' : '☐'} 显示余额为0
-          </button>
-        )}
       </div>
+
+      {activeTab === 'balance' && (
+        <div className="board-zero-row">
+          <button
+            className={`zero-toggle ${includeZero ? 'zero-toggle-on' : ''}`}
+            onClick={handleToggleZero}
+            role="switch"
+            aria-checked={includeZero}
+          >
+            <span className="zero-toggle-track">
+              <span className="zero-toggle-thumb" />
+            </span>
+            <span className="zero-toggle-label">显示余额为0</span>
+          </button>
+        </div>
+      )}
 
       <div className="board-list">
         {activeTab === 'balance' && balanceState.status === 'pending' && (

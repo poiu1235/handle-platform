@@ -537,7 +537,8 @@ a {
     padding: 1.1rem 1rem 0.5rem;
   }
   .board-tabs,
-  .board-sort-row {
+  .board-sort-row,
+  .board-zero-row {
     padding-left: 1rem;
     padding-right: 1rem;
   }
@@ -689,14 +690,61 @@ a {
   }
 }
 
-/* ---------- 余额为0开关（始终灰色，不参与高亮配色） ---------- */
+/* ---------- 余额为0开关（独立一行，开关样式，和排序按钮区分开） ---------- */
 
-.board-zero-toggle {
-  color: var(--ink-faint);
+.board-zero-row {
+  padding: 0 1.2rem 0.7rem;
+  flex-shrink: 0;
 }
 
-.board-zero-toggle:hover {
+.zero-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.15rem 0;
+  color: var(--ink-faint);
+  font-size: 0.8rem;
+}
+
+.zero-toggle:hover {
   color: var(--ink-soft);
+}
+
+.zero-toggle-track {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--rule-strong);
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.zero-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(28, 43, 58, 0.35);
+  transition: transform 0.15s ease;
+}
+
+.zero-toggle-on .zero-toggle-track {
+  background: var(--ink-faint); /* 打开也保持灰色调，不用高亮色，和排序按钮的强调色区分开 */
+}
+
+.zero-toggle-on .zero-toggle-thumb {
+  transform: translateX(14px);
+}
+
+.zero-toggle-label {
+  white-space: nowrap;
 }
 
 /* 余额为0的卡片统一灰色展示 */
