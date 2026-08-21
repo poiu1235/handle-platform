@@ -476,14 +476,6 @@ a {
   flex-shrink: 0;
 }
 
-.stamp-card-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-  width: 100%;
-}
-
 .stamp-main {
   min-width: 0;
 }
@@ -722,33 +714,24 @@ a {
 
 .stamp-row {
   position: relative;
+  display: flex;
+  align-items: stretch;
   border-radius: 16px;
   overflow: hidden;
   flex-shrink: 0; /* 关键修复：不让行被压缩，超出高度交给 .board-list 滚动 */
 }
 
 .stamp-row .stamp-card {
-  position: relative;
-  z-index: 2;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0; /* 允许被 flex 挤压变窄，而不是保持内容原始宽度 */
   touch-action: pan-y;
   cursor: grab;
 }
 
 .stamp-actions {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  z-index: 1;
+  flex: 0 0 auto;
+  overflow: hidden; /* 宽度还没长到按钮自然宽度之前，裁掉多出来的部分 */
   display: flex;
-}
-
-.stamp-actions-right {
-  right: 0;
-}
-
-.stamp-actions-left {
-  left: 0;
 }
 
 .stamp-action-btn {

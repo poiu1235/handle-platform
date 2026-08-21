@@ -142,7 +142,12 @@ function SwipeableBalanceCard({
   const rowWidthGuess = drag.current.rowWidth || 300
   const commitThreshold = rowWidthGuess * 0.5
   const overCommit = !isZero && dragX >= commitThreshold
-  const leftPanelWidth = Math.min(Math.max(clearRevealWidth, dragX), rowWidthGuess)
+
+  // 面板宽度直接从拖动距离派生：dragX>0 是右滑露出左侧"清零"面板宽度，
+  // dragX<0 是左滑露出右侧"修改/删除"面板宽度；卡片本身用 flex:1 自动占满剩下的空间，
+  // 不再用 transform 位移整张卡片——标题贴左、金额贴右，谁都不会被滑出可视区。
+  const leftPanelWidth = Math.max(dragX, 0)
+  const rightPanelWidth = Math.max(-dragX, 0)
 
   // 展开时把这张卡片滚动到可视区域中间，视觉上像"从卡包里抽出来"，
   // 其余堆叠的卡片自然被滚走；收起时顺带把滑动状态复位。
@@ -247,7 +252,10 @@ function SwipeableBalanceCard({
       style={{ zIndex: stackZIndex }}
     >
       {expanded && !isZero && (
-        <div className="stamp-actions stamp-actions-left" style={{ width: leftPanelWidth }}>
+        <div
+          className="stamp-actions stamp-actions-left"
+          style={{ width: leftPanelWidth, transition: drag.current.active ? 'none' : 'width 0.2s ease' }}
+        >
           {overCommit ? (
             <div className="stamp-action-btn stamp-action-commit">清零</div>
           ) : (
@@ -263,8 +271,36 @@ function SwipeableBalanceCard({
           )}
         </div>
       )}
+
+      <div
+        className={`stamp-card ${isZero ? 'stamp-card-zero' : ''} ${expanded ? 'stamp-card-expanded' : 'stamp-card-collapsed'}`}
+        style={{
+          background: isZero ? 'var(--zero-card)' : colorFor('balance', item.id),
+        }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onClick={handleCardClick}
+      >
+        <div className="stamp-main">
+          <p className="stamp-name">
+            <span className="stamp-mark" />
+            {item.name}
+          </p>
+          {expanded && <p className="stamp-meta">{formatUpdated(item.updatedAt)}</p>}
+        </div>
+        <div className="stamp-value">
+          <span className="stamp-amount">{item.amount.toLocaleString()}</span>
+          <span className="stamp-unit">{item.unit}</span>
+        </div>
+      </div>
+
       {expanded && (
-        <div className="stamp-actions stamp-actions-right" style={{ width: editDeleteWidth }}>
+        <div
+          className="stamp-actions stamp-actions-right"
+          style={{ width: rightPanelWidth, transition: drag.current.active ? 'none' : 'width 0.2s ease' }}
+        >
           <button
             className="stamp-action-btn stamp-action-edit"
             onClick={() => {
@@ -285,39 +321,9 @@ function SwipeableBalanceCard({
           </button>
         </div>
       )}
-
-      <div
-        className={`stamp-card ${isZero ? 'stamp-card-zero' : ''} ${expanded ? 'stamp-card-expanded' : 'stamp-card-collapsed'}`}
-        style={{
-          background: isZero ? 'var(--zero-card)' : colorFor('balance', item.id),
-          transform: `translateX(${dragX}px)`,
-          transition: drag.current.active ? 'none' : 'transform 0.2s ease',
-        }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        onClick={handleCardClick}
-      >
-        <div
-          className="stamp-card-inner"
-          style={{
-            transform: `translateX(${-dragX}px)`,
-            transition: drag.current.active ? 'none' : 'transform 0.2s ease',
-          }}
-        >
-          <div className="stamp-main">
-            <p className="stamp-name">
-              <span className="stamp-mark" />
-              {item.name}
-            </p>
-            {expanded && <p className="stamp-meta">{formatUpdated(item.updatedAt)}</p>}
-          </div>
-          <div className="stamp-value">
-            <span className="stamp-amount">{item.amount.toLocaleString()}</span>
-            <span className="stamp-unit">{item.unit}</span>
-          </div>
-        </div>
+    </div>
+  )
+}
       </div>
     </div>
   )
