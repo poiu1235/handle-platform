@@ -737,12 +737,10 @@ a {
 
 .stamp-actions-right {
   right: 0;
-  width: 132px;
 }
 
 .stamp-actions-left {
   left: 0;
-  width: 92px;
 }
 
 .stamp-action-btn {
@@ -773,11 +771,11 @@ a {
   border-bottom-right-radius: 16px;
 }
 
-/* 左滑超过一半（深滑）时，右侧面板整体变成这个填充态，松手直接清零 */
+/* 右滑超过一半（深滑）时，左侧面板整体变成这个填充态，松手直接清零 */
 .stamp-action-commit {
   background: var(--amber);
-  border-top-left-radius: 16px;
-  border-bottom-left-radius: 16px;
+  border-top-right-radius: 16px;
+  border-bottom-right-radius: 16px;
   width: 100%;
   font-size: 0.95rem;
   letter-spacing: 0.05em;

@@ -32,10 +32,10 @@ const DATA = {
 
 const PALETTES = {
   balance: [
-    '#f0a58f', '#f3cf8c', '#e8935f', '#f7e2a3', '#e2795a',
-    '#f6b96b', '#eec36f', '#f8d9c2', '#dc8a63', '#f4e6b8',
-    '#ef9f7a', '#f0c454', '#e6ab86', '#f9c9a1', '#d97b52',
-    '#f5dd8f', '#eeb08f', '#f2ce5e',
+    '#f4a261', '#e76f51', '#f2cc8f', '#e9c46a', '#d68c45',
+    '#efb366', '#e07a5f', '#f4d35e', '#dda15e', '#eaac8b',
+    '#c97b63', '#f6bd60', '#e8998d', '#d4a276', '#f28482',
+    '#efc88b',
   ],
   membership: [
     '#a9dace', '#b7e5df', '#a2e4e2', '#bbe0e3', '#a8d7e2',
@@ -72,6 +72,24 @@ function formatUpdated(dateStr) {
   return `${mm}月${dd}日更新`
 }
 
+// 按名称排序：中文用拼音顺序，英文/数字转大写后按标准 ASCII 顺序——
+// 用浏览器自带的 Intl.Collator 拼音排序（pinyin collation），不用额外引入拼音库。
+let pinyinCollator = null
+try {
+  pinyinCollator = new Intl.Collator('zh-Hans-CN-u-co-pinyin', { sensitivity: 'base' })
+} catch (e) {
+  pinyinCollator = null // 极少数不支持 pinyin collation 的环境，下面会退回纯 ASCII 比较
+}
+
+function compareByName(a, b) {
+  const nameA = (a.name || '').trim()
+  const nameB = (b.name || '').trim()
+  if (pinyinCollator) return pinyinCollator.compare(nameA, nameB)
+  const upperA = nameA.toUpperCase()
+  const upperB = nameB.toUpperCase()
+  return upperA < upperB ? -1 : upperA > upperB ? 1 : 0
+}
+
 function sortItems(items, sortKey, sortDir) {
   const sorted = [...items].sort((a, b) => {
     // 零余额永远沉底，不参与主排序，只在各自分组内按选定规则排
@@ -79,10 +97,14 @@ function sortItems(items, sortKey, sortDir) {
     const bZero = b.amount === 0 ? 1 : 0
     if (aZero !== bZero) return aZero - bZero
 
-    const cmp =
-      sortKey === 'amount'
-        ? a.amount - b.amount
-        : new Date(a.updatedAt) - new Date(b.updatedAt)
+    let cmp
+    if (sortKey === 'amount') {
+      cmp = a.amount - b.amount
+    } else if (sortKey === 'name') {
+      cmp = compareByName(a, b)
+    } else {
+      cmp = new Date(a.updatedAt) - new Date(b.updatedAt)
+    }
     return sortDir === 'desc' ? -cmp : cmp
   })
   return sorted
@@ -92,9 +114,8 @@ function sortItems(items, sortKey, sortDir) {
 // 左滑（PC 向左拖）露出"修改/删除"；右滑（PC 向右拖）露出"清零"。
 // 用 Pointer Events 统一处理触屏和鼠标拖动。
 
-const REVEAL_EDIT = 132 // 左滑露出的"修改/删除"区域宽度
-const REVEAL_CLEAR = 92 // 右滑露出的"清零"区域宽度
-const SWIPE_THRESHOLD = 40
+const ACTION_BTN_WIDTH = 66 // 每个操作按钮的固定宽度
+const SWIPE_THRESHOLD = 40 // 滑动超过这个距离才算"要打开"，松手会自动吸附
 
 function SwipeableBalanceCard({
   item,
@@ -113,20 +134,25 @@ function SwipeableBalanceCard({
   const rowRef = useRef(null)
 
   const isZero = item.amount === 0
-  const maxRight = isZero ? 0 : REVEAL_CLEAR // 余额为0时不允许右滑清零
+  const editDeleteWidth = ACTION_BTN_WIDTH * 2 // 左滑：修改+删除，固定封顶，不能再深滑
+  const clearRevealWidth = isZero ? 0 : ACTION_BTN_WIDTH * 1.4 // 右滑：清零，浅滑时的基础展开宽度
 
-  // 左滑超过卡片宽度一半 = 深滑，松手直接清零，不需要点按钮；
-  // 零余额本身已经是0，不需要这个深滑手势。
-  const rowWidth = drag.current.rowWidth || 300
-  const commitThreshold = rowWidth * 0.5
-  const overCommit = !isZero && dragX <= -commitThreshold
-  const rightPanelWidth = Math.min(Math.max(REVEAL_EDIT, -dragX), rowWidth)
+  // 右滑超过卡片宽度一半 = 深滑，松手直接清零，不需要点按钮；
+  // 零余额本身已经是0，右滑整个禁用。
+  const rowWidthGuess = drag.current.rowWidth || 300
+  const commitThreshold = rowWidthGuess * 0.5
+  const overCommit = !isZero && dragX >= commitThreshold
+  const leftPanelWidth = Math.min(Math.max(clearRevealWidth, dragX), rowWidthGuess)
 
   // 展开时把这张卡片滚动到可视区域中间，视觉上像"从卡包里抽出来"，
-  // 其余堆叠的卡片自然被滚走。
+  // 其余堆叠的卡片自然被滚走；收起时顺带把滑动状态复位。
   useEffect(() => {
     if (expanded) {
       rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } else {
+      setOpenDir(null)
+      dragXRef.current = 0
+      setDragX(0)
     }
   }, [expanded])
 
@@ -135,7 +161,7 @@ function SwipeableBalanceCard({
     drag.current = {
       active: true,
       startX: e.clientX,
-      baseX: openDir === 'left' ? -REVEAL_EDIT : openDir === 'right' ? maxRight : 0,
+      baseX: openDir === 'left' ? -editDeleteWidth : openDir === 'right' ? clearRevealWidth : 0,
       moved: false,
       rowWidth: rowRef.current?.offsetWidth ?? 300,
       committing: false,
@@ -147,9 +173,10 @@ function SwipeableBalanceCard({
     if (!drag.current.active) return
     const delta = e.clientX - drag.current.startX
     if (Math.abs(delta) > 4) drag.current.moved = true
-    // 零余额不允许深滑（超出修改/删除面板宽度）；非零可以一路滑到接近卡片宽度触发自动清零
-    const minX = isZero ? -REVEAL_EDIT : -Math.max(REVEAL_EDIT, drag.current.rowWidth * 0.92)
-    const next = Math.max(minX, Math.min(maxRight, drag.current.baseX + delta))
+    // 左滑（修改/删除）固定封顶，不能再深滑；右滑（清零）可以一路滑到接近卡片宽度触发深滑自动清零
+    const minX = -editDeleteWidth
+    const maxX = isZero ? 0 : Math.max(clearRevealWidth, drag.current.rowWidth * 0.92)
+    const next = Math.max(minX, Math.min(maxX, drag.current.baseX + delta))
     dragXRef.current = next
     setDragX(next)
   }
@@ -160,12 +187,12 @@ function SwipeableBalanceCard({
     const threshold = (drag.current.rowWidth || 300) * 0.5
     const finalX = dragXRef.current // 用 ref 而不是 state，保证拿到的是最后一帧的真实位置
 
-    if (!isZero && finalX <= -threshold) {
-      // 深滑过半：像聊天软件左滑划掉会话一样，卡片整体滑出屏幕消失，
+    if (!isZero && finalX >= threshold) {
+      // 右滑深滑过半：像聊天软件划掉会话一样，卡片整体飞出屏幕消失，
       // 动画结束后再真正提交清零（数据库那边是清零，不是删除）
       drag.current.committing = true
       setOpenDir(null)
-      const flyOutX = -(drag.current.rowWidth + 80)
+      const flyOutX = drag.current.rowWidth + 80
       dragXRef.current = flyOutX
       setDragX(flyOutX)
       window.setTimeout(() => {
@@ -178,14 +205,14 @@ function SwipeableBalanceCard({
     }
     if (finalX <= -SWIPE_THRESHOLD) {
       setOpenDir('left')
-      dragXRef.current = -REVEAL_EDIT
-      setDragX(-REVEAL_EDIT)
+      dragXRef.current = -editDeleteWidth
+      setDragX(-editDeleteWidth)
       return
     }
-    if (finalX >= SWIPE_THRESHOLD && maxRight > 0) {
+    if (finalX >= SWIPE_THRESHOLD && !isZero) {
       setOpenDir('right')
-      dragXRef.current = maxRight
-      setDragX(maxRight)
+      dragXRef.current = clearRevealWidth
+      setDragX(clearRevealWidth)
       return
     }
     setOpenDir(null)
@@ -219,44 +246,42 @@ function SwipeableBalanceCard({
       style={{ zIndex: stackZIndex }}
     >
       {expanded && !isZero && (
-        <div className="stamp-actions stamp-actions-left">
-          <button
-            className="stamp-action-btn stamp-action-clear"
-            onClick={() => {
-              onClear(item)
-              closeSwipe()
-            }}
-          >
-            清零
-          </button>
-        </div>
-      )}
-      {expanded && (
-        <div className="stamp-actions stamp-actions-right" style={{ width: rightPanelWidth }}>
+        <div className="stamp-actions stamp-actions-left" style={{ width: leftPanelWidth }}>
           {overCommit ? (
             <div className="stamp-action-btn stamp-action-commit">清零</div>
           ) : (
-            <>
-              <button
-                className="stamp-action-btn stamp-action-edit"
-                onClick={() => {
-                  onEdit(item)
-                  closeSwipe()
-                }}
-              >
-                修改
-              </button>
-              <button
-                className="stamp-action-btn stamp-action-delete"
-                onClick={() => {
-                  onDelete(item)
-                  closeSwipe()
-                }}
-              >
-                删除
-              </button>
-            </>
+            <button
+              className="stamp-action-btn stamp-action-clear"
+              onClick={() => {
+                onClear(item)
+                closeSwipe()
+              }}
+            >
+              清零
+            </button>
           )}
+        </div>
+      )}
+      {expanded && (
+        <div className="stamp-actions stamp-actions-right" style={{ width: editDeleteWidth }}>
+          <button
+            className="stamp-action-btn stamp-action-edit"
+            onClick={() => {
+              onEdit(item)
+              closeSwipe()
+            }}
+          >
+            修改
+          </button>
+          <button
+            className="stamp-action-btn stamp-action-delete"
+            onClick={() => {
+              onDelete(item)
+              closeSwipe()
+            }}
+          >
+            删除
+          </button>
         </div>
       )}
 
@@ -288,6 +313,7 @@ function SwipeableBalanceCard({
     </div>
   )
 }
+
 
 // ---------- 新增 / 修改共用表单弹窗 ----------
 // mode='add'：输入框为空，展示占位提示值；mode='edit'：输入框预填列表里的真实值。
@@ -402,8 +428,11 @@ export default function Hello() {
 
   useEffect(() => {
     fetchBalances()
+    // 只依赖 user.id（稳定字符串），不依赖整个 user 对象引用——
+    // Supabase 后台静默刷新 token 时，AuthContext 给出的 user 可能是新对象但 id 不变，
+    // 依赖整个对象会导致这里被误触发，看起来像"隔一段时间就莫名其妙重新加载"。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user])
+  }, [user?.id])
 
   useEffect(() => {
     let cancelled = false
@@ -605,6 +634,12 @@ export default function Hello() {
           onClick={() => toggleSort('amount')}
         >
           按金额 {sortKey === 'amount' && (sortDir === 'desc' ? '↓' : '↑')}
+        </button>
+        <button
+          className={`board-sort-btn ${sortKey === 'name' ? 'board-sort-btn-active' : ''}`}
+          onClick={() => toggleSort('name')}
+        >
+          按名称 {sortKey === 'name' && (sortDir === 'desc' ? '↓' : '↑')}
         </button>
         {activeTab === 'balance' && (
           <button className="board-sort-btn board-zero-toggle" onClick={handleToggleZero}>
