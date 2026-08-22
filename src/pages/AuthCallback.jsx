@@ -70,8 +70,8 @@ export default function AuthCallback() {
           {status === 'idle' && (
             <>
               <p className="field-hint">
-                出于安全考虑，需要你手动点击一下才会完成验证——这一步没法自动进行，是为了避免邮箱客户端的安全扫描在你真正点开之前就提前消耗掉这个链接。
               </p>
+			  
               <button className="btn" onClick={handleConfirm}>
                 点击完成验证
               </button>
