@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AuthShell from './AuthShell'
 import { useAuth } from '../lib/AuthContext'
@@ -17,6 +17,12 @@ export default function ForgotPassword() {
   const [resendCooldown, setResendCooldown] = useState(0)
   const { forgotPassword, verifyRecovery } = useAuth()
   const navigate = useNavigate()
+  const captchaRef = useRef(null)
+
+  function resetCaptcha() {
+    captchaRef.current?.reset()
+    setCaptchaToken('')
+  }
 
   useEffect(() => {
     if (resendCooldown <= 0) return
@@ -37,6 +43,9 @@ export default function ForgotPassword() {
     } catch (err) {
       setError(err.message)
     } finally {
+      // Turnstile token 一次性消费——重置后验证码页会重新挂载出一个新组件，
+      // "重新发送"用的是这个新 token，不是刚才发起找回密码时那个已经作废的
+      resetCaptcha()
       setSubmitting(false)
     }
   }
@@ -59,7 +68,7 @@ export default function ForgotPassword() {
   }
 
   async function handleResend() {
-    if (resendCooldown > 0 || submitting) return
+    if (resendCooldown > 0 || !captchaToken || submitting) return
     setSubmitting(true)
     try {
       await api.forgotPassword(email, captchaToken)
@@ -68,6 +77,7 @@ export default function ForgotPassword() {
     } catch (err) {
       setError(err.message)
     } finally {
+      resetCaptcha()
       setSubmitting(false)
     }
   }
@@ -82,7 +92,8 @@ export default function ForgotPassword() {
         onSubmit={handleVerifySubmit}
         submitLabel={submitting ? '处理中…' : '验证'}
         submitDisabled={submitting || code.length !== 6}
-        showCaptcha={false}
+        captchaRef={captchaRef}
+        onCaptcha={setCaptchaToken}
       >
         <div className="field">
           <label htmlFor="code">验证码</label>
@@ -102,7 +113,11 @@ export default function ForgotPassword() {
 
         <div className="toggle-row">
           没收到？
-          <button type="button" onClick={handleResend} disabled={resendCooldown > 0 || submitting}>
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resendCooldown > 0 || !captchaToken || submitting}
+          >
             {resendCooldown > 0 ? `重新发送(${resendCooldown}s)` : '重新发送验证码'}
           </button>
         </div>
@@ -121,6 +136,7 @@ export default function ForgotPassword() {
       eyebrow="Forgot Password"
       title="找回密码"
       error={error}
+      captchaRef={captchaRef}
       onCaptcha={setCaptchaToken}
       onSubmit={handleFormSubmit}
       submitLabel={submitting ? '处理中…' : '发送验证码'}

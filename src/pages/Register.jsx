@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AuthShell from './AuthShell'
 import { useAuth } from '../lib/AuthContext'
@@ -20,6 +20,14 @@ export default function Register() {
   const [resendCooldown, setResendCooldown] = useState(0)
   const { register, verifySignup } = useAuth()
   const navigate = useNavigate()
+  const captchaRef = useRef(null)
+
+  // 表单页和验证码页各自只会有一个 Turnstile 挂载（两段 return 互斥），
+  // 同一个 ref 可以放心复用
+  function resetCaptcha() {
+    captchaRef.current?.reset()
+    setCaptchaToken('')
+  }
 
   useEffect(() => {
     if (resendCooldown <= 0) return
@@ -43,6 +51,10 @@ export default function Register() {
     } catch (err) {
       setError(err.message)
     } finally {
+      // Turnstile token 一次性消费——不管这次注册请求成功还是失败都要重置，
+      // 切到验证码页后 Turnstile 会重新挂载出一个新组件，"重新发送"要用的
+      // 就是这个新 token，不是刚才发送注册请求时那个已经作废的
+      resetCaptcha()
       setSubmitting(false)
     }
   }
@@ -63,7 +75,7 @@ export default function Register() {
   }
 
   async function handleResend() {
-    if (resendCooldown > 0 || submitting) return
+    if (resendCooldown > 0 || !captchaToken || submitting) return
     setSubmitting(true)
     try {
       await api.resendSignup(email, captchaToken)
@@ -72,6 +84,7 @@ export default function Register() {
     } catch (err) {
       setError(err.message)
     } finally {
+      resetCaptcha()
       setSubmitting(false)
     }
   }
@@ -86,7 +99,8 @@ export default function Register() {
         onSubmit={handleVerifySubmit}
         submitLabel={submitting ? '处理中…' : '验证并完成注册'}
         submitDisabled={submitting || code.length !== 6}
-        showCaptcha={false}
+        captchaRef={captchaRef}
+        onCaptcha={setCaptchaToken}
       >
         <div className="field">
           <label htmlFor="code">验证码</label>
@@ -106,7 +120,11 @@ export default function Register() {
 
         <div className="toggle-row">
           没收到？
-          <button type="button" onClick={handleResend} disabled={resendCooldown > 0 || submitting}>
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resendCooldown > 0 || !captchaToken || submitting}
+          >
             {resendCooldown > 0 ? `重新发送(${resendCooldown}s)` : '重新发送验证码'}
           </button>
         </div>
@@ -125,6 +143,7 @@ export default function Register() {
       eyebrow="Sign Up"
       title="注册新账号"
       error={error}
+      captchaRef={captchaRef}
       onCaptcha={setCaptchaToken}
       onSubmit={handleFormSubmit}
       submitLabel={submitting ? '处理中…' : '发送验证码'}

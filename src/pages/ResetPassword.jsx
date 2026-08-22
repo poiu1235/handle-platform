@@ -10,12 +10,15 @@ export default function ResetPassword() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [succeeded, setSucceeded] = useState(false)
   const navigate = useNavigate()
 
-  // 只有手里攥着重置票据（status === 'recovery'）才能停在这个页面；
-  // 直接改地址栏访问、票据过期后刷新页面，都会被这里挡回 /forgot-password 重新申请，
-  // 而不是像旧版那样依赖一个"可能被复用"的 Supabase session 状态来判断
-  if (status !== 'recovery') {
+  // succeeded 是本地锁：resetPassword() 成功后会把全局 status 从 recovery 变成
+  // anonymous，这个变化和下面 navigate('/login') 谁先触发下一次渲染是不确定的——
+  // 如果 status 先变，这条守卫会在 navigate 真正生效前抢先把人送回 /forgot-password。
+  // 用一个本地标记把"已经提交成功、正在离开这个页面"这件事和"status 是否还是
+  // recovery"解耦，就不再依赖两个异步状态更新谁先谁后。
+  if (status !== 'recovery' && !succeeded) {
     return <Navigate to="/forgot-password" replace />
   }
 
@@ -27,6 +30,7 @@ export default function ResetPassword() {
     setSubmitting(true)
     try {
       await resetPassword(password)
+      setSucceeded(true)
       navigate('/login', { replace: true })
     } catch (err) {
       setError(err.message)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AuthShell from './AuthShell'
 import { useAuth } from '../lib/AuthContext'
@@ -11,6 +11,12 @@ export default function Login() {
   const [error, setError] = useState('')
   const { login } = useAuth()
   const navigate = useNavigate()
+  const captchaRef = useRef(null)
+
+  function resetCaptcha() {
+    captchaRef.current?.reset()
+    setCaptchaToken('')
+  }
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -23,6 +29,10 @@ export default function Login() {
     } catch (err) {
       setError(err.message)
     } finally {
+      // Turnstile 的 token 是一次性的，提交一次（不管成功还是失败）就作废了。
+      // 不重置的话，下一次提交会复用同一个已经被消费过的 token，Cloudflare/Supabase
+      // 会报 "timeout-or-duplicate" 拒绝——所以这里必须无条件重置，不能只在失败时做
+      resetCaptcha()
       setSubmitting(false)
     }
   }
@@ -32,6 +42,7 @@ export default function Login() {
       eyebrow="Sign In"
       title="登录账号"
       error={error}
+      captchaRef={captchaRef}
       onCaptcha={setCaptchaToken}
       onSubmit={handleSubmit}
       submitLabel={submitting ? '处理中…' : '登录'}
