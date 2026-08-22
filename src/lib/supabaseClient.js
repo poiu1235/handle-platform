@@ -10,14 +10,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
   )
 }
 
+// 邮箱验证 / 密码重置都走验证码（OTP）流程，不再依赖邮件里的可点击链接，
+// 所以不需要 flowType/detectSessionInUrl 这些跟"解析 URL 里的链接参数"相关的配置了。
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    flowType: 'pkce',
     autoRefreshToken: true,
     persistSession: true,
-    // 邮箱确认/密码重置链接现在直接把 token_hash+type 带到我们自己域名，
-    // 由 AuthCallback 在用户手动点击后调用 verifyOtp 完成验证 —— 不再依赖
-    // supabase-js 自动解析 URL，避免邮箱客户端预取链接时把一次性 token 提前消耗掉。
-    detectSessionInUrl: false,
   },
 })
