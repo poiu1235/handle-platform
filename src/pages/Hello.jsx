@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
-import { supabase } from '../lib/supabaseClient'
+import * as api from '../lib/apiClient'
 
 // ---------- 数据 ----------
-// 余额（balance）已接入 Supabase `balances` 表，见下方 fetchBalances。
+// 余额（balance）已接入 /api/balances（Cloudflare 中间层转发用户自己的 token 去打
+// Supabase PostgREST，RLS 仍是最终的数据所有权防线），见下方 fetchBalances。
 // 会籍 / 优惠券仍是 mock，接入真实数据时按同结构替换即可；
 // 滑动修改/删除/清零、新增按钮目前只对余额生效（因为只有余额有真实后端）。
 
@@ -495,7 +496,7 @@ function ConfirmDeleteModal({ itemName, onCancel, onConfirm }) {
 }
 
 export default function Hello() {
-  const { user, signOut } = useAuth()
+  const { user, logout } = useAuth()
   const [apiState, setApiState] = useState({ status: 'pending', message: '' })
 
   const [activeTab, setActiveTab] = useState('balance')
@@ -520,33 +521,24 @@ export default function Hello() {
 
       setBalanceState({ status: 'pending', message: '' })
 
-      let query = supabase
-        .from('balances')
-        .select('id, app_name, amount, updated_at')
-        .eq('user_id', user.id)
-        .order('updated_at', { ascending: false })
+      try {
+        const res = await api.authorizedFetch(`/api/balances?includeZero=${withZero}`)
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body.error || `加载失败（${res.status}）`)
 
-      if (!withZero) {
-        query = query.neq('amount', 0)
+        setBalanceItems(
+          body.map((row) => ({
+            id: row.id,
+            name: row.app_name,
+            amount: Number(row.amount),
+            unit: '元',
+            updatedAt: row.updated_at,
+          }))
+        )
+        setBalanceState({ status: 'ok', message: '' })
+      } catch (err) {
+        setBalanceState({ status: 'error', message: err.message })
       }
-
-      const { data, error } = await query
-
-      if (error) {
-        setBalanceState({ status: 'error', message: error.message })
-        return
-      }
-
-      setBalanceItems(
-        data.map((row) => ({
-          id: row.id,
-          name: row.app_name,
-          amount: Number(row.amount),
-          unit: '元',
-          updatedAt: row.updated_at,
-        }))
-      )
-      setBalanceState({ status: 'ok', message: '' })
     },
     [user, includeZero]
   )
@@ -563,16 +555,8 @@ export default function Hello() {
     let cancelled = false
 
     async function callHelloApi() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-
-      if (!session) return
-
       try {
-        const res = await fetch('/api/hello', {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        })
+        const res = await api.authorizedFetch('/api/hello')
         const body = await res.json()
         if (cancelled) return
         if (!res.ok) throw new Error(body.error || `请求失败（${res.status}）`)
@@ -634,30 +618,30 @@ export default function Hello() {
     setModalError('')
     const submitTime = new Date().toISOString()
 
-    const query =
-      modalState.mode === 'add'
-        ? supabase
-            .from('balances')
-            .upsert(
-              [{ user_id: user.id, app_name: name, amount, updated_at: submitTime }],
-              { onConflict: 'user_id,app_name' }
-            )
-        : supabase
-            .from('balances')
-            .update({ app_name: name, amount, updated_at: submitTime })
-            .eq('id', modalState.item.id)
+    try {
+      const res =
+        modalState.mode === 'add'
+          ? await api.authorizedFetch('/api/balances', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ app_name: name, amount, updated_at: submitTime }),
+            })
+          : await api.authorizedFetch(`/api/balances/${modalState.item.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ app_name: name, amount, updated_at: submitTime }),
+            })
 
-    const { error } = await query
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || `保存失败（${res.status}）`)
 
-    setModalSubmitting(false)
-
-    if (error) {
-      setModalError(error.message)
-      return
+      closeModal()
+      fetchBalances()
+    } catch (err) {
+      setModalError(err.message)
+    } finally {
+      setModalSubmitting(false)
     }
-
-    closeModal()
-    fetchBalances()
   }
 
   function handleDeleteItem(item) {
@@ -672,9 +656,10 @@ export default function Hello() {
     setExpandedId((cur) => (cur === item.id ? null : cur))
     setBalanceItems((prev) => prev.filter((it) => it.id !== item.id))
 
-    const { error } = await supabase.from('balances').delete().eq('id', item.id)
-    if (error) {
-      setBalanceState({ status: 'error', message: error.message })
+    const res = await api.authorizedFetch(`/api/balances/${item.id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setBalanceState({ status: 'error', message: body.error || '删除失败' })
       fetchBalances()
     }
   }
@@ -692,13 +677,15 @@ export default function Hello() {
       )
     })
 
-    const { error } = await supabase
-      .from('balances')
-      .update({ amount: 0, updated_at: submitTime })
-      .eq('id', item.id)
+    const res = await api.authorizedFetch(`/api/balances/${item.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: 0, updated_at: submitTime }),
+    })
 
-    if (error) {
-      setBalanceState({ status: 'error', message: error.message })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setBalanceState({ status: 'error', message: body.error || '清零失败' })
       fetchBalances()
     }
   }
@@ -712,7 +699,7 @@ export default function Hello() {
             <h1 className="board-title">Handle 数据管理端</h1>
           </div>
           <div className="board-header-actions">
-            <button className="text-btn" onClick={signOut}>
+            <button className="text-btn" onClick={logout}>
               退出登录
             </button>
           </div>
@@ -801,7 +788,7 @@ export default function Hello() {
           balanceItems.length === 0 && (
             <div className="notice">
               还没有余额数据，去
-              <Link to="/balance-import">批量导入余额</Link>
+              <Link to="/app/balance-import">批量导入余额</Link>
               页面提交一批，或者用下方的"+"新增一条。
             </div>
           )}
@@ -849,7 +836,7 @@ export default function Hello() {
               <div className="fab-menu">
                 <Link
                   className="fab-menu-item"
-                  to="/balance-import"
+                  to="/app/balance-import"
                   onClick={() => setFabOpen(false)}
                 >
                   批量增加

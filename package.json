@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "pages:dev": "wrangler pages dev --proxy=http://localhost:5173/",
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
   "dependencies": {
     "@marsidev/react-turnstile": "^1.6.0",
-    "@supabase/supabase-js": "^2.112.3",
     "jose": "^6.2.9",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

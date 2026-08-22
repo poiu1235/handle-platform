@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
-import { supabase } from '../lib/supabaseClient'
+import * as api from '../lib/apiClient'
 
 // ---------- 解析粘贴文本 ----------
 // 每行一条，"小程序名" 和 "余额" 之间用 Tab / 逗号 / 多个空格分隔，
@@ -60,7 +60,7 @@ function dedupeRows(rows) {
 }
 
 export default function BalanceImport() {
-  const { user, signOut } = useAuth()
+  const { user, logout } = useAuth()
   const [rawText, setRawText] = useState('')
   const [submitState, setSubmitState] = useState({ status: 'idle', message: '' })
 
@@ -80,28 +80,29 @@ export default function BalanceImport() {
 
     // 同一批次统一一个时间戳，代表"这批数据是这一刻提交的"
     const submitTime = new Date().toISOString()
-    const payload = deduped.map((r) => ({
-      user_id: user.id,
+    const rows = deduped.map((r) => ({
       app_name: r.app_name,
       amount: r.amount,
       updated_at: submitTime,
     }))
 
-    const { error, data } = await supabase
-      .from('balances')
-      .upsert(payload, { onConflict: 'user_id,app_name' })
-      .select('id')
+    try {
+      const res = await api.authorizedFetch('/api/balances/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || `提交失败（${res.status}）`)
 
-    if (error) {
-      setSubmitState({ status: 'error', message: error.message })
-      return
+      setSubmitState({
+        status: 'ok',
+        message: `已提交 ${Array.isArray(body) ? body.length : rows.length} 条，相同小程序名已覆盖，新名称已新增`,
+      })
+      setRawText('')
+    } catch (err) {
+      setSubmitState({ status: 'error', message: err.message })
     }
-
-    setSubmitState({
-      status: 'ok',
-      message: `已提交 ${data?.length ?? payload.length} 条，相同小程序名已覆盖，新名称已新增`,
-    })
-    setRawText('')
   }
 
   return (
@@ -113,10 +114,10 @@ export default function BalanceImport() {
             <h1 className="board-title">余额批量导入</h1>
           </div>
           <div className="board-header-actions">
-            <Link className="text-btn" to="/">
+            <Link className="text-btn" to="/app">
               返回管理端
             </Link>
-            <button className="text-btn" onClick={signOut}>
+            <button className="text-btn" onClick={logout}>
               退出登录
             </button>
           </div>

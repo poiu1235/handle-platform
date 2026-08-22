@@ -1,61 +1,74 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { supabase } from './supabaseClient'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import * as api from './apiClient'
 
 const AuthContext = createContext(null)
 
-// Supabase 的 access token 是一个 JWT，payload 里的 amr（Authentication Method
-// Reference）记录了这个 session 是通过什么方式建立的。密码重置流程建立的 session，
-// amr 数组最后一项的 method 会是 "recovery"。
-//
-// 这个信息编码在 token 本身里，不依赖"当前这个标签页有没有亲历过那次验证事件"，
-// 所以不管是开了新标签页读到别处已经建立好的 session，还是刷新了页面导致内存里的
-// state 丢失，只要能拿到 session 就能稳定推导出是不是恢复态 —— 比之前那种只在
-// onAuthStateChange 抛出 PASSWORD_RECOVERY 事件那一刻才置位的做法更可靠。
-function decodeJwtPayload(token) {
-  try {
-    const base64Url = token.split('.')[1]
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
-    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
-    return JSON.parse(atob(padded))
-  } catch {
-    return null
-  }
-}
-
-function deriveIsRecovery(session) {
-  if (!session?.access_token) return false
-  const payload = decodeJwtPayload(session.access_token)
-  const amr = payload?.amr
-  if (!Array.isArray(amr) || amr.length === 0) return false
-  return amr[amr.length - 1]?.method === 'recovery'
-}
-
+// status 是唯一的路由判断依据，不再像旧版那样靠监听 session + 反查 amr claim 反向推断：
+//   loading        —— 应用刚启动，还没确定要不要用本地 refresh token 换登录态
+//   anonymous      —— 确定未登录
+//   authenticated  —— 正常登录态，可以访问 /app/*
+//   recovery       —— 已通过 recovery 验证码、手里攥着一张一次性重置票据，只能停在
+//                      /reset-password；这张票据是纯内存态、不做持久化，5分钟有效期本来
+//                      就只够走完这一次提交，刷新页面丢失是预期行为，不是 bug
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(undefined) // undefined = 还没读出来，null = 确定未登录
+  const [status, setStatus] = useState('loading')
+  const [user, setUser] = useState(null)
+  const [resetTicket, setResetTicket] = useState(null)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
+    api.bootstrap().then((session) => {
+      if (session) {
+        setUser(session.user)
+        setStatus('authenticated')
+      } else {
+        setStatus('anonymous')
+      }
     })
-
-    // 登录、登出、token 刷新、邮件确认/密码重置跳转落地，都会触发这里。
-    // 全应用只在这里挂一个订阅，其它页面都通过 useAuth() 消费派生出来的状态。
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession)
-    })
-
-    return () => listener.subscription.unsubscribe()
   }, [])
 
-  const isRecovery = useMemo(() => deriveIsRecovery(session), [session])
+  const login = useCallback(async (email, password, captchaToken) => {
+    const session = await api.login(email, password, captchaToken)
+    setUser(session.user)
+    setStatus('authenticated')
+  }, [])
 
-  const value = {
-    session,
-    user: session?.user ?? null,
-    loading: session === undefined,
-    isRecovery,
-    signOut: () => supabase.auth.signOut(),
-  }
+  const register = useCallback((email, password, captchaToken) => api.register(email, password, captchaToken), [])
+
+  const verifySignup = useCallback(async (email, code) => {
+    const session = await api.verifySignup(email, code)
+    setUser(session.user)
+    setStatus('authenticated')
+  }, [])
+
+  const forgotPassword = useCallback((email, captchaToken) => api.forgotPassword(email, captchaToken), [])
+
+  const verifyRecovery = useCallback(async (email, code) => {
+    const ticket = await api.verifyRecovery(email, code)
+    setResetTicket(ticket)
+    setStatus('recovery')
+  }, [])
+
+  const resetPassword = useCallback(
+    async (password) => {
+      if (!resetTicket) throw new Error('重置会话已失效，请重新申请验证码')
+      await api.resetPassword(resetTicket, password)
+      setResetTicket(null)
+      setStatus('anonymous')
+    },
+    [resetTicket]
+  )
+
+  const logout = useCallback(async () => {
+    await api.logout()
+    setUser(null)
+    setResetTicket(null)
+    setStatus('anonymous')
+  }, [])
+
+  const value = useMemo(
+    () => ({ status, user, login, register, verifySignup, forgotPassword, verifyRecovery, resetPassword, logout }),
+    [status, user, login, register, verifySignup, forgotPassword, verifyRecovery, resetPassword, logout]
+  )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
