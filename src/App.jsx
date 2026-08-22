@@ -6,7 +6,7 @@ import Hello from './pages/Hello'
 import BalanceImport from './pages/BalanceImport'
 
 function RequireAuth({ children }) {
-  const { session, loading } = useAuth()
+  const { session, loading, isRecovery } = useAuth()
 
   if (loading) {
     return (
@@ -22,6 +22,12 @@ function RequireAuth({ children }) {
   }
 
   if (!session) {
+    return <Navigate to="/login" replace />
+  }
+
+  // 密码重置邮件产生的恢复态 session 只能用来设置新密码，
+  // 不能被当作正常登录态放行到其他业务页面
+  if (isRecovery) {
     return <Navigate to="/login" replace />
   }
 

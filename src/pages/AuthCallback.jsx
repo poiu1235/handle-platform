@@ -3,15 +3,20 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 
 export default function AuthCallback() {
-  const { session, loading } = useAuth()
+  const { session, isRecovery, loading } = useAuth()
   const navigate = useNavigate()
   const [timedOut, setTimedOut] = useState(false)
 
   useEffect(() => {
-    if (session) {
+    if (!session) return
+    if (isRecovery) {
+      // 密码重置邮件落地产生的是恢复态 session，不能直接放行进首页，
+      // 转去登录页——Login.jsx 会根据 isRecovery 自动切到"设置新密码"表单
+      navigate('/login', { replace: true })
+    } else {
       navigate('/', { replace: true })
     }
-  }, [session, navigate])
+  }, [session, isRecovery, navigate])
 
   useEffect(() => {
     // supabase-js 需要一点时间从 URL 里解析 code 并换取 session，给一个超时兜底
@@ -32,7 +37,7 @@ export default function AuthCallback() {
       <main className="shell-main">
         <div className="ledger-card">
           <p className="ledger-eyebrow">Verifying</p>
-          <h1 className="ledger-title">正在验证邮箱…</h1>
+          <h1 className="ledger-title">正在验证链接…</h1>
 
           {!timedOut && (
             <div className="status-line">

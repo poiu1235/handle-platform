@@ -159,6 +159,18 @@ a {
   outline-offset: 1px;
 }
 
+.field input:disabled {
+  background: var(--paper);
+  color: var(--ink-soft);
+}
+
+.field-hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
