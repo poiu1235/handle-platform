@@ -6,19 +6,25 @@ import { isPasswordValid, passwordHint } from '../../shared/passwordRules'
 
 export default function ResetPassword() {
   const { status, resetPassword } = useAuth()
+
+  // 只在这个组件第一次挂载的那一刻判断一次"我是不是正经从忘记密码流程走过来的"，
+  // 之后不管全局 status 怎么变都不再重新判断——包括 resetPassword() 提交成功后
+  // 把 status 从 recovery 改回 anonymous 这件事本身。
+  //
+  // 上一版用一个 succeeded 标记去"追上"这次 status 变化，但两者分属两次不同的
+  // await 续行（各自是独立的 microtask），status 变化触发的重渲染完全可能发生在
+  // succeeded 真正被置为 true 之前——那道锁上锁的时机本身就晚了，没堵住竞态，
+  // 只是换了个位置继续漏。用 useState 的惰性初始化只在挂载时读一次 status，
+  // 从根上让这个守卫不再对挂载之后的 status 变化敏感，就不存在"谁先谁后"的问题了。
+  const [hadTicket] = useState(() => status === 'recovery')
+
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [succeeded, setSucceeded] = useState(false)
   const navigate = useNavigate()
 
-  // succeeded 是本地锁：resetPassword() 成功后会把全局 status 从 recovery 变成
-  // anonymous，这个变化和下面 navigate('/login') 谁先触发下一次渲染是不确定的——
-  // 如果 status 先变，这条守卫会在 navigate 真正生效前抢先把人送回 /forgot-password。
-  // 用一个本地标记把"已经提交成功、正在离开这个页面"这件事和"status 是否还是
-  // recovery"解耦，就不再依赖两个异步状态更新谁先谁后。
-  if (status !== 'recovery' && !succeeded) {
+  if (!hadTicket) {
     return <Navigate to="/forgot-password" replace />
   }
 
@@ -30,7 +36,6 @@ export default function ResetPassword() {
     setSubmitting(true)
     try {
       await resetPassword(password)
-      setSucceeded(true)
       navigate('/login', { replace: true })
     } catch (err) {
       setError(err.message)
