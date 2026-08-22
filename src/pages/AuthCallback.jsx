@@ -1,28 +1,56 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
+import { supabase } from '../lib/supabaseClient'
+
+// 对应 Supabase 邮件模板里的 {{ .Type }}，用来给不同场景显示合适的文案
+const TYPE_LABEL = {
+  signup: '邮箱验证',
+  recovery: '密码重置',
+  email_change: '邮箱变更',
+  invite: '邀请',
+  magiclink: '登录',
+}
 
 export default function AuthCallback() {
-  const { session, isRecovery, loading } = useAuth()
+  const { session, isRecovery } = useAuth()
   const navigate = useNavigate()
-  const [timedOut, setTimedOut] = useState(false)
+
+  // 邮件模板现在直接把 token_hash / type 带到我们自己域名（而不是先经过
+  // Supabase 会自动消耗 token 的官方 /verify 接口），这里只是读参数，不做任何请求
+  const { tokenHash, type } = useMemo(() => {
+    const params = new URLSearchParams(window.location.search)
+    return { tokenHash: params.get('token_hash'), type: params.get('type') }
+  }, [])
+
+  const [status, setStatus] = useState(tokenHash && type ? 'idle' : 'invalid')
+  const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
     if (!session) return
     if (isRecovery) {
-      // 密码重置邮件落地产生的是恢复态 session，不能直接放行进首页，
-      // 转去登录页——Login.jsx 会根据 isRecovery 自动切到"设置新密码"表单
+      // 密码重置：转去登录页，Login.jsx 会根据 isRecovery 自动切到"设置新密码"表单
       navigate('/login', { replace: true })
     } else {
       navigate('/', { replace: true })
     }
   }, [session, isRecovery, navigate])
 
-  useEffect(() => {
-    // supabase-js 需要一点时间从 URL 里解析 code 并换取 session，给一个超时兜底
-    const timer = setTimeout(() => setTimedOut(true), 6000)
-    return () => clearTimeout(timer)
-  }, [])
+  async function handleConfirm() {
+    setStatus('verifying')
+    setErrorMsg('')
+    // 真正消耗 token、换取 session 的动作，被推迟到这次真实的用户点击之后才发生 ——
+    // 邮箱客户端的自动预取/扫描不会模拟点击，所以不会提前把它烧掉
+    const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type })
+    if (error) {
+      setStatus('error')
+      setErrorMsg(translateVerifyError(error.message))
+      return
+    }
+    // 成功后 onAuthStateChange 会更新 session/isRecovery，上面的 useEffect 负责后续跳转
+  }
+
+  const label = TYPE_LABEL[type] || '身份'
 
   return (
     <div className="shell">
@@ -37,19 +65,39 @@ export default function AuthCallback() {
       <main className="shell-main">
         <div className="ledger-card">
           <p className="ledger-eyebrow">Verifying</p>
-          <h1 className="ledger-title">正在验证链接…</h1>
+          <h1 className="ledger-title">{status === 'invalid' ? '链接无效' : `完成${label}`}</h1>
 
-          {!timedOut && (
+          {status === 'idle' && (
+            <>
+              <p className="field-hint">
+                出于安全考虑，需要你手动点击一下才会完成验证——这一步没法自动进行，是为了避免邮箱客户端的安全扫描在你真正点开之前就提前消耗掉这个链接。
+              </p>
+              <button className="btn" onClick={handleConfirm}>
+                点击完成验证
+              </button>
+            </>
+          )}
+
+          {status === 'verifying' && (
             <div className="status-line">
               <span className="status-dot status-dot-pending" />
-              {loading ? '正在建立登录态' : '正在跳转'}
+              正在验证…
             </div>
           )}
 
-          {timedOut && !session && (
+          {status === 'error' && (
+            <>
+              <div className="notice notice-error">{errorMsg}</div>
+              <button className="btn" onClick={() => navigate('/login', { replace: true })}>
+                返回登录页
+              </button>
+            </>
+          )}
+
+          {status === 'invalid' && (
             <>
               <div className="notice notice-error">
-                验证链接可能已过期或已被使用，请返回登录页重新发起。
+                链接缺少必要参数，可能已经失效，请返回登录页重新发起。
               </div>
               <button className="btn" onClick={() => navigate('/login', { replace: true })}>
                 返回登录页
@@ -60,4 +108,16 @@ export default function AuthCallback() {
       </main>
     </div>
   )
+}
+
+function translateVerifyError(message) {
+  const map = {
+    'Token has expired or is invalid': '验证链接已过期或已被使用，请返回登录页重新发起',
+    'Email link is invalid or has expired': '验证链接已过期或已被使用，请返回登录页重新发起',
+  }
+  if (map[message]) return map[message]
+  if (/expired|invalid/i.test(message)) {
+    return '验证链接已过期或已被使用，请返回登录页重新发起'
+  }
+  return message
 }

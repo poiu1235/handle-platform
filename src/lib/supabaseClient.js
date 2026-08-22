@@ -12,10 +12,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    // SPA 场景：邮件确认链接会把 code 带在 URL query 里，交给 supabase-js 自动处理并落地到 session
     flowType: 'pkce',
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: true,
+    // 邮箱确认/密码重置链接现在直接把 token_hash+type 带到我们自己域名，
+    // 由 AuthCallback 在用户手动点击后调用 verifyOtp 完成验证 —— 不再依赖
+    // supabase-js 自动解析 URL，避免邮箱客户端预取链接时把一次性 token 提前消耗掉。
+    detectSessionInUrl: false,
   },
 })
