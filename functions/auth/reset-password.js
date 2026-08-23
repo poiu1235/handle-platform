@@ -22,29 +22,28 @@ export async function onRequestPost(context) {
   }
 
   // 管理员接口（下面真正用来改密码的那个）不会像 Supabase 自助改密码接口那样
-  // 校验"新密码不能和旧密码相同"——这里手动补一道：拿新密码去尝试正常登录，
-  // 如果用这个"新"密码就能登进去，说明它其实就是当前密码，直接拒绝；登录失败
-  // （凭证不对）才说明确实是不同的密码，继续往下改。
-  // 只有明确拿到 access_token（登录成功）才判定为"密码相同"；任何其他失败原因
-  // （比如项目开了验证码保护导致这次尝试本身就过不去）都不能当成"密码不同"的
-  // 证据——宁可不做这道校验，也不能误伤正常的改密码请求
-  const sameCheck = await fetch(`${env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+  // 校验"新密码不能和旧密码相同"——这里手动补一道。
+  //
+  // 第一版曾用"拿新密码去尝试正常登录"的办法做这个校验，但那条路本身要经过
+  // /auth/v1/token?grant_type=password，撞上了登录页自己开的 Turnstile 人机验证——
+  // 这里没带 captcha token，请求必然失败，导致校验形同虚设（不管密码是否相同，
+  // 永远走"登录失败=密码不同"这条分支）。改成直接查库比对 bcrypt 哈希，完全不经过
+  // Supabase Auth 的 /token 接口，就没有这个问题——对应的 SQL 函数见
+  // supabase-check-current-password.sql，只有 service_role 能调用
+  const sameCheckRes = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/check_current_password`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: env.SUPABASE_ANON_KEY },
-    body: JSON.stringify({ email: payload.email, password }),
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+    },
+    body: JSON.stringify({ p_user_id: payload.sub, p_password: password }),
   })
-  const sameCheckData = await sameCheck.json().catch(() => ({}))
+  // 请求本身失败（比如 SQL 函数还没建）不能当成"密码不同"的证据——宁可不做这道
+  // 校验，也不能误伤正常的改密码请求；只有明确拿到 true 才拒绝
+  const isSamePassword = sameCheckRes.ok ? await sameCheckRes.json().catch(() => false) : false
 
-  if (sameCheck.ok && sameCheckData.access_token) {
-    // 立即吊销这次为了做校验而产生的、货真价实的登录 session，不能留着复用
-    await fetch(`${env.SUPABASE_URL}/auth/v1/logout`, {
-      method: 'POST',
-      headers: {
-        apikey: env.SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${sameCheckData.access_token}`,
-      },
-    }).catch(() => {})
-
+  if (isSamePassword === true) {
     return json({ error: '新密码不能与当前密码相同，请换一个' }, 400)
   }
 
