@@ -43,7 +43,14 @@ export default function AuthShell({
                   siteKey={TURNSTILE_SITE_KEY}
                   onSuccess={onCaptcha}
                   onExpire={() => onCaptcha('')}
-                  onError={() => onCaptcha('')}
+                  onError={() => {
+                    // 只清本地 token 不够——widget 本身也可能卡在加载失败的状态里，
+                    // 不主动 reset() 的话就要等用户手动刷新整个页面才能恢复。
+                    // Turnstile 自带的 retry:'auto' 只处理它内部能感知到的失败，
+                    // 这里 onError 触发时额外主动 reset 一次，是官方文档推荐的兜底写法
+                    onCaptcha('')
+                    captchaRef?.current?.reset()
+                  }}
                 />
               </div>
             )}
