@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import AuthShell from './AuthShell'
 import { useAuth } from '../lib/AuthContext'
 import { isPasswordValid, passwordHint } from '../../shared/passwordRules'
+import { OTP_TTL_MS, OTP_TTL_MINUTES } from '../../shared/otpConfig'
 import * as api from '../lib/apiClient'
 
 const RESEND_COOLDOWN_SECONDS = 60
@@ -18,6 +19,7 @@ export default function Register() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [resendCooldown, setResendCooldown] = useState(0)
+  const [codeSentAt, setCodeSentAt] = useState(null)
   const { register, verifySignup } = useAuth()
   const navigate = useNavigate()
   const captchaRef = useRef(null)
@@ -27,6 +29,18 @@ export default function Register() {
   function resetCaptcha() {
     captchaRef.current?.reset()
     setCaptchaToken('')
+  }
+
+  // Supabase 对"验证码填错"和"已过期"返回的是同一个错误码，服务端区分不了
+  // （见 functions/_lib/supabase.js 的注释）。这里只能按验证码实际发送的时间
+  // 做一个尽力而为的猜测：项目配置的有效期是 10 分钟，超过了大概率是过期，
+  // 没超过大概率是填错了——不是权威判断，只是给用户一个更具体一点的提示
+  function describeVerifyError(err) {
+    if (err.code !== 'otp_invalid_or_expired') return err.message
+    const elapsed = codeSentAt ? Date.now() - codeSentAt : Infinity
+    return elapsed < OTP_TTL_MS
+      ? '验证码错误，请重新输入'
+      : `验证码发送已经超过${OTP_TTL_MINUTES}分钟，请重新获取`
   }
 
   useEffect(() => {
@@ -48,6 +62,7 @@ export default function Register() {
       setStep('verify')
       setNotice('验证码已发送到你的邮箱')
       setResendCooldown(RESEND_COOLDOWN_SECONDS)
+      setCodeSentAt(Date.now())
     } catch (err) {
       setError(err.message)
     } finally {
@@ -68,7 +83,7 @@ export default function Register() {
       await verifySignup(email, code)
       navigate('/app', { replace: true })
     } catch (err) {
-      setError(err.message)
+      setError(describeVerifyError(err))
     } finally {
       setSubmitting(false)
     }
@@ -81,6 +96,7 @@ export default function Register() {
       await api.resendSignup(email, captchaToken)
       setNotice('验证码已重新发送')
       setResendCooldown(RESEND_COOLDOWN_SECONDS)
+      setCodeSentAt(Date.now())
     } catch (err) {
       setError(err.message)
     } finally {

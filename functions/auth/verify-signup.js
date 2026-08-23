@@ -1,4 +1,4 @@
-import { json, supabaseAuthFetch, translateSupabaseError } from '../_lib/supabase.js'
+import { json, supabaseAuthFetch, translateSupabaseError, isOtpInvalidOrExpired } from '../_lib/supabase.js'
 
 export async function onRequestPost(context) {
   const { request, env } = context
@@ -12,7 +12,15 @@ export async function onRequestPost(context) {
   })
 
   if (!ok || !data.access_token) {
-    return json({ error: translateSupabaseError(data) }, status || 400)
+    // Supabase 分不清"填错"和"过期"，这里把这一类含糊错误单独标出来，
+    // 前端会按验证码发送时间自己猜一个更具体的提示（见 Register.jsx）
+    return json(
+      {
+        error: translateSupabaseError(data),
+        ...(isOtpInvalidOrExpired(data) ? { code: 'otp_invalid_or_expired' } : {}),
+      },
+      status || 400
+    )
   }
 
   // 注册验证码通过 = 正常登录态（amr 不是 recovery），可以放心把 token 下发给前端，

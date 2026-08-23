@@ -36,7 +36,14 @@ async function post(path, body) {
     body: JSON.stringify(body),
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || '请求失败')
+  if (!res.ok) {
+    const err = new Error(data.error || '请求失败')
+    // 少数错误服务端区分不了具体原因（比如验证码"填错"和"过期"用的是同一个
+    // Supabase 错误码），会额外带一个 code 字段，调用方按需读取自己处理，
+    // 不需要的话 err.message 已经是能展示的文案，忽略 code 也没问题
+    if (data.code) err.code = data.code
+    throw err
+  }
   return data
 }
 
