@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AuthShell from './AuthShell'
 import { useAuth } from '../lib/AuthContext'
+import { useAutoDismiss } from '../lib/useAutoDismiss'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -12,6 +13,8 @@ export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const captchaRef = useRef(null)
+
+  useAutoDismiss(error, setError)
 
   function resetCaptcha() {
     captchaRef.current?.reset()

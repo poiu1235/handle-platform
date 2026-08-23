@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import AuthShell from './AuthShell'
 import { useAuth } from '../lib/AuthContext'
 import { isPasswordValid, passwordHint } from '../../shared/passwordRules'
+import { useAutoDismiss } from '../lib/useAutoDismiss'
 
 export default function ResetPassword() {
   const { status, resetPassword } = useAuth()
@@ -23,6 +24,8 @@ export default function ResetPassword() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+
+  useAutoDismiss(error, setError)
 
   if (!hadTicket) {
     return <Navigate to="/forgot-password" replace />

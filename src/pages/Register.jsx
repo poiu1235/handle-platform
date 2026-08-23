@@ -5,6 +5,7 @@ import { useAuth } from '../lib/AuthContext'
 import { isPasswordValid, passwordHint } from '../../shared/passwordRules'
 import { OTP_TTL_MS, OTP_TTL_MINUTES } from '../../shared/otpConfig'
 import * as api from '../lib/apiClient'
+import { useAutoDismiss } from '../lib/useAutoDismiss'
 
 const RESEND_COOLDOWN_SECONDS = 60
 
@@ -18,6 +19,9 @@ export default function Register() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+
+  useAutoDismiss(error, setError)
+  useAutoDismiss(notice, setNotice)
   const [resendCooldown, setResendCooldown] = useState(0)
   const [codeSentAt, setCodeSentAt] = useState(null)
   const { register, verifySignup } = useAuth()
