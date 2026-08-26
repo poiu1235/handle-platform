@@ -1,4 +1,5 @@
 import { Turnstile } from '@marsidev/react-turnstile'
+import '../auth.css'
 
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY
 

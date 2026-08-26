@@ -1,0 +1,397 @@
+/* ============================================================
+   认证页新设计语言（登录/注册/忘记密码/重置密码）
+   依据 auth-redesign/ 预览定稿：品牌蓝 #5BBBEE、移动端优先
+   （深蓝 hero + 白色底部圆角表单面板）、logo 融入。
+   全部选择器限定在认证页根节点 .shell 之下，
+   Hello/BalanceImport 及其弹窗使用的同名类（.field/.notice/.btn 等）
+   不在 .shell 内，完全不受影响。
+   页面 JSX 与交互逻辑零改动：本文件只做样式覆盖。
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&display=swap');
+
+/* ---------- 设计 token ---------- */
+.shell {
+  --au-navy: #010f1c;
+  --au-navy-2: #04263f;
+  --au-brand: #5bbbee;
+  --au-brand-hover: #3fa9e0;
+  --au-brand-soft: #e3f3fc;
+  --au-brand-text: #1b74a8;
+  --au-text: #1a1a1a;
+  --au-text-2: #646464;
+  --au-text-3: #939393;
+  --au-bg: #f0f2f5;
+  --au-card: #ffffff;
+  --au-border: #e0e0e0;
+  --au-danger: #ef4444;
+  --au-danger-soft: #fee2e2;
+  --au-font: 'PT Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--au-bg);
+  color: var(--au-text);
+  font-family: var(--au-font);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.shell a {
+  color: var(--au-brand);
+}
+
+/* ---------- 深蓝 hero：logo 展示 + 水印装饰 ---------- */
+.shell .shell-header {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 24px 20px 38px;
+  border-bottom: none;
+  background: linear-gradient(160deg, var(--au-navy-2) 0%, var(--au-navy) 72%);
+  text-align: center;
+}
+
+/* logo 水印：白色部分在深底上呈微光，蓝色部分融入主色 */
+.shell .shell-header::after {
+  content: '';
+  position: absolute;
+  right: -34px;
+  bottom: -52px;
+  width: 170px;
+  height: 170px;
+  background: url('./assets/logo.png') center / contain no-repeat;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+.shell .brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--au-font);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  color: #fff;
+  position: relative;
+  z-index: 1;
+}
+
+/* 原来的琥珀色旋转小方块 → logo 图片 */
+.shell .brand .brand-mark {
+  display: block;
+  width: 54px;
+  height: 54px;
+  background: url('./assets/logo.png') center / contain no-repeat;
+  transform: none;
+  background-color: transparent;
+}
+
+.shell .brand-sub {
+  font-family: var(--au-font);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- 表单卡片：移动端为底部圆角面板 ---------- */
+.shell .shell-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+}
+
+/* RequireAuth 的加载态复用了 .shell-main + .status-line，保持居中 */
+.shell .shell-main:has(.status-line) {
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.shell .ledger-card {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  width: 100%;
+  max-width: none;
+  margin-top: -20px; /* 向上叠进 hero，形成 App 式底部面板 */
+  background: var(--au-card);
+  border: none;
+  border-radius: 24px 24px 0 0;
+  box-shadow: 0 -6px 24px rgba(1, 15, 28, 0.14);
+  padding: 22px 22px 48px;
+}
+
+.shell .ledger-eyebrow {
+  font-family: var(--au-font);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--au-brand);
+  margin: 0 0 4px;
+}
+
+.shell .ledger-title {
+  font-family: var(--au-font);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--au-text);
+  margin: 0 0 18px;
+  line-height: 1.3;
+}
+
+/* ---------- 提示条 ---------- */
+.shell .notice {
+  font-family: var(--au-font);
+  font-size: 13px;
+  padding: 11px 14px;
+  border-left: none;
+  border-radius: 10px;
+  background: var(--au-brand-soft);
+  color: var(--au-brand-text);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+.shell .notice-error {
+  border-left: none;
+  background: var(--au-danger-soft);
+  color: var(--au-danger);
+}
+
+/* ---------- 表单字段 ---------- */
+.shell .field {
+  margin-bottom: 14px;
+}
+
+.shell .field label {
+  display: block;
+  font-family: var(--au-font);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--au-text);
+  margin-bottom: 6px;
+}
+
+.shell .field input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  padding: 0 14px 0 44px;
+  border: 1px solid var(--au-border);
+  border-radius: 10px;
+  background-color: var(--au-card);
+  background-repeat: no-repeat;
+  background-position: 14px center;
+  background-size: 18px 18px;
+  box-shadow: none;
+  font-family: var(--au-font);
+  font-size: 16px; /* ≥16px 避免 iOS 聚焦自动放大 */
+  color: var(--au-text);
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.shell .field input::placeholder {
+  color: var(--au-text-3);
+}
+
+.shell .field input:focus,
+.shell .field input:focus-visible {
+  outline: none;
+  border-color: var(--au-brand);
+  box-shadow: 0 0 0 3px rgba(91, 187, 238, 0.25);
+}
+
+.shell .field input:disabled {
+  background: #f5f7f8;
+  color: var(--au-text-3);
+}
+
+/* 输入框左侧线性图标（按 input 类型，不动页面 JSX） */
+.shell .field input[type='email'] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23939393' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='m3 7 9 6 9-6'/%3E%3C/svg%3E");
+}
+
+.shell .field input[type='password'] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23939393' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E");
+}
+
+/* 验证码输入（注册/找回密码第二步） */
+.shell .field input#code {
+  padding: 0 16px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23939393' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6Z'/%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E");
+  background-position: 14px center;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 8px;
+}
+
+.shell .field-hint {
+  margin: 5px 0 0;
+  font-family: var(--au-font);
+  font-size: 12px;
+  color: var(--au-text-3);
+  line-height: 1.4;
+}
+
+/* ---------- 辅助链接行 ---------- */
+.shell .toggle-row {
+  margin-top: 14px;
+  text-align: center;
+  font-family: var(--au-font);
+  font-size: 13px;
+  color: var(--au-text-2);
+}
+
+.shell .toggle-row a {
+  color: var(--au-brand);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.shell .toggle-row a:hover {
+  color: var(--au-brand-hover);
+  text-decoration: underline;
+}
+
+.shell .toggle-row button {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--au-font);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--au-brand);
+  cursor: pointer;
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+.shell .toggle-row button:hover:not(:disabled) {
+  color: var(--au-brand-hover);
+  text-decoration: underline;
+}
+
+.shell .toggle-row button:disabled {
+  color: var(--au-text-3);
+  font-weight: 400;
+  cursor: not-allowed;
+}
+
+/* ---------- 胶囊主按钮 ---------- */
+.shell .ledger-card .btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 48px;
+  padding: 0;
+  margin-top: 4px;
+  background: var(--au-brand);
+  color: #fff;
+  border: none;
+  border-radius: 24px;
+  font-family: var(--au-font);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: normal;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.shell .ledger-card .btn:hover:not(:disabled) {
+  background: var(--au-brand-hover);
+  box-shadow: 0 2px 10px rgba(91, 187, 238, 0.45);
+}
+
+.shell .ledger-card .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.shell .ledger-card .btn:focus-visible {
+  outline: 2px solid var(--au-brand);
+  outline-offset: 3px;
+}
+
+/* ---------- Turnstile 挂载位 ---------- */
+.shell .field .cf-turnstile,
+.shell .field iframe {
+  border-radius: 10px;
+}
+
+/* ============================================================
+   桌面端增强（≥720px）：hero 变矮条、卡片居中
+   ============================================================ */
+@media (min-width: 720px) {
+  .shell .shell-header {
+    flex-direction: row;
+    gap: 12px;
+    padding: 18px 28px 26px;
+  }
+
+  .shell .shell-header::after {
+    width: 160px;
+    height: 160px;
+    right: -30px;
+    bottom: -66px;
+  }
+
+  .shell .brand {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    font-size: 15px;
+  }
+
+  .shell .brand .brand-mark {
+    width: 40px;
+    height: 40px;
+  }
+
+  .shell .shell-main {
+    align-items: center;
+    padding: 28px 16px 40px;
+  }
+
+  .shell .shell-main:has(.status-line) {
+    padding: 2rem;
+  }
+
+  .shell .ledger-card {
+    flex: none;
+    margin-top: -18px;
+    max-width: 420px;
+    border: 1px solid var(--au-border);
+    border-radius: 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    padding: 34px 32px 28px;
+  }
+
+  .shell .field input {
+    height: 48px;
+    font-size: 14px;
+    border-radius: 8px;
+  }
+
+  .shell .ledger-card .btn {
+    height: 48px;
+    font-size: 15px;
+    border-radius: 24px;
+  }
+}
