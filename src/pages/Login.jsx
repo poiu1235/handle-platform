@@ -53,25 +53,31 @@ export default function Login() {
     >
       <div className="field">
         <label htmlFor="email">邮箱</label>
-        <input
-          id="email"
-          type="email"
-          autoComplete="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
+        <div className="field-input">
+          <span className="field-icon field-icon-mail" aria-hidden="true" />
+          <input
+            id="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
       </div>
       <div className="field">
         <label htmlFor="password">密码</label>
-        <input
-          id="password"
-          type="password"
-          autoComplete="current-password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <div className="field-input">
+          <span className="field-icon field-icon-lock" aria-hidden="true" />
+          <input
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
       </div>
 
       <div className="toggle-row">

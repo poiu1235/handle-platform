@@ -124,17 +124,20 @@ export default function Register() {
       >
         <div className="field">
           <label htmlFor="code">验证码</label>
-          <input
-            id="code"
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            autoComplete="one-time-code"
-            maxLength={6}
-            required
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-          />
+          <div className="field-input">
+            <span className="field-icon field-icon-shield" aria-hidden="true" />
+            <input
+              id="code"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="one-time-code"
+              maxLength={6}
+              required
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+            />
+          </div>
           <p className="field-hint">验证码已发送到 {email}，6 位数字，请查收</p>
         </div>
 
@@ -171,39 +174,48 @@ export default function Register() {
     >
       <div className="field">
         <label htmlFor="email">邮箱</label>
-        <input
-          id="email"
-          type="email"
-          autoComplete="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
+        <div className="field-input">
+          <span className="field-icon field-icon-mail" aria-hidden="true" />
+          <input
+            id="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
       </div>
       <div className="field">
         <label htmlFor="password">密码</label>
-        <input
-          id="password"
-          type="password"
-          autoComplete="new-password"
-          required
-          minLength={8}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <div className="field-input">
+          <span className="field-icon field-icon-lock" aria-hidden="true" />
+          <input
+            id="password"
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={8}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
         <p className="field-hint">{passwordHint()}</p>
       </div>
       <div className="field">
         <label htmlFor="confirmPassword">确认密码</label>
-        <input
-          id="confirmPassword"
-          type="password"
-          autoComplete="new-password"
-          required
-          minLength={8}
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-        />
+        <div className="field-input">
+          <span className="field-icon field-icon-lock" aria-hidden="true" />
+          <input
+            id="confirmPassword"
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={8}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+          />
+        </div>
       </div>
 
       <div className="toggle-row">
