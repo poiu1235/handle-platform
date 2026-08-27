@@ -26,7 +26,7 @@ export async function onRequestPost(context) {
   // 不识别这种情况的话，前端会以为验证码已发出，正常切到"输入验证码"页，
   // 但用户永远收不到邮件、也永远验证不过——必须在这里显式拦截
   if (Array.isArray(data.identities) && data.identities.length === 0) {
-    return json({ error: '该邮箱已经注册过了，直接登录即可', code: 'email_already_registered' }, 400)
+    return json({ error: '该邮箱已经注册过了，请直接登录', code: 'email_already_registered' }, 400)
   }
 
   // 注册接口本身不下发 accessToken/refreshToken 给前端——用户还没验证邮箱，
