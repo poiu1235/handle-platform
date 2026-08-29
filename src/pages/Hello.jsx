@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import * as api from '../lib/apiClient'
+import './board.css'
 
-// ---------- 数据 ----------
-// 余额（balance）已接入 /api/balances（Cloudflare 中间层转发用户自己的 token 去打
-// Supabase PostgREST，RLS 仍是最终的数据所有权防线），见下方 fetchBalances。
-// 会籍 / 优惠券仍是 mock，接入真实数据时按同结构替换即可；
-// 滑动修改/删除/清零、新增按钮目前只对余额生效（因为只有余额有真实后端）。
+// ============================================================
+// 管理端首页（台账）：分类标签 / 排序 / 0余额开关 / 卡包层叠卡片 /
+// 展开滚动定位 / 左滑修改删除 / 右滑清零（深滑直提交）/ FAB 菜单 /
+// 新增修改弹窗 / 删除确认弹窗。样式见 ./board.css（bd- 前缀）。
+// 设计语言：design-language.md（PT Sans、品牌蓝 #5BBBEE、深蓝 hero、
+// 胶囊按钮、1px #E0E0E0 描边、focus 光环、0.15–0.3s 缓动）。
+// ============================================================
 
 const TABS = [
   { key: 'balance', label: '余额' },
@@ -28,8 +31,6 @@ const DATA = {
     { id: 'c4', name: '会员日折扣', amount: 95, unit: '折', updatedAt: '2026-08-16' },
   ],
 }
-
-// ---------- 卡片色卡（约 50 色，全部为浅亮色，深色墨字始终可读） ----------
 
 const PALETTES = {
   balance: [
@@ -52,7 +53,6 @@ const PALETTES = {
   ],
 }
 
-// 按 item.id 哈希取色（同一 id 永远拿到同一个颜色），异步数据也不会导致颜色跳动。
 function hashString(str) {
   let h = 0
   for (let i = 0; i < str.length; i++) {
@@ -74,13 +74,11 @@ function formatUpdated(dateStr) {
   return `${yyyy}年${mm}月${dd}日更新`
 }
 
-// 按名称排序：中文用拼音顺序，英文/数字转大写后按标准 ASCII 顺序——
-// 用浏览器自带的 Intl.Collator 拼音排序（pinyin collation），不用额外引入拼音库。
 let pinyinCollator = null
 try {
   pinyinCollator = new Intl.Collator('zh-Hans-CN-u-co-pinyin', { sensitivity: 'base' })
 } catch (e) {
-  pinyinCollator = null // 极少数不支持 pinyin collation 的环境，下面会退回纯 ASCII 比较
+  pinyinCollator = null
 }
 
 function compareByName(a, b) {
@@ -94,7 +92,6 @@ function compareByName(a, b) {
 
 function sortItems(items, sortKey, sortDir) {
   const sorted = [...items].sort((a, b) => {
-    // 零余额永远沉底，不参与主排序，只在各自分组内按选定规则排
     const aZero = a.amount === 0 ? 1 : 0
     const bZero = b.amount === 0 ? 1 : 0
     if (aZero !== bZero) return aZero - bZero
@@ -112,15 +109,17 @@ function sortItems(items, sortKey, sortDir) {
   return sorted
 }
 
-// ---------- 可左右拖动的余额卡片 ----------
-// 左滑（PC 向左拖）露出"修改/删除"；右滑（PC 向右拖）露出"清零"。
-// 用 Pointer Events 统一处理触屏和鼠标拖动。
 
-const ACTION_BTN_WIDTH = 66 // 每个操作按钮的固定宽度
-const SWIPE_THRESHOLD = 40 // 滑动超过这个距离才算"要打开"，松手会自动吸附
-const FLING_VELOCITY = 0.5 // px/ms，超过这个速度算"快速一甩"，即使没拖多远也按甩的方向处理
-const MOMENTUM_MIN_DURATION = 120 // ms
-const MOMENTUM_MAX_DURATION = 320 // ms
+// ---------- 可左右拖动的余额卡片 ----------
+
+const ACTION_BTN_WIDTH = 66
+const SWIPE_THRESHOLD = 40
+const FLING_VELOCITY = 0.5
+const MOMENTUM_MIN_DURATION = 120
+const MOMENTUM_MAX_DURATION = 320
+
+// 操作面板吸附展开时的宽度过渡（拖动/惯性动画进行中由 JS 逐帧接管，CSS 过渡让位）
+const ACTION_PANEL_TRANSITION = 'width 0.24s cubic-bezier(0.22, 1, 0.36, 1)'
 
 function SwipeableBalanceCard({
   item,
@@ -133,7 +132,7 @@ function SwipeableBalanceCard({
   stackTotal,
 }) {
   const [dragX, setDragX] = useState(0)
-  const [openDir, setOpenDir] = useState(null) // 'left' | 'right' | null
+  const [openDir, setOpenDir] = useState(null)
   const drag = useRef({
     active: false,
     startX: 0,
@@ -141,33 +140,30 @@ function SwipeableBalanceCard({
     moved: false,
     rowWidth: 300,
     committing: false,
-    animating: false, // 惯性动画进行中时，CSS 的 width 过渡要让位，交给 rAF 逐帧驱动
+    animating: false,
   })
-  const dragXRef = useRef(0) // 与 dragX state 同步，pointerup 读它而不是 state，避免读到过期值
-  const velocityRef = useRef(0) // px/ms，正数=向右，负数=向左
+  const dragXRef = useRef(0)
+  const velocityRef = useRef(0)
   const lastSampleRef = useRef({ x: 0, t: 0 })
   const momentumFrame = useRef(null)
   const rowRef = useRef(null)
 
   const isZero = item.amount === 0
-  const editDeleteWidth = ACTION_BTN_WIDTH * 2 // 左滑：修改+删除，固定封顶，不能再深滑
-  const clearRevealWidth = isZero ? 0 : ACTION_BTN_WIDTH * 1.4 // 右滑：清零，浅滑时的基础展开宽度
+  const editDeleteWidth = ACTION_BTN_WIDTH * 2
+  const clearRevealWidth = isZero ? 0 : ACTION_BTN_WIDTH * 1.4
 
-  // 右滑超过卡片宽度一半 = 深滑，松手直接清零，不需要点按钮；
-  // 零余额本身已经是0，右滑整个禁用。
   const rowWidthGuess = drag.current.rowWidth || 300
   const commitThreshold = rowWidthGuess * 0.5
   const overCommit = !isZero && dragX >= commitThreshold
 
-  // 面板宽度直接从拖动距离派生：dragX>0 是右滑露出左侧"清零"面板宽度，
-  // dragX<0 是左滑露出右侧"修改/删除"面板宽度；卡片本身用 flex:1 自动占满剩下的空间，
-  // 不再用 transform 位移整张卡片——标题贴左、金额贴右，谁都不会被滑出可视区。
+  // 卡片被右滑面板压缩到放不下金额时，把金额平滑淡出，避免它溢出画到卡片外；
+  // 回滑时透明度跟着剩余宽度恢复。90px 以下完全隐藏，150px 以上完整显示
+  const cardWidth = Math.max(rowWidthGuess - Math.max(dragX, 0), 0)
+  const valueOpacity = Math.max(0, Math.min(1, (cardWidth - 90) / 60))
+
   const leftPanelWidth = Math.max(dragX, 0)
   const rightPanelWidth = Math.max(-dragX, 0)
 
-  // 用速度驱动的缓动动画把卡片从当前位置带到目标位置，
-  // 时长由速度换算：滑得越快，动画时长越短（更快收尾），
-  // easeOutCubic 让它"先快后慢"，模拟惯性衰减到停止，而不是固定时长的匀速/缓动。
   function animateMomentum(fromX, toX, velocity) {
     if (momentumFrame.current) cancelAnimationFrame(momentumFrame.current)
     const distance = toX - fromX
@@ -175,7 +171,7 @@ function SwipeableBalanceCard({
       drag.current.animating = false
       return
     }
-    const speed = Math.max(Math.abs(velocity), 0.05) // px/ms，避免除0
+    const speed = Math.max(Math.abs(velocity), 0.05)
     const duration = Math.min(
       MOMENTUM_MAX_DURATION,
       Math.max(MOMENTUM_MIN_DURATION, Math.abs(distance) / speed)
@@ -186,7 +182,7 @@ function SwipeableBalanceCard({
     function tick(now) {
       const elapsed = now - startTime
       const t = Math.min(1, elapsed / duration)
-      const eased = 1 - Math.pow(1 - t, 3) // easeOutCubic
+      const eased = 1 - Math.pow(1 - t, 3)
       const x = fromX + distance * eased
       dragXRef.current = x
       setDragX(x)
@@ -206,8 +202,6 @@ function SwipeableBalanceCard({
     }
   }, [])
 
-  // 展开时把这张卡片滚动到可视区域中间，视觉上像"从卡包里抽出来"，
-  // 其余堆叠的卡片自然被滚走；收起时顺带把滑动状态复位。
   useEffect(() => {
     if (expanded) {
       rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -220,12 +214,12 @@ function SwipeableBalanceCard({
       setOpenDir(null)
       dragXRef.current = 0
       setDragX(0)
-      drag.current.moved = false // 关键修复：折叠时把"是否发生过拖动"也复位，否则被别的卡片顶替折叠后再也点不开
+      drag.current.moved = false
     }
   }, [expanded])
 
   function handlePointerDown(e) {
-    if (!expanded || drag.current.committing) return // 折叠/退场中不响应拖动
+    if (!expanded || drag.current.committing) return
     if (momentumFrame.current) {
       cancelAnimationFrame(momentumFrame.current)
       momentumFrame.current = null
@@ -248,7 +242,6 @@ function SwipeableBalanceCard({
     if (!drag.current.active) return
     const delta = e.clientX - drag.current.startX
     if (Math.abs(delta) > 4) drag.current.moved = true
-    // 左滑（修改/删除）固定封顶，不能再深滑；右滑（清零）可以一路滑到接近卡片宽度触发深滑自动清零
     const minX = -editDeleteWidth
     const maxX = isZero ? 0 : Math.max(clearRevealWidth, drag.current.rowWidth * 0.92)
     const next = Math.max(minX, Math.min(maxX, drag.current.baseX + delta))
@@ -267,14 +260,11 @@ function SwipeableBalanceCard({
     if (!drag.current.active) return
     drag.current.active = false
     const threshold = (drag.current.rowWidth || 300) * 0.5
-    const finalX = dragXRef.current // 用 ref 而不是 state，保证拿到的是最后一帧的真实位置
+    const finalX = dragXRef.current
     const v = velocityRef.current
 
-    // 深滑过半，或者朝右快速一甩（哪怕没拖出多远）都直接提交清零
     const flungRight = v > FLING_VELOCITY && finalX > 0
     if (!isZero && (finalX >= threshold || flungRight)) {
-      // 像聊天软件划掉会话一样，卡片整体飞出屏幕消失，
-      // 动画结束后再真正提交清零（数据库那边是清零，不是删除）
       drag.current.committing = true
       setOpenDir(null)
       const flyOutX = drag.current.rowWidth + 80
@@ -313,34 +303,35 @@ function SwipeableBalanceCard({
   }
 
   function handleCardClick() {
-    if (drag.current.moved) return // 刚拖动完不算点击
+    if (drag.current.moved) return
     if (openDir) {
       closeSwipe()
       return
     }
-    onToggleExpand(item.id) // 折叠态：展开；展开态且未滑动：收起
+    onToggleExpand(item.id)
   }
 
-  // 折叠态层叠效果：越靠前的卡片盖住越靠后卡片的下边缘，露出后者顶边一小截；
-  // 展开时跳到最上层，不被相邻卡片盖住。
   const stackZIndex = expanded ? 1000 : (stackTotal ?? 0) - (stackIndex ?? 0)
 
   return (
     <div
       ref={rowRef}
-      className={`stamp-row ${expanded ? 'stamp-row-expanded' : 'stamp-row-collapsed'}`}
-      style={{ zIndex: stackZIndex }}
+      className={`bd-row ${expanded ? 'bd-row-expanded' : 'bd-row-collapsed'}`}
+      style={{ zIndex: stackZIndex, '--stagger': stackIndex }}
     >
       {expanded && !isZero && (
         <div
-          className="stamp-actions stamp-actions-left"
-          style={{ width: leftPanelWidth, transition: drag.current.active || drag.current.animating ? 'none' : 'width 0.2s ease' }}
+          className="bd-actions bd-actions-left"
+          style={{
+            width: leftPanelWidth,
+            transition: drag.current.active || drag.current.animating ? 'none' : ACTION_PANEL_TRANSITION,
+          }}
         >
           {overCommit ? (
-            <div className="stamp-action-btn stamp-action-commit">清零</div>
+            <div className="bd-action-btn bd-action-commit">清零</div>
           ) : (
             <button
-              className="stamp-action-btn stamp-action-clear"
+              className="bd-action-btn bd-action-clear"
               onClick={() => {
                 onClear(item)
                 closeSwipe()
@@ -353,9 +344,11 @@ function SwipeableBalanceCard({
       )}
 
       <div
-        className={`stamp-card ${isZero ? 'stamp-card-zero' : ''} ${expanded ? 'stamp-card-expanded' : 'stamp-card-collapsed'}`}
+        className={`bd-card ${isZero ? 'bd-card-zero' : ''} ${expanded ? 'bd-card-expanded' : 'bd-card-collapsed'}${
+          rightPanelWidth > 0 ? ' bd-card-seam-right' : leftPanelWidth > 0 ? ' bd-card-seam-left' : ''
+        }`}
         style={{
-          background: isZero ? 'var(--zero-card)' : colorFor('balance', item.id),
+          background: isZero ? 'var(--bd-zero-card)' : colorFor('balance', item.id),
         }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -363,26 +356,29 @@ function SwipeableBalanceCard({
         onPointerCancel={handlePointerUp}
         onClick={handleCardClick}
       >
-        <div className="stamp-main">
-          <p className="stamp-name">
-            <span className="stamp-mark" />
+        <div className="bd-card-main">
+          <p className="bd-card-name">
+            <span className="bd-card-mark" />
             {item.name}
           </p>
-          {expanded && <p className="stamp-meta">{formatUpdated(item.updatedAt)}</p>}
+          {expanded && <p className="bd-card-meta">{formatUpdated(item.updatedAt)}</p>}
         </div>
-        <div className="stamp-value">
-          <span className="stamp-amount">{item.amount.toLocaleString()}</span>
-          <span className="stamp-unit">{item.unit}</span>
+        <div className="bd-card-value" style={{ opacity: valueOpacity }}>
+          <span className="bd-card-amount">{item.amount.toLocaleString()}</span>
+          <span className="bd-card-unit">{item.unit}</span>
         </div>
       </div>
 
       {expanded && (
         <div
-          className="stamp-actions stamp-actions-right"
-          style={{ width: rightPanelWidth, transition: drag.current.active || drag.current.animating ? 'none' : 'width 0.2s ease' }}
+          className="bd-actions bd-actions-right"
+          style={{
+            width: rightPanelWidth,
+            transition: drag.current.active || drag.current.animating ? 'none' : ACTION_PANEL_TRANSITION,
+          }}
         >
           <button
-            className="stamp-action-btn stamp-action-edit"
+            className="bd-action-btn bd-action-edit"
             onClick={() => {
               onEdit(item)
               closeSwipe()
@@ -391,7 +387,7 @@ function SwipeableBalanceCard({
             修改
           </button>
           <button
-            className="stamp-action-btn stamp-action-delete"
+            className="bd-action-btn bd-action-delete"
             onClick={() => {
               onDelete(item)
               closeSwipe()
@@ -405,9 +401,7 @@ function SwipeableBalanceCard({
   )
 }
 
-
 // ---------- 新增 / 修改共用表单弹窗 ----------
-// mode='add'：输入框为空，展示占位提示值；mode='edit'：输入框预填列表里的真实值。
 
 function BalanceFormModal({ mode, initialItem, submitting, errorMessage, onClose, onSubmit }) {
   const [name, setName] = useState(mode === 'edit' ? initialItem?.name ?? '' : '')
@@ -419,17 +413,17 @@ function BalanceFormModal({ mode, initialItem, submitting, errorMessage, onClose
   const canSubmit = name.trim().length > 0 && amountText.trim().length > 0 && !Number.isNaN(amountNumber)
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <h2 className="modal-title">{mode === 'add' ? '新增余额记录' : '修改余额记录'}</h2>
+    <div className="bd-modal-backdrop" onClick={onClose}>
+      <div className="bd-modal-card" onClick={(e) => e.stopPropagation()}>
+        <h2 className="bd-modal-title">{mode === 'add' ? '新增余额记录' : '修改余额记录'}</h2>
 
         {mode === 'add' && (
-          <p className="modal-hint">
+          <p className="bd-modal-hint">
             小程序名如果和已有记录重名，会直接覆盖那条记录、更新它的余额，不会新建一条重复的。
           </p>
         )}
 
-        <div className="field">
+        <div className="bd-field">
           <label>小程序名</label>
           <input
             value={name}
@@ -438,7 +432,7 @@ function BalanceFormModal({ mode, initialItem, submitting, errorMessage, onClose
             autoFocus
           />
         </div>
-        <div className="field">
+        <div className="bd-field">
           <label>余额</label>
           <input
             value={amountText}
@@ -448,14 +442,14 @@ function BalanceFormModal({ mode, initialItem, submitting, errorMessage, onClose
           />
         </div>
 
-        {errorMessage && <div className="notice notice-error">{errorMessage}</div>}
+        {errorMessage && <div className="bd-notice bd-notice-error">{errorMessage}</div>}
 
-        <div className="modal-actions">
-          <button className="btn-ghost" onClick={onClose} disabled={submitting}>
+        <div className="bd-modal-actions">
+          <button className="bd-btn bd-btn-ghost" onClick={onClose} disabled={submitting}>
             取消
           </button>
           <button
-            className="btn"
+            className="bd-btn"
             disabled={!canSubmit || submitting}
             onClick={() => onSubmit({ name: name.trim(), amount: amountNumber })}
           >
@@ -467,26 +461,24 @@ function BalanceFormModal({ mode, initialItem, submitting, errorMessage, onClose
   )
 }
 
-// ---------- 自定义删除确认弹窗 ----------
-// 用和新增/修改共用的 modal-backdrop/modal-card 同一套底子，
-// 只是把操作按钮换成危险色，视觉上和系统自带的 window.confirm 区分开。
+// ---------- 删除确认弹窗 ----------
 
 function ConfirmDeleteModal({ itemName, onCancel, onConfirm }) {
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <h2 className="modal-title">删除这条记录？</h2>
+    <div className="bd-modal-backdrop" onClick={onCancel}>
+      <div className="bd-modal-card" onClick={(e) => e.stopPropagation()}>
+        <h2 className="bd-modal-title">删除这条记录？</h2>
 
-        <p className="modal-hint modal-hint-danger">
+        <p className="bd-modal-hint bd-modal-hint-danger">
           确定删除「{itemName}」这条记录吗？删除后会从数据库中彻底移除，之后查询不到；
           如果只是想把余额归零、以后还想保留这条记录，请用"清零"。
         </p>
 
-        <div className="modal-actions">
-          <button className="btn-ghost" onClick={onCancel}>
+        <div className="bd-modal-actions">
+          <button className="bd-btn bd-btn-ghost" onClick={onCancel}>
             取消
           </button>
-          <button className="btn btn-danger" onClick={onConfirm}>
+          <button className="bd-btn bd-btn-danger" onClick={onConfirm}>
             确定删除
           </button>
         </div>
@@ -500,19 +492,19 @@ export default function Hello() {
   const [apiState, setApiState] = useState({ status: 'pending', message: '' })
 
   const [activeTab, setActiveTab] = useState('balance')
-  const [sortKey, setSortKey] = useState('time') // 'time' | 'amount'
-  const [sortDir, setSortDir] = useState('desc') // 'desc' | 'asc'
+  const [sortKey, setSortKey] = useState('time')
+  const [sortDir, setSortDir] = useState('desc')
 
   const [balanceItems, setBalanceItems] = useState([])
   const [balanceState, setBalanceState] = useState({ status: 'pending', message: '' })
-  const [includeZero, setIncludeZero] = useState(false) // 默认不加载余额为 0 的记录
+  const [includeZero, setIncludeZero] = useState(false)
 
   const [fabOpen, setFabOpen] = useState(false)
-  const [expandedId, setExpandedId] = useState(null) // 当前展开的余额卡片 id，同时只展开一张
+  const [expandedId, setExpandedId] = useState(null)
   const [modalState, setModalState] = useState({ open: false, mode: 'add', item: null })
   const [modalSubmitting, setModalSubmitting] = useState(false)
   const [modalError, setModalError] = useState('')
-  const [deleteTarget, setDeleteTarget] = useState(null) // 待确认删除的 item，非空时弹出自定义确认框
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
   const fetchBalances = useCallback(
     async (opts = {}) => {
@@ -545,9 +537,6 @@ export default function Hello() {
 
   useEffect(() => {
     fetchBalances()
-    // 只依赖 user.id（稳定字符串），不依赖整个 user 对象引用——
-    // Supabase 后台静默刷新 token 时，AuthContext 给出的 user 可能是新对象但 id 不变，
-    // 依赖整个对象会导致这里被误触发，看起来像"隔一段时间就莫名其妙重新加载"。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
@@ -645,7 +634,7 @@ export default function Hello() {
   }
 
   function handleDeleteItem(item) {
-    setDeleteTarget(item) // 只是打开自定义确认框，真正的删除动作放到 confirmDeleteItem 里
+    setDeleteTarget(item)
   }
 
   async function confirmDeleteItem() {
@@ -691,29 +680,26 @@ export default function Hello() {
   }
 
   return (
-    <div className="board-shell">
-      <header className="board-header">
-        <div className="board-header-top">
+    <div className="bd-board">
+      <header className="bd-header">
+        <div className="bd-header-top">
           <div>
-            <p className="ledger-eyebrow">Assets Overview</p>
-            <h1 className="board-title">Handle 数据管理端</h1>
+            <p className="bd-eyebrow">Assets Overview</p>
+            <h1 className="bd-title">Handle 数据管理端</h1>
           </div>
-          <div className="board-header-actions">
-            <button className="text-btn" onClick={logout}>
-              退出登录
-            </button>
-          </div>
+          <button className="bd-text-btn" onClick={logout}>
+            退出登录
+          </button>
         </div>
-
-        <div className="board-status">
+        <div className="bd-status">
           <span
             className={
-              'status-dot ' +
+              'bd-dot ' +
               (apiState.status === 'ok'
                 ? ''
                 : apiState.status === 'error'
-                  ? 'status-dot-error'
-                  : 'status-dot-pending')
+                  ? 'bd-dot-error'
+                  : 'bd-dot-pending')
             }
           />
           {apiState.status === 'pending' && `正在验证登录态…`}
@@ -722,36 +708,36 @@ export default function Hello() {
         </div>
       </header>
 
-      <div className="board-tabs">
+      <nav className="bd-tabs">
         {TABS.map((tab) => (
           <button
             key={tab.key}
-            className={`board-tab ${activeTab === tab.key ? 'board-tab-active' : ''}`}
+            className={`bd-tab ${activeTab === tab.key ? 'bd-tab-active' : ''}`}
             onClick={() => setActiveTab(tab.key)}
           >
             {tab.label}
-            <span className="board-tab-count">
+            <span className="bd-tab-count">
               {tab.key === 'balance' ? balanceItems.length : DATA[tab.key].length}
             </span>
           </button>
         ))}
-      </div>
+      </nav>
 
-      <div className="board-sort-row">
+      <div className="bd-sort-row">
         <button
-          className={`board-sort-btn ${sortKey === 'time' ? 'board-sort-btn-active' : ''}`}
+          className={`bd-sort-btn ${sortKey === 'time' ? 'bd-sort-btn-active' : ''}`}
           onClick={() => toggleSort('time')}
         >
           按更新时间 {sortKey === 'time' && (sortDir === 'desc' ? '↓' : '↑')}
         </button>
         <button
-          className={`board-sort-btn ${sortKey === 'amount' ? 'board-sort-btn-active' : ''}`}
+          className={`bd-sort-btn ${sortKey === 'amount' ? 'bd-sort-btn-active' : ''}`}
           onClick={() => toggleSort('amount')}
         >
           按金额 {sortKey === 'amount' && (sortDir === 'desc' ? '↓' : '↑')}
         </button>
         <button
-          className={`board-sort-btn ${sortKey === 'name' ? 'board-sort-btn-active' : ''}`}
+          className={`bd-sort-btn ${sortKey === 'name' ? 'bd-sort-btn-active' : ''}`}
           onClick={() => toggleSort('name')}
         >
           按名称 {sortKey === 'name' && (sortDir === 'desc' ? '↓' : '↑')}
@@ -759,34 +745,34 @@ export default function Hello() {
       </div>
 
       {activeTab === 'balance' && (
-        <div className="board-zero-row">
-          <label className="zero-toggle">
+        <div className="bd-zero-row">
+          <label className="bd-toggle">
             <input
               type="checkbox"
-              className="tgl tgl-ios"
+              className="bd-toggle-input"
               checked={includeZero}
               onChange={handleToggleZero}
             />
-            <span className="tgl-btn" />
-            <span className="zero-toggle-label">展示余额为0的小程序列表</span>
+            <span className="bd-toggle-track" aria-hidden="true" />
+            <span className="bd-toggle-label">展示余额为0的小程序列表</span>
           </label>
         </div>
       )}
 
-      <div className="board-list">
+      <div className="bd-list">
         {activeTab === 'balance' && balanceState.status === 'pending' && (
-          <div className="status-line">
-            <span className="status-dot status-dot-pending" />
+          <div className="bd-status-line">
+            <span className="bd-dot bd-dot-pending" />
             正在加载余额…
           </div>
         )}
         {activeTab === 'balance' && balanceState.status === 'error' && (
-          <div className="notice notice-error">加载余额失败：{balanceState.message}</div>
+          <div className="bd-notice bd-notice-error">加载余额失败：{balanceState.message}</div>
         )}
         {activeTab === 'balance' &&
           balanceState.status === 'ok' &&
           balanceItems.length === 0 && (
-            <div className="notice">
+            <div className="bd-notice">
               还没有余额数据，去
               <Link to="/app/balance-import">批量导入余额</Link>
               页面提交一批，或者用下方的"+"新增一条。
@@ -809,19 +795,19 @@ export default function Hello() {
           ) : (
             <div
               key={item.id}
-              className="stamp-card"
-              style={{ background: colorFor(activeTab, item.id) }}
+              className="bd-card bd-card-static"
+              style={{ background: colorFor(activeTab, item.id), '--stagger': idx }}
             >
-              <div className="stamp-main">
-                <p className="stamp-name">
-                  <span className="stamp-mark" />
+              <div className="bd-card-main">
+                <p className="bd-card-name">
+                  <span className="bd-card-mark" />
                   {item.name}
                 </p>
-                <p className="stamp-meta">{formatUpdated(item.updatedAt)}</p>
+                <p className="bd-card-meta">{formatUpdated(item.updatedAt)}</p>
               </div>
-              <div className="stamp-value">
-                <span className="stamp-amount">{item.amount.toLocaleString()}</span>
-                <span className="stamp-unit">{item.unit}</span>
+              <div className="bd-card-value">
+                <span className="bd-card-amount">{item.amount.toLocaleString()}</span>
+                <span className="bd-card-unit">{item.unit}</span>
               </div>
             </div>
           )
@@ -829,20 +815,16 @@ export default function Hello() {
       </div>
 
       {activeTab === 'balance' && (
-        <div className="fab-wrap">
+        <div className="bd-fab-wrap">
           {fabOpen && (
             <>
-              <div className="fab-backdrop" onClick={() => setFabOpen(false)} />
-              <div className="fab-menu">
-                <Link
-                  className="fab-menu-item"
-                  to="/app/balance-import"
-                  onClick={() => setFabOpen(false)}
-                >
+              <div className="bd-fab-backdrop" onClick={() => setFabOpen(false)} />
+              <div className="bd-fab-menu">
+                <Link className="bd-fab-menu-item" to="/app/balance-import" onClick={() => setFabOpen(false)}>
                   批量增加
                 </Link>
                 <button
-                  className="fab-menu-item"
+                  className="bd-fab-menu-item"
                   onClick={() => {
                     setFabOpen(false)
                     openAddModal()
@@ -854,7 +836,7 @@ export default function Hello() {
             </>
           )}
           <button
-            className={`fab-btn ${fabOpen ? 'fab-btn-open' : ''}`}
+            className={`bd-fab-btn ${fabOpen ? 'bd-fab-btn-open' : ''}`}
             onClick={() => setFabOpen((v) => !v)}
             aria-label="新增余额记录"
           >

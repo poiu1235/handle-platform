@@ -2,10 +2,12 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import * as api from '../lib/apiClient'
+import './board.css'
 
-// ---------- 解析粘贴文本 ----------
-// 每行一条，"小程序名" 和 "余额" 之间用 Tab / 逗号 / 多个空格分隔，
-// 兼容直接从 Excel、飞书表格、小程序后台复制两列的情况。
+// ============================================================
+// 余额批量导入页：粘贴解析 / 逐行报错 / 表头跳过 / 同批重名去重 /
+// 解析预览表格 / 提交与结果提示。样式见 ./board.css（bd- 前缀）。
+// ============================================================
 
 function splitLine(line) {
   if (line.includes('\t')) return line.split('\t')
@@ -40,7 +42,6 @@ function parsePastedText(text) {
       return
     }
     if (Number.isNaN(amount)) {
-      // 第一行如果解析不出数字，当作表头处理，直接跳过而不报错
       if (idx === 0) return
       errors.push({ line: idx + 1, raw: line, reason: `余额「${amountRaw}」不是有效数字` })
       return
@@ -52,7 +53,6 @@ function parsePastedText(text) {
   return { rows, errors }
 }
 
-// 同一批次里名称重复时保留最后一条，避免一次 upsert 里出现重复 key
 function dedupeRows(rows) {
   const map = new Map()
   rows.forEach((r) => map.set(r.app_name, r))
@@ -78,7 +78,6 @@ export default function BalanceImport() {
     }
     setSubmitState({ status: 'submitting', message: '' })
 
-    // 同一批次统一一个时间戳，代表"这批数据是这一刻提交的"
     const submitTime = new Date().toISOString()
     const rows = deduped.map((r) => ({
       app_name: r.app_name,
@@ -106,30 +105,30 @@ export default function BalanceImport() {
   }
 
   return (
-    <div className="import-shell">
-      <header className="import-header">
-        <div className="import-header-top">
+    <div className="bd-import">
+      <header className="bd-import-header">
+        <div className="bd-import-top">
           <div>
-            <p className="ledger-eyebrow">Balance Import</p>
-            <h1 className="board-title">余额批量导入</h1>
+            <p className="bd-eyebrow">Balance Import</p>
+            <h1 className="bd-title">余额批量导入</h1>
           </div>
-          <div className="board-header-actions">
-            <Link className="text-btn" to="/app">
+          <div className="bd-header-actions">
+            <Link className="bd-text-btn" to="/app">
               返回管理端
             </Link>
-            <button className="text-btn" onClick={logout}>
+            <button className="bd-text-btn" onClick={logout}>
               退出登录
             </button>
           </div>
         </div>
-        <p className="import-hint">
+        <p className="bd-import-hint">
           从表格里复制两列（小程序名、余额）直接粘贴到下方，每行一条。相同名称会覆盖原有余额，新名称会新增一条记录，更新时间统一记为本次提交时刻。
         </p>
       </header>
 
-      <div className="import-body">
+      <div className="bd-import-body">
         <textarea
-          className="import-textarea"
+          className="bd-textarea"
           placeholder={'小程序名\t余额\n黄金会员小程序\t8600\n视频会员小程序\t120'}
           value={rawText}
           onChange={(e) => setRawText(e.target.value)}
@@ -137,18 +136,18 @@ export default function BalanceImport() {
         />
 
         {rawText.trim().length > 0 && (
-          <div className="import-preview">
-            <p className="import-preview-title">
+          <div className="bd-preview">
+            <p className="bd-preview-title">
               解析预览{deduped.length > 0 && `（${deduped.length} 条）`}
               {hasDuplicates && (
-                <span className="import-preview-note">同批次内有重名，已保留最后一条</span>
+                <span className="bd-preview-note">同批次内有重名，已保留最后一条</span>
               )}
             </p>
 
             {errors.length > 0 && (
-              <div className="import-errors">
+              <div className="bd-errors">
                 {errors.map((e, i) => (
-                  <p key={i} className="import-error-line">
+                  <p key={i} className="bd-error-line">
                     第 {e.line} 行：{e.reason} —「{e.raw}」
                   </p>
                 ))}
@@ -156,7 +155,7 @@ export default function BalanceImport() {
             )}
 
             {deduped.length > 0 && (
-              <table className="import-table">
+              <table className="bd-table">
                 <thead>
                   <tr>
                     <th>小程序名</th>
@@ -176,13 +175,13 @@ export default function BalanceImport() {
           </div>
         )}
 
-        <button className="btn" onClick={handleSubmit} disabled={!canSubmit}>
+        <button className="bd-btn bd-btn-block" onClick={handleSubmit} disabled={!canSubmit}>
           {submitState.status === 'submitting' ? '提交中…' : '提交'}
         </button>
 
-        {submitState.status === 'ok' && <div className="notice">{submitState.message}</div>}
+        {submitState.status === 'ok' && <div className="bd-notice">{submitState.message}</div>}
         {submitState.status === 'error' && (
-          <div className="notice notice-error">{submitState.message}</div>
+          <div className="bd-notice bd-notice-error">{submitState.message}</div>
         )}
       </div>
     </div>

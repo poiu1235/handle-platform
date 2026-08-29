@@ -26,3 +26,4 @@ dist-ssr
 .env.local
 .dev.vars
 .wrangler
+.wrangler/*

@@ -1,0 +1,1148 @@
+/* ============================================================
+   管理端（首页 + 余额批量导入）设计 token 与全部样式
+   严格沿用 auth 设计语言（design-language.md）：
+   PT Sans / 品牌蓝 #5BBBEE / 深蓝 hero / 白色面板 / 胶囊按钮 /
+   1px #E0E0E0 描边 / focus 光环 / 0.15–0.3s ease-out 缓动。
+   全部选择器带 bd- 前缀，与 index.css / auth.css 互不干扰。
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+
+.bd-board,
+.bd-import {
+  --au-navy: #010f1c;
+  --au-navy-2: #04263f;
+  --au-brand: #5bbbee;
+  --au-brand-hover: #3fa9e0;
+  --au-brand-soft: #e3f3fc;
+  --au-brand-text: #1b74a8;
+  --au-text: #1a1a1a;
+  --au-text-2: #646464;
+  --au-text-3: #939393;
+  --au-bg: #f0f2f5;
+  --au-card: #ffffff;
+  --au-border: #e0e0e0;
+  --au-danger: #ef4444;
+  --au-danger-soft: #fee2e2;
+  /* 0 余额卡片：明显比页面底色深一档，一眼可辨 */
+  --bd-zero-card: #cdd3d9;
+  --bd-font: 'PT Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --bd-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --bd-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* 内容列：移动端优先，不撑满整屏；超宽屏时居中（与 auth 卡片居中一致）。
+     侧边距取「16px」与「居中剩余空间」的较大值 */
+  --bd-col: 560px;
+  --bd-gutter: max(16px, calc((100% - var(--bd-col)) / 2));
+
+  font-family: var(--bd-font);
+  color: var(--au-text);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.bd-board,
+.bd-board *,
+.bd-board *::before,
+.bd-board *::after,
+.bd-import,
+.bd-import *,
+.bd-import *::before,
+.bd-import *::after {
+  box-sizing: border-box;
+}
+
+.bd-board button,
+.bd-board input,
+.bd-board textarea,
+.bd-import button,
+.bd-import input,
+.bd-import textarea {
+  font-family: inherit;
+}
+
+/* ============================================================
+   管理端首页：100dvh 外壳，列表内部滚动（与原版行为一致）
+   ============================================================ */
+
+.bd-board {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--au-bg);
+  overflow: hidden;
+  position: relative;
+}
+
+/* ---------- 深蓝 hero 头部 ---------- */
+
+.bd-header {
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  padding: 20px 20px 16px;
+  background: linear-gradient(160deg, var(--au-navy-2) 0%, var(--au-navy) 72%);
+  color: #ffffff;
+}
+
+.bd-header::after {
+  content: '';
+  position: absolute;
+  right: -30px;
+  bottom: -52px;
+  width: 150px;
+  height: 150px;
+  background: url('../../assets/logo.png') center / contain no-repeat;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+.bd-header-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: var(--bd-col);
+  margin: 0 auto;
+}
+
+.bd-eyebrow {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--au-brand);
+}
+
+.bd-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #ffffff;
+}
+
+.bd-text-btn {
+  background: none;
+  border: none;
+  padding: 4px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  /* 与旧版一致：常驻下划线，触屏上也能看出可点击 */
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.15s ease;
+  white-space: nowrap;
+}
+
+.bd-text-btn:hover {
+  color: #ffffff;
+}
+
+.bd-status {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 7px;
+  /* 与内容列左缘对齐：桌面端取居中列的左边界，移动端为 0（由 header 自身留白） */
+  margin: 12px 0 0 max(0px, calc((100% - var(--bd-col)) / 2));
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bd-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--au-brand);
+}
+
+.bd-dot-error {
+  background: var(--au-danger);
+}
+
+.bd-dot-pending {
+  background: #9fb3c2;
+  animation: bd-pulse 1.4s ease-in-out infinite;
+}
+
+/* ---------- 分类标签：白色分段控件，选中 = 品牌蓝 ---------- */
+
+.bd-tabs {
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+  margin: 14px var(--bd-gutter) 0;
+  padding: 4px;
+  background: var(--au-card);
+  border: 1px solid var(--au-border);
+  border-radius: 999px;
+}
+
+.bd-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 6px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--au-text-2);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  white-space: nowrap;
+}
+
+.bd-tab:hover {
+  color: var(--au-text);
+}
+
+.bd-tab-active {
+  background: var(--au-brand);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(91, 187, 238, 0.4);
+  animation: bd-pop 0.28s var(--bd-spring);
+}
+
+.bd-tab-count {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--au-bg);
+  color: var(--au-text-3);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.bd-tab-active .bd-tab-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+/* ---------- 排序 ---------- */
+
+.bd-sort-row {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  padding: 12px var(--bd-gutter) 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.bd-sort-row::-webkit-scrollbar {
+  display: none;
+}
+
+.bd-sort-btn {
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--au-border);
+  background: var(--au-card);
+  color: var(--au-text-2);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.bd-sort-btn:hover {
+  color: var(--au-text);
+  border-color: #c9ced4;
+}
+
+.bd-sort-btn-active {
+  border-color: var(--au-brand);
+  background: var(--au-brand-soft);
+  color: var(--au-brand-text);
+}
+
+/* ---------- 0 余额开关 ---------- */
+
+.bd-zero-row {
+  flex-shrink: 0;
+  padding: 10px var(--bd-gutter) 0;
+}
+
+.bd-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.bd-toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.bd-toggle-track {
+  flex: none;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: #c8cfd6;
+  position: relative;
+  transition: background 0.2s ease;
+}
+
+.bd-toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(1, 15, 28, 0.25);
+  /* 用 left/width（布局属性）而不是 transform 做动画：transform 会让滑块
+     常驻合成层，Windows Chrome 会把旁边文字切到灰度抗锯齿，开启态看起来发糊。
+     旧版 tgl-ios 就是动画 left，无此问题 */
+  transition: left 0.24s var(--bd-spring), width 0.15s ease;
+}
+
+.bd-toggle-input:checked + .bd-toggle-track {
+  background: var(--au-brand);
+}
+
+.bd-toggle-input:checked + .bd-toggle-track::after {
+  left: 20px;
+}
+
+/* 按压形变：与旧版 tgl-ios 对齐——按住时凹槽内陷、滑块轻微压扁 */
+.bd-toggle-input:active + .bd-toggle-track {
+  box-shadow: inset 0 0 0 24px rgba(1, 15, 28, 0.08);
+}
+
+.bd-toggle-input:active + .bd-toggle-track::after {
+  width: 17px;
+}
+
+.bd-toggle-input:checked:active + .bd-toggle-track {
+  box-shadow: none;
+}
+
+.bd-toggle-input:checked:active + .bd-toggle-track::after {
+  left: 20px;
+  width: 17px;
+}
+
+.bd-toggle-input:focus-visible + .bd-toggle-track {
+  box-shadow: 0 0 0 3px rgba(91, 187, 238, 0.35);
+}
+
+.bd-toggle-label {
+  font-size: 13px;
+  color: var(--au-text-2);
+}
+
+.bd-toggle:hover .bd-toggle-label {
+  color: var(--au-text);
+}
+
+/* ---------- 列表 ---------- */
+
+.bd-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* 与旧版一致：列表滚到顶/底时不带动整页回弹 */
+  overscroll-behavior-y: contain;
+  display: flex;
+  flex-direction: column;
+  padding: 12px var(--bd-gutter) 120px;
+  scrollbar-width: thin;
+}
+
+.bd-status-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 8px;
+  color: var(--au-text-2);
+  font-size: 13px;
+}
+
+.bd-notice {
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: var(--au-brand-soft);
+  color: var(--au-brand-text);
+  margin: 4px 0 12px;
+}
+
+.bd-notice a {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bd-notice-error {
+  background: var(--au-danger-soft);
+  color: var(--au-danger);
+}
+
+/* ---------- 卡片行：卡包层叠 + 展开上浮 ---------- */
+
+.bd-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-radius: 16px;
+  flex-shrink: 0;
+  animation: bd-rise 0.5s var(--bd-ease) both;
+  animation-delay: calc(var(--stagger, 0) * 40ms);
+}
+
+.bd-row-collapsed {
+  margin-top: 8px;
+}
+
+.bd-row-collapsed + .bd-row-collapsed {
+  margin-top: -16px;
+}
+
+.bd-row-expanded {
+  margin: 10px 0;
+}
+
+.bd-card {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 16px;
+  border: none;
+  touch-action: pan-y;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: padding 0.18s var(--bd-ease), box-shadow 0.18s ease, transform 0.2s var(--bd-ease);
+}
+
+.bd-card:active {
+  cursor: grabbing;
+}
+
+.bd-card-collapsed {
+  padding: 16px 18px;
+  box-shadow: 0 3px 8px rgba(1, 15, 28, 0.1);
+}
+
+.bd-card-expanded {
+  padding: 18px 20px;
+  box-shadow: 0 10px 26px rgba(1, 15, 28, 0.16);
+}
+
+/* 滑出操作面板时，卡片与按钮的接缝一侧改为直角，
+   整行读作一个连续的圆角整体（外缘仍由卡片/面板各自的圆角负责） */
+.bd-card-seam-right {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.bd-card-seam-left {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+/* 会籍 / 优惠券的静态展示卡片 */
+.bd-card-static {
+  padding: 18px 20px;
+  margin-top: 8px;
+  box-shadow: 0 3px 8px rgba(1, 15, 28, 0.1);
+  cursor: default;
+  animation: bd-rise 0.5s var(--bd-ease) both;
+  animation-delay: calc(var(--stagger, 0) * 40ms);
+}
+
+.bd-card-main {
+  min-width: 0;
+}
+
+.bd-card-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--au-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bd-card-expanded .bd-card-name,
+.bd-card-static .bd-card-name {
+  font-size: 16px;
+}
+
+.bd-card-mark {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 9px;
+  background: var(--au-text);
+  opacity: 0.75;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
+.bd-card-meta {
+  margin: 5px 0 0;
+  font-size: 12px;
+  color: var(--au-text);
+  opacity: 0.6;
+  /* 与原版 stamp-meta 一致：卡片被滑出面板挤压时日期截断省略，不换行撑高 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: bd-meta-in 0.25s var(--bd-ease) both;
+}
+
+.bd-card-zero .bd-card-name,
+.bd-card-zero .bd-card-amount,
+.bd-card-zero .bd-card-unit {
+  color: #6b727a;
+}
+
+.bd-card-zero .bd-card-mark {
+  background: #6b727a;
+  opacity: 0.6;
+}
+
+.bd-card-value {
+  flex: none;
+  text-align: right;
+}
+
+.bd-card-amount {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--au-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.bd-card-unit {
+  margin-left: 3px;
+  font-size: 12px;
+  color: var(--au-text-2);
+}
+
+/* ---------- 滑动操作按钮 ---------- */
+
+.bd-actions {
+  flex: 0 0 auto;
+  overflow: hidden;
+  display: flex;
+}
+
+.bd-actions-left {
+  border-radius: 16px 0 0 16px;
+}
+
+.bd-actions-right {
+  border-radius: 0 16px 16px 0;
+}
+
+.bd-action-btn {
+  flex: 1;
+  min-width: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.bd-action-btn:hover {
+  filter: brightness(1.08);
+}
+
+.bd-action-btn:active {
+  filter: brightness(0.95);
+}
+
+.bd-action-edit {
+  background: var(--au-brand);
+}
+
+.bd-action-delete {
+  background: var(--au-danger);
+}
+
+.bd-action-clear,
+.bd-action-commit {
+  background: var(--au-navy-2);
+}
+
+.bd-action-commit {
+  width: 100%;
+  font-size: 14px;
+  letter-spacing: 0.05em;
+}
+
+/* ---------- FAB ---------- */
+
+.bd-fab-wrap {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  /* 高于展开卡片（z-index 1000），低于弹窗遮罩 */
+  z-index: 1010;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.bd-fab-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  background: transparent;
+  animation: bd-fade 0.2s ease both;
+}
+
+.bd-fab-menu {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  gap: 10px;
+  animation: bd-menu-in 0.3s var(--bd-spring) both;
+}
+
+.bd-fab-menu-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 11px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--au-border);
+  background: var(--au-card);
+  color: var(--au-text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(1, 15, 28, 0.14);
+  transition: transform 0.18s var(--bd-ease), box-shadow 0.18s ease;
+}
+
+.bd-fab-menu-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(1, 15, 28, 0.18);
+}
+
+.bd-fab-menu-item:nth-child(2) {
+  animation: bd-menu-in 0.3s 0.04s var(--bd-spring) both;
+}
+
+.bd-fab-btn {
+  position: relative;
+  z-index: 30;
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  background: var(--au-brand);
+  color: #ffffff;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 20px rgba(63, 169, 224, 0.45);
+  transition: transform 0.32s var(--bd-spring), background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.bd-fab-btn:hover {
+  background: var(--au-brand-hover);
+}
+
+.bd-fab-btn:active {
+  transform: scale(0.94);
+}
+
+.bd-fab-btn-open,
+.bd-fab-btn-open:hover {
+  transform: rotate(135deg);
+  background: var(--au-navy-2);
+  box-shadow: 0 8px 20px rgba(1, 15, 28, 0.35);
+}
+
+.bd-fab-btn:focus-visible {
+  outline: 2px solid var(--au-brand);
+  outline-offset: 3px;
+}
+
+/* ---------- 弹窗 ---------- */
+
+.bd-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  /* 必须高于展开卡片的 z-index（1000），否则弹窗会被卡片盖住 */
+  z-index: 1020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(1, 15, 28, 0.42);
+  backdrop-filter: blur(3px);
+  animation: bd-fade 0.2s ease both;
+}
+
+.bd-modal-card {
+  width: min(400px, 100%);
+  max-height: 86dvh;
+  overflow-y: auto;
+  background: var(--au-card);
+  border-radius: 16px;
+  padding: 24px 22px;
+  box-shadow: 0 24px 60px rgba(1, 15, 28, 0.28);
+  animation: bd-modal-in 0.32s var(--bd-spring) both;
+}
+
+.bd-modal-title {
+  margin: 0 0 14px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.bd-modal-hint {
+  margin: 0 0 14px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: var(--au-brand-soft);
+  color: var(--au-brand-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.bd-modal-hint-danger {
+  background: var(--au-danger-soft);
+  color: var(--au-danger);
+}
+
+.bd-field {
+  margin-bottom: 14px;
+}
+
+.bd-field label {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--au-text);
+  margin-bottom: 6px;
+}
+
+.bd-field input {
+  width: 100%;
+  height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--au-border);
+  border-radius: 10px;
+  background: var(--au-card);
+  font-size: 16px;
+  color: var(--au-text);
+  outline: none;
+  appearance: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bd-field input::placeholder {
+  color: var(--au-text-3);
+}
+
+.bd-field input:focus {
+  border-color: var(--au-brand);
+  box-shadow: 0 0 0 3px rgba(91, 187, 238, 0.25);
+}
+
+.bd-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* ---------- 按钮 ---------- */
+
+.bd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  padding: 0 24px;
+  border: none;
+  border-radius: 999px;
+  background: var(--au-brand);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+.bd-btn:hover:not(:disabled) {
+  background: var(--au-brand-hover);
+  box-shadow: 0 2px 10px rgba(91, 187, 238, 0.45);
+}
+
+.bd-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.bd-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bd-btn:focus-visible {
+  outline: 2px solid var(--au-brand);
+  outline-offset: 3px;
+}
+
+.bd-btn-ghost {
+  background: var(--au-card);
+  border: 1px solid var(--au-border);
+  color: var(--au-text-2);
+}
+
+.bd-btn-ghost:hover:not(:disabled) {
+  background: var(--au-bg);
+  box-shadow: none;
+  color: var(--au-text);
+}
+
+.bd-btn-danger {
+  background: var(--au-danger);
+}
+
+.bd-btn-danger:hover:not(:disabled) {
+  background: #dc2626;
+  box-shadow: 0 2px 10px rgba(239, 68, 68, 0.4);
+}
+
+.bd-btn-block {
+  width: 100%;
+  height: 48px;
+  font-size: 15px;
+}
+
+/* ============================================================
+   余额批量导入页
+   ============================================================ */
+
+.bd-import {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--au-bg);
+}
+
+.bd-import-header {
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  padding: 20px 20px 22px;
+  background: linear-gradient(160deg, var(--au-navy-2) 0%, var(--au-navy) 72%);
+  color: #ffffff;
+}
+
+.bd-import-header::after {
+  content: '';
+  position: absolute;
+  right: -30px;
+  bottom: -52px;
+  width: 150px;
+  height: 150px;
+  background: url('../../assets/logo.png') center / contain no-repeat;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+.bd-import-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: var(--bd-col);
+  margin: 0 auto;
+}
+
+.bd-header-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 16px;
+  flex: none;
+}
+
+.bd-import-hint {
+  position: relative;
+  z-index: 1;
+  margin: 12px auto 0;
+  max-width: var(--bd-col);
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.bd-import-body {
+  flex: 1;
+  width: 100%;
+  max-width: var(--bd-col);
+  margin: 0 auto;
+  padding: 20px 16px 64px;
+  display: flex;
+  flex-direction: column;
+}
+
+.bd-textarea {
+  width: 100%;
+  min-height: 240px;
+  padding: 14px;
+  border: 1px solid var(--au-border);
+  border-radius: 12px;
+  background: var(--au-card);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--au-text);
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bd-textarea::placeholder {
+  color: var(--au-text-3);
+}
+
+.bd-textarea:focus {
+  border-color: var(--au-brand);
+  box-shadow: 0 0 0 3px rgba(91, 187, 238, 0.25);
+}
+
+.bd-preview {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--au-border);
+  border-radius: 12px;
+  background: var(--au-card);
+  animation: bd-rise 0.3s var(--bd-ease) both;
+}
+
+.bd-preview-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.bd-preview-note {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--au-text-3);
+}
+
+.bd-errors {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--au-danger-soft);
+}
+
+.bd-error-line {
+  margin: 2px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--au-danger);
+}
+
+.bd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.bd-table th {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--au-border);
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--au-text-3);
+}
+
+.bd-table td {
+  padding: 8px;
+  border-bottom: 1px solid #eef0f2;
+  color: var(--au-text);
+}
+
+.bd-table th:last-child,
+.bd-table td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.bd-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.bd-import-body .bd-btn-block {
+  margin-top: 16px;
+}
+
+.bd-import-body .bd-notice {
+  margin-top: 14px;
+}
+
+/* ============================================================
+   动效
+   ============================================================ */
+
+@keyframes bd-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bd-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes bd-pop {
+  from {
+    transform: scale(0.92);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes bd-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes bd-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes bd-meta-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 0.6;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bd-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---------- 响应式与可访问性 ---------- */
+
+@media (max-width: 480px) {
+  .bd-header,
+  .bd-import-header {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .bd-card-collapsed {
+    padding: 14px 15px;
+  }
+
+  .bd-card-expanded {
+    padding: 16px 16px;
+  }
+
+  .bd-import-body {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bd-board *,
+  .bd-board *::before,
+  .bd-board *::after,
+  .bd-import *,
+  .bd-import *::before,
+  .bd-import *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.01ms !important;
+  }
+}
