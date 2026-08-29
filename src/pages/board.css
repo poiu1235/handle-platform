@@ -5,7 +5,6 @@
    1px #E0E0E0 描边 / focus 光环 / 0.15–0.3s ease-out 缓动。
    全部选择器带 bd- 前缀，与 index.css / auth.css 互不干扰。
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=Noto+Sans+SC:wght@400;500;700&display=swap');
 
 .bd-board,
 .bd-import {

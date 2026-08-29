@@ -42,7 +42,8 @@
 font-family: 'PT Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 ```
 
-- 西文/数字 PT Sans（400/700），中文回退系统字体；全站统一，组件不得另指定。
+- 西文/数字 PT Sans（400/700）；中文沿用 Noto Sans SC webfont（400/700），苹方/雅黑仅作加载失败兜底。全站统一，组件不得另指定。
+- 加载白名单：全站只加载这两族字体，且**只在 index.html 的 Google Fonts 链接里加载一次**（CSS 内禁止 `@import` 字体）——历史上出现过 Noto Sans SC 被双份加载且字重集合不一致的问题，此规则即为杜绝复发。
 - 字重只有 **400 / 700** 两档；强调一律 700，禁用态可降回 400。
 - 英文小标签统一「全大写 + 1.5px 字距」。
 - 数字展示场景（金额、表格数值）用 `font-variant-numeric: tabular-nums`。

@@ -7,7 +7,6 @@
    不在 .shell 内，完全不受影响。
    页面 JSX 与交互逻辑零改动：本文件只做样式覆盖。
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&display=swap');
 
 /* ---------- 设计 token ---------- */
 .shell {
