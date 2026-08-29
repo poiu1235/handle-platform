@@ -122,6 +122,13 @@
   color: #ffffff;
 }
 
+/* 页面标题字标：SVG 替代文字（白字，高度锁定、宽度按 410:41.6 比例自适应） */
+.bd-title .bd-title-word {
+  display: block;
+  height: 22px;
+  width: auto;
+}
+
 .bd-text-btn {
   background: none;
   border: none;

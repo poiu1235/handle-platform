@@ -92,8 +92,13 @@ font-family: 'PT Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-s
 
 10px（hero 英文副标题，uppercase+1.5px 字距）／12px（eyebrow、field-hint）／
 13px（表单 label、notice、toggle-row——认证页标准正文）／14px（桌面输入框）／
-15px（hero 产品名、主按钮）／16px（移动端输入框，必须 ≥16px 防 iOS 缩放）／
+15px（主按钮）／16px（移动端输入框，必须 ≥16px 防 iOS 缩放）／
 20px（页面 H1、验证码输入框，验证码另加 700 字重 + 8px 字距）。
+
+品牌字标：hero 产品名不使用文字，统一用 SVG 字标
+`src/assets/font_daoliti.svg`（白色填充，viewBox 已裁紧为 410×41.6），
+以 `<img class="brand-word">` 嵌入，`height: 17px`、宽度按比例自适应，
+`alt="Handle 数据管理端"` 保留可访问性。
 
 ## 2.4 排版与布局
 
@@ -176,7 +181,7 @@ font-family: 'PT Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-s
 | 15px | 卡片折叠态名称、全宽提交按钮、退出登录（text-btn） |
 | 16px | 卡片展开态名称、弹窗输入框（≥16px 防 iOS 缩放） |
 | 18px | 弹窗标题 |
-| 20px | 页面 H1（白，hero 上）、卡片金额 |
+| 20px | 卡片金额（页面 H1 已改用字标，见 3.4） |
 | 28px | FAB 的 + 字形 |
 
 规则同认证页：400/700 两档；金额与表格数值 `tabular-nums`；强调只加 700。
@@ -199,6 +204,7 @@ font-family: 'PT Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-s
 - 头部内容与下方各区块统一受 `--bd-gutter` 约束，左缘对齐；
   登录态是「圆点 + 邮箱」的半透明胶囊，**与内容列左缘对齐**（不居中）。
   头部水印（logo 12% 透明度）**跟随内容列右缘**：`right: max(-30px, calc((100% - var(--bd-col)) / 2 - 30px))`——移动端贴屏幕边，宽屏贴列右缘，切勿写死贴屏幕右缘。
+  品牌字标同认证页（`font_daoliti.svg`，白字）：管理端页面 H1 以 `<img class="bd-title-word">`（高 22px）替代文字标题，`alt="Handle 数据管理端"` 保留语义。
 - **卡包层叠**：折叠卡片 `margin-top: 8px`，相邻折叠卡 `-16px` 叠压，
   前卡盖住后卡下边缘、露出一点顶边（行 z-index = 总数-序号）；展开行上下留 10px、跳到 z 1000。
 - **展开行为**：点卡片展开（同时只一张），跳最上层、多一行日期、

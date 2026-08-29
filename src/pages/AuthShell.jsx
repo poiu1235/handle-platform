@@ -1,4 +1,5 @@
 import { Turnstile } from '@marsidev/react-turnstile'
+import wordmark from '../assets/font_daoliti.svg'
 import '../auth.css'
 
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY
@@ -19,10 +20,10 @@ export default function AuthShell({
   return (
     <div className="shell">
       <header className="shell-header">
-        <div className="brand">
-          <span className="brand-mark" />
-          Handle 数据管理端
-        </div>
+      <div className="brand">
+        <span className="brand-mark" />
+        <img className="brand-word" src={wordmark} alt="Handle 数据管理端" />
+      </div>
         <span className="brand-sub">Handle Platform</span>
       </header>
 

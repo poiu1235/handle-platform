@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import * as api from '../lib/apiClient'
+import wordmark from '../assets/font_daoliti.svg'
 import './board.css'
 
 // ============================================================
@@ -685,7 +686,9 @@ export default function Hello() {
         <div className="bd-header-top">
           <div>
             <p className="bd-eyebrow">Assets Overview</p>
-            <h1 className="bd-title">Handle 数据管理端</h1>
+            <h1 className="bd-title">
+              <img className="bd-title-word" src={wordmark} alt="Handle 数据管理端" />
+            </h1>
           </div>
           <button className="bd-text-btn" onClick={logout}>
             退出登录

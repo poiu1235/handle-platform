@@ -92,6 +92,13 @@
   background-color: transparent;
 }
 
+/* 品牌字标：SVG 字标替代文字标题（白字，高度锁定、宽度按 410:41.6 比例自适应） */
+.shell .brand .brand-word {
+  display: block;
+  height: 17px;
+  width: auto;
+}
+
 .shell .brand-sub {
   font-family: var(--au-font);
   font-size: 10px;
