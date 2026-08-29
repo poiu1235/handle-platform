@@ -84,7 +84,7 @@ font-family: 'PT Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-s
 | --- | --- |
 | `rgba(255,255,255,0.45)` | hero 副标题（英文小字） |
 | `#FFFFFF` | hero 主标题与 logo 白色部分 |
-| logo 水印 `opacity: 0.12` | hero 右下角装饰，溢出裁切 |
+| logo 水印 `opacity: 0.12` | hero 右下角装饰，溢出裁切；定位**跟随内容列（420px 卡）右缘**：`right: max(-34px, calc((100% - 420px) / 2 - 34px))`，宽屏不贴屏幕右缘 |
 | `#F5F7F8` | 禁用输入框底色 |
 
 ## 2.3 字号阶梯（认证页）
@@ -197,6 +197,7 @@ font-family: 'PT Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-s
 
 - 头部内容与下方各区块统一受 `--bd-gutter` 约束，左缘对齐；
   登录态是「圆点 + 邮箱」的半透明胶囊，**与内容列左缘对齐**（不居中）。
+  头部水印（logo 12% 透明度）**跟随内容列右缘**：`right: max(-30px, calc((100% - var(--bd-col)) / 2 - 30px))`——移动端贴屏幕边，宽屏贴列右缘，切勿写死贴屏幕右缘。
 - **卡包层叠**：折叠卡片 `margin-top: 8px`，相邻折叠卡 `-16px` 叠压，
   前卡盖住后卡下边缘、露出一点顶边（行 z-index = 总数-序号）；展开行上下留 10px、跳到 z 1000。
 - **展开行为**：点卡片展开（同时只一张），跳最上层、多一行日期、

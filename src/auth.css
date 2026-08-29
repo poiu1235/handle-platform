@@ -55,11 +55,12 @@
   text-align: center;
 }
 
-/* logo 水印：白色部分在深底上呈微光，蓝色部分融入主色 */
+/* logo 水印：白色部分在深底上呈微光，蓝色部分融入主色。
+   定位跟随内容列（420px 表单卡）右缘：移动端贴屏幕边，宽屏贴列右缘，勿写死贴屏幕右缘 */
 .shell .shell-header::after {
   content: '';
   position: absolute;
-  right: -34px;
+  right: max(-34px, calc((100% - 420px) / 2 - 34px));
   bottom: -52px;
   width: 170px;
   height: 170px;
@@ -382,7 +383,7 @@
   .shell .shell-header::after {
     width: 160px;
     height: 160px;
-    right: -30px;
+    right: max(-30px, calc((100% - 420px) / 2 - 30px));
     bottom: -66px;
   }
 

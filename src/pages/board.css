@@ -85,7 +85,8 @@
 .bd-header::after {
   content: '';
   position: absolute;
-  right: -30px;
+  /* 水印跟随内容列右缘：移动端贴屏幕边，宽屏贴 560px 列的右缘（与头部文案对齐） */
+  right: max(-30px, calc((100% - var(--bd-col)) / 2 - 30px));
   bottom: -52px;
   width: 150px;
   height: 150px;
@@ -886,7 +887,8 @@
 .bd-import-header::after {
   content: '';
   position: absolute;
-  right: -30px;
+  /* 水印跟随内容列右缘：移动端贴屏幕边，宽屏贴 560px 列的右缘（与头部文案对齐） */
+  right: max(-30px, calc((100% - var(--bd-col)) / 2 - 30px));
   bottom: -52px;
   width: 150px;
   height: 150px;
