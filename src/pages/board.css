@@ -89,7 +89,7 @@
   bottom: -52px;
   width: 150px;
   height: 150px;
-  background: url('../../assets/logo.png') center / contain no-repeat;
+  background: url('../assets/logo.png') center / contain no-repeat;
   opacity: 0.12;
   pointer-events: none;
 }
@@ -890,7 +890,7 @@
   bottom: -52px;
   width: 150px;
   height: 150px;
-  background: url('../../assets/logo.png') center / contain no-repeat;
+  background: url('../assets/logo.png') center / contain no-repeat;
   opacity: 0.12;
   pointer-events: none;
 }
