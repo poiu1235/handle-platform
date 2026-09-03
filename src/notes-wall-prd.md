@@ -133,7 +133,6 @@ create table public.notes (
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-alter table public.notes enable row level learning;  -- 笔误预防：RLS
 alter table public.notes enable row level security;
 create policy notes_owner on public.notes
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
