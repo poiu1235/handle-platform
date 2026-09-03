@@ -2,29 +2,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import * as api from '../lib/apiClient'
+import { useCardsStore } from '../lib/cardsStore'
+import CardsPanel from './CardsPanel'
 import wordmark from '../assets/font_daoliti.svg'
 import './board.css'
 
 // ============================================================
-// 管理端首页（台账）：分类标签 / 排序 / 0余额开关 / 卡包层叠卡片 /
+// 管理端首页（台账）：分类标签 / 排序 / 0余额开关 / 会员层叠卡片 /
 // 展开滚动定位 / 左滑修改删除 / 右滑清零（深滑直提交）/ FAB 菜单 /
 // 新增修改弹窗 / 删除确认弹窗。样式见 ./board.css（bd- 前缀）。
 // 设计语言：design-language.md（PT Sans、品牌蓝 #5BBBEE、深蓝 hero、
 // 胶囊按钮、1px #E0E0E0 描边、focus 光环、0.15–0.3s 缓动）。
+// 会员（原「会员」，CardsPanel）取代会籍为第二个标签；面板始终挂载以承接
+// 进站结算与 alert。
 // ============================================================
 
 const TABS = [
   { key: 'balance', label: '余额' },
-  { key: 'membership', label: '会籍' },
+  { key: 'cards', label: '会员' },
   { key: 'coupon', label: '优惠券' },
 ]
 
 const DATA = {
-  membership: [
-    { id: 'm1', name: '黄金会员', amount: 120, unit: '天', updatedAt: '2026-08-01' },
-    { id: 'm2', name: '视频会员', amount: 30, unit: '天', updatedAt: '2026-08-10' },
-    { id: 'm3', name: '音乐会员', amount: 7, unit: '天', updatedAt: '2026-08-18' },
-  ],
   coupon: [
     { id: 'c1', name: '满100减20', amount: 20, unit: '元', updatedAt: '2026-08-12' },
     { id: 'c2', name: '新人立减券', amount: 15, unit: '元', updatedAt: '2026-08-01' },
@@ -39,12 +38,6 @@ const PALETTES = {
     '#efb366', '#e07a5f', '#f4d35e', '#dda15e', '#eaac8b',
     '#c97b63', '#f6bd60', '#e8998d', '#d4a276', '#f28482',
     '#efc88b',
-  ],
-  membership: [
-    '#a9dace', '#b7e5df', '#a2e4e2', '#bbe0e3', '#a8d7e2',
-    '#b6dbeb', '#adcbdf', '#bbd1e9', '#a6bfe8', '#bfcae8',
-    '#abb5e6', '#c3c5e6', '#b3b0e4', '#c7bfed', '#c2b5e2',
-    '#d3c4ec', '#cdb0ea',
   ],
   coupon: [
     '#e6a8c7', '#eeb8cf', '#eda3bd', '#edbcc9', '#eba8b5',
@@ -404,14 +397,22 @@ function SwipeableBalanceCard({
 
 // ---------- 新增 / 修改共用表单弹窗 ----------
 
-function BalanceFormModal({ mode, initialItem, submitting, errorMessage, onClose, onSubmit }) {
+function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, onClose, onSubmit }) {
   const [name, setName] = useState(mode === 'edit' ? initialItem?.name ?? '' : '')
   const [amountText, setAmountText] = useState(
     mode === 'edit' ? String(initialItem?.amount ?? '') : ''
   )
 
   const amountNumber = Number(amountText)
-  const canSubmit = name.trim().length > 0 && amountText.trim().length > 0 && !Number.isNaN(amountNumber)
+  const nameTrim = name.trim()
+  // 修改弹窗重名预检（2026-09-02，对齐会员编辑弹窗）：改成已有其他记录的名字
+  // → 即时提示并禁止提交（新增模式不拦——重名=覆盖那条记录，是明示语义）
+  const nameTaken =
+    mode === 'edit' &&
+    nameTrim !== (initialItem?.name ?? '') &&
+    items.some((it) => it.id !== initialItem?.id && it.name === nameTrim)
+  const canSubmit =
+    nameTrim.length > 0 && amountText.trim().length > 0 && !Number.isNaN(amountNumber) && !nameTaken
 
   return (
     <div className="bd-modal-backdrop" onClick={onClose}>
@@ -432,6 +433,7 @@ function BalanceFormModal({ mode, initialItem, submitting, errorMessage, onClose
             placeholder="如：肯德基"
             autoFocus
           />
+          {nameTaken && <p className="cd-field-hint cd-field-hint-error">已有同名小程序，请换一个名字</p>}
         </div>
         <div className="bd-field">
           <label>余额</label>
@@ -490,6 +492,7 @@ function ConfirmDeleteModal({ itemName, onCancel, onConfirm }) {
 
 export default function Hello() {
   const { user, logout } = useAuth()
+  const { rows: cardRows } = useCardsStore()
   const [apiState, setApiState] = useState({ status: 'pending', message: '' })
 
   const [activeTab, setActiveTab] = useState('balance')
@@ -508,14 +511,14 @@ export default function Hello() {
   const [deleteTarget, setDeleteTarget] = useState(null)
 
   const fetchBalances = useCallback(
-    async (opts = {}) => {
+    async () => {
       if (!user) return
-      const withZero = opts.includeZero ?? includeZero
 
       setBalanceState({ status: 'pending', message: '' })
 
       try {
-        const res = await api.authorizedFetch(`/api/balances?includeZero=${withZero}`)
+        // 一次全量拉取（含 0 余额）——0 余额筛选是纯前端本地过滤，开关切换零请求
+        const res = await api.authorizedFetch('/api/balances')
         const body = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(body.error || `加载失败（${res.status}）`)
 
@@ -533,7 +536,7 @@ export default function Hello() {
         setBalanceState({ status: 'error', message: err.message })
       }
     },
-    [user, includeZero]
+    [user]
   )
 
   useEffect(() => {
@@ -562,7 +565,17 @@ export default function Hello() {
     }
   }, [])
 
-  const items = activeTab === 'balance' ? balanceItems : DATA[activeTab]
+  // 会员走 cardsStore（CardsPanel 始终挂载），DATA 无 cards 键——缺省空数组，
+  // 否则 sortItems 展开 undefined 会让整个应用白屏（2026-08-31 实测修复）
+  // 0 余额本地过滤（对齐会员的过期筛选模式）：全量快照在手，开关切换零请求
+  const zeroCount = useMemo(
+    () => balanceItems.filter((it) => it.amount === 0).length,
+    [balanceItems]
+  )
+  const visibleBalanceItems = includeZero
+    ? balanceItems
+    : balanceItems.filter((it) => it.amount !== 0)
+  const items = activeTab === 'balance' ? visibleBalanceItems : DATA[activeTab] ?? []
   const sorted = useMemo(
     () => sortItems(items, sortKey, sortDir),
     [items, sortKey, sortDir]
@@ -582,9 +595,8 @@ export default function Hello() {
   }
 
   function handleToggleZero() {
-    const next = !includeZero
-    setIncludeZero(next)
-    fetchBalances({ includeZero: next })
+    // 纯客户端过滤：数据已全量在手，切换不再请求后台
+    setIncludeZero((v) => !v)
   }
 
   function openAddModal() {
@@ -657,15 +669,16 @@ export default function Hello() {
   async function handleClearItem(item) {
     const submitTime = new Date().toISOString()
 
+    // 清零后该行从可见列表消失（开关关闭时被本地过滤收起），收回展开态
     if (!includeZero) {
       setExpandedId((cur) => (cur === item.id ? null : cur))
     }
-    setBalanceItems((prev) => {
-      if (!includeZero) return prev.filter((it) => it.id !== item.id)
-      return prev.map((it) =>
+    // 记录保留在数据里（amount=0），可见性交给本地过滤 + 开关计数自动更新
+    setBalanceItems((prev) =>
+      prev.map((it) =>
         it.id === item.id ? { ...it, amount: 0, updatedAt: submitTime } : it
       )
-    })
+    )
 
     const res = await api.authorizedFetch(`/api/balances/${item.id}`, {
       method: 'PATCH',
@@ -685,7 +698,7 @@ export default function Hello() {
       <header className="bd-header">
         <div className="bd-header-top">
           <div>
-            <p className="bd-eyebrow">Assets Overview</p>
+            <p className="bd-eyebrow">{activeTab === 'cards' ? 'Membership Overview' : 'Assets Overview'}</p>
             <h1 className="bd-title">
               <img className="bd-title-word" src={wordmark} alt="Handle 数据管理端" />
             </h1>
@@ -720,138 +733,157 @@ export default function Hello() {
           >
             {tab.label}
             <span className="bd-tab-count">
-              {tab.key === 'balance' ? balanceItems.length : DATA[tab.key].length}
+              {tab.key === 'balance'
+                ? balanceItems.length
+                : tab.key === 'cards'
+                  ? cardRows.length
+                  : DATA[tab.key].length}
             </span>
           </button>
         ))}
       </nav>
 
-      <div className="bd-sort-row">
-        <button
-          className={`bd-sort-btn ${sortKey === 'time' ? 'bd-sort-btn-active' : ''}`}
-          onClick={() => toggleSort('time')}
-        >
-          按更新时间 {sortKey === 'time' && (sortDir === 'desc' ? '↓' : '↑')}
-        </button>
-        <button
-          className={`bd-sort-btn ${sortKey === 'amount' ? 'bd-sort-btn-active' : ''}`}
-          onClick={() => toggleSort('amount')}
-        >
-          按金额 {sortKey === 'amount' && (sortDir === 'desc' ? '↓' : '↑')}
-        </button>
-        <button
-          className={`bd-sort-btn ${sortKey === 'name' ? 'bd-sort-btn-active' : ''}`}
-          onClick={() => toggleSort('name')}
-        >
-          按名称 {sortKey === 'name' && (sortDir === 'desc' ? '↓' : '↑')}
-        </button>
-      </div>
+      {/* 会员：面板始终挂载（进站结算与 alert 不依赖当前标签），内容仅激活时渲染 */}
+      <CardsPanel active={activeTab === 'cards'} onActivate={() => setActiveTab('cards')} />
 
-      {activeTab === 'balance' && (
-        <div className="bd-zero-row">
-          <label className="bd-toggle">
-            <input
-              type="checkbox"
-              className="bd-toggle-input"
-              checked={includeZero}
-              onChange={handleToggleZero}
-            />
-            <span className="bd-toggle-track" aria-hidden="true" />
-            <span className="bd-toggle-label">展示余额为0的小程序列表</span>
-          </label>
-        </div>
-      )}
-
-      <div className="bd-list">
-        {activeTab === 'balance' && balanceState.status === 'pending' && (
-          <div className="bd-status-line">
-            <span className="bd-dot bd-dot-pending" />
-            正在加载余额…
-          </div>
-        )}
-        {activeTab === 'balance' && balanceState.status === 'error' && (
-          <div className="bd-notice bd-notice-error">加载余额失败：{balanceState.message}</div>
-        )}
-        {activeTab === 'balance' &&
-          balanceState.status === 'ok' &&
-          balanceItems.length === 0 && (
-            <div className="bd-notice">
-              还没有余额数据，去
-              <Link to="/app/balance-import">批量导入余额</Link>
-              页面提交一批，或者用下方的"+"新增一条。
-            </div>
-          )}
-
-        {sorted.map((item, idx) =>
-          activeTab === 'balance' ? (
-            <SwipeableBalanceCard
-              key={item.id}
-              item={item}
-              expanded={expandedId === item.id}
-              onToggleExpand={toggleExpand}
-              onEdit={openEditModal}
-              onDelete={handleDeleteItem}
-              onClear={handleClearItem}
-              stackIndex={idx}
-              stackTotal={sorted.length}
-            />
-          ) : (
-            <div
-              key={item.id}
-              className="bd-card bd-card-static"
-              style={{ background: colorFor(activeTab, item.id), '--stagger': idx }}
+      {activeTab !== 'cards' && (
+        <>
+          <div className="bd-sort-row">
+            <button
+              className={`bd-sort-btn ${sortKey === 'time' ? 'bd-sort-btn-active' : ''}`}
+              onClick={() => toggleSort('time')}
             >
-              <div className="bd-card-main">
-                <p className="bd-card-name">
-                  <span className="bd-card-mark" />
-                  {item.name}
-                </p>
-                <p className="bd-card-meta">{formatUpdated(item.updatedAt)}</p>
-              </div>
-              <div className="bd-card-value">
-                <span className="bd-card-amount">{item.amount.toLocaleString()}</span>
-                <span className="bd-card-unit">{item.unit}</span>
-              </div>
-            </div>
-          )
-        )}
-      </div>
+              按更新时间 {sortKey === 'time' && (sortDir === 'desc' ? '↓' : '↑')}
+            </button>
+            <button
+              className={`bd-sort-btn ${sortKey === 'amount' ? 'bd-sort-btn-active' : ''}`}
+              onClick={() => toggleSort('amount')}
+            >
+              按金额 {sortKey === 'amount' && (sortDir === 'desc' ? '↓' : '↑')}
+            </button>
+            <button
+              className={`bd-sort-btn ${sortKey === 'name' ? 'bd-sort-btn-active' : ''}`}
+              onClick={() => toggleSort('name')}
+            >
+              按名称 {sortKey === 'name' && (sortDir === 'desc' ? '↓' : '↑')}
+            </button>
+          </div>
 
-      {activeTab === 'balance' && (
-        <div className="bd-fab-wrap">
-          {fabOpen && (
-            <>
-              <div className="bd-fab-backdrop" onClick={() => setFabOpen(false)} />
-              <div className="bd-fab-menu">
-                <Link className="bd-fab-menu-item" to="/app/balance-import" onClick={() => setFabOpen(false)}>
-                  批量增加
-                </Link>
-                <button
-                  className="bd-fab-menu-item"
-                  onClick={() => {
-                    setFabOpen(false)
-                    openAddModal()
-                  }}
-                >
-                  增加一条
-                </button>
-              </div>
-            </>
+          {activeTab === 'balance' && zeroCount > 0 && (
+            <div className="bd-zero-row">
+              <label className="bd-toggle">
+                <input
+                  type="checkbox"
+                  className="bd-toggle-input"
+                  checked={includeZero}
+                  onChange={handleToggleZero}
+                />
+                <span className="bd-toggle-track" aria-hidden="true" />
+                <span className="bd-toggle-label">展示余额为0的小程序（{zeroCount}）</span>
+              </label>
+            </div>
           )}
-          <button
-            className={`bd-fab-btn ${fabOpen ? 'bd-fab-btn-open' : ''}`}
-            onClick={() => setFabOpen((v) => !v)}
-            aria-label="新增余额记录"
+
+          <div
+            className="bd-list"
+            onClick={(e) => {
+              // 点空白处（卡行之外）→ 展开的卡收回折叠态（与会员页同则，2026-09-02）
+              if (e.target.closest('.bd-row')) return
+              setExpandedId(null)
+            }}
           >
-            +
-          </button>
-        </div>
+            {activeTab === 'balance' && balanceState.status === 'pending' && (
+              <div className="bd-status-line">
+                <span className="bd-dot bd-dot-pending" />
+                正在加载余额…
+              </div>
+            )}
+            {activeTab === 'balance' && balanceState.status === 'error' && (
+              <div className="bd-notice bd-notice-error">加载余额失败：{balanceState.message}</div>
+            )}
+            {activeTab === 'balance' &&
+              balanceState.status === 'ok' &&
+              balanceItems.length === 0 && (
+                <div className="bd-notice">
+                  还没有余额数据，去
+                  <Link to="/app/balance-import">批量导入余额</Link>
+                  页面提交一批，或者用下方的"+"新增一条。
+                </div>
+              )}
+
+            {sorted.map((item, idx) =>
+              activeTab === 'balance' ? (
+                <SwipeableBalanceCard
+                  key={item.id}
+                  item={item}
+                  expanded={expandedId === item.id}
+                  onToggleExpand={toggleExpand}
+                  onEdit={openEditModal}
+                  onDelete={handleDeleteItem}
+                  onClear={handleClearItem}
+                  stackIndex={idx}
+                  stackTotal={sorted.length}
+                />
+              ) : (
+                <div
+                  key={item.id}
+                  className="bd-card bd-card-static"
+                  style={{ background: colorFor(activeTab, item.id), '--stagger': idx }}
+                >
+                  <div className="bd-card-main">
+                    <p className="bd-card-name">
+                      <span className="bd-card-mark" />
+                      {item.name}
+                    </p>
+                    <p className="bd-card-meta">{formatUpdated(item.updatedAt)}</p>
+                  </div>
+                  <div className="bd-card-value">
+                    <span className="bd-card-amount">{item.amount.toLocaleString()}</span>
+                    <span className="bd-card-unit">{item.unit}</span>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+
+          {activeTab === 'balance' && (
+            <div className="bd-fab-wrap">
+              {fabOpen && (
+                <>
+                  <div className="bd-fab-backdrop" onClick={() => setFabOpen(false)} />
+                  <div className="bd-fab-menu">
+                    <Link className="bd-fab-menu-item" to="/app/balance-import" onClick={() => setFabOpen(false)}>
+                      批量增加
+                    </Link>
+                    <button
+                      className="bd-fab-menu-item"
+                      onClick={() => {
+                        setFabOpen(false)
+                        openAddModal()
+                      }}
+                    >
+                      增加一条
+                    </button>
+                  </div>
+                </>
+              )}
+              <button
+                className={`bd-fab-btn ${fabOpen ? 'bd-fab-btn-open' : ''}`}
+                onClick={() => setFabOpen((v) => !v)}
+                aria-label="新增余额记录"
+              >
+                +
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {modalState.open && (
         <BalanceFormModal
           mode={modalState.mode}
           initialItem={modalState.item}
+          items={balanceItems}
           submitting={modalSubmitting}
           errorMessage={modalError}
           onClose={closeModal}

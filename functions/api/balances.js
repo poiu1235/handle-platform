@@ -14,12 +14,12 @@ function restHeaders(env, accessToken, extra = {}) {
 }
 
 export async function onRequestGet(context) {
-  const { env, data, request } = context
-  const url = new URL(request.url)
-  const includeZero = url.searchParams.get('includeZero') === 'true'
+  const { env, data } = context
 
-  let query = 'select=id,app_name,amount,updated_at&order=updated_at.desc'
-  if (!includeZero) query += '&amount=neq.0'
+  // 一次返回全量（含 amount=0）——0 余额筛选改为纯前端本地过滤（2026-09-02：
+  // 对齐会员模式，进站即全量快照，开关不再触发第二次请求）；旧的 includeZero
+  // 查询参数随之废弃（传了也忽略）
+  const query = 'select=id,app_name,amount,updated_at&order=updated_at.desc'
 
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/balances?${query}`, {
     headers: restHeaders(env, data.accessToken),

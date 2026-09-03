@@ -382,6 +382,9 @@
   flex-direction: column;
   padding: 12px var(--bd-gutter) 120px;
   scrollbar-width: thin;
+  /* 滚动条空间恒定预留：列表变长出现滚动条时不再挤压行宽（消除视觉跳跃）；
+     覆盖式滚动条平台（移动端）无此占位，天然无影响 */
+  scrollbar-gutter: stable;
 }
 
 .bd-status-line {
@@ -438,6 +441,13 @@
 
 .bd-row-expanded {
   margin: 10px 0;
+}
+
+/* 入场动画只播一次（entered 标记由 CardsPanel 在首次浮入结束后挂到 .bd-list 上）：
+   折叠⇄半展开⇄全量详情切换会把 .bd-row 卸载重挂，不关闭的话 bd-rise 随之重放——
+   起始帧 opacity:0 就是"展开时先空白一下再浮入"闪烁的来源 */
+.bd-entered .bd-row {
+  animation: none;
 }
 
 .bd-card {
@@ -735,12 +745,31 @@
 .bd-modal-card {
   width: min(400px, 100%);
   max-height: 86dvh;
-  overflow-y: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   background: var(--au-card);
   border-radius: 16px;
   padding: 24px 22px;
   box-shadow: 0 24px 60px rgba(1, 15, 28, 0.28);
   animation: bd-modal-in 0.32s var(--bd-spring) both;
+}
+
+/* 头部/底部固定不滚动，只有中间内容区滚动——.bd-modal-card 上的左右 padding
+   继续包裹这三段，所以滚动区的滚动条离卡片真正的边框/圆角还有 22px 缓冲，
+   不管内核裁不裁得对独立合成层的滚动子元素，圆角都不会被削平 */
+.bd-modal-head {
+  flex: none;
+}
+
+.bd-modal-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.bd-modal-foot {
+  flex: none;
 }
 
 .bd-modal-title {
@@ -875,6 +904,10 @@
    ============================================================ */
 
 .bd-import {
+  /* 导入页内容列（2026-09-03 用户裁定：批量导入以桌面为主，列宽至少占视口 2/3；
+     小屏 2/3 不足 560px 时退回原列宽，移动端行为不变。头部文案 / 提示 / 正文
+     共用此变量保持同轴对齐） */
+  --bd-import-col: max(calc(100vw * 2 / 3), var(--bd-col));
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -893,8 +926,8 @@
 .bd-import-header::after {
   content: '';
   position: absolute;
-  /* 水印跟随内容列右缘：移动端贴屏幕边，宽屏贴 560px 列的右缘（与头部文案对齐） */
-  right: max(-30px, calc((100% - var(--bd-col)) / 2 - 30px));
+  /* 水印跟随内容列右缘：移动端贴屏幕边，宽屏贴加宽列的右缘（与头部文案对齐） */
+  right: max(-30px, calc((100% - var(--bd-import-col)) / 2 - 30px));
   bottom: -52px;
   width: 150px;
   height: 150px;
@@ -910,7 +943,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  max-width: var(--bd-col);
+  max-width: var(--bd-import-col);
   margin: 0 auto;
 }
 
@@ -926,7 +959,7 @@
   position: relative;
   z-index: 1;
   margin: 12px auto 0;
-  max-width: var(--bd-col);
+  max-width: var(--bd-import-col);
   font-size: 13px;
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.72);
@@ -935,7 +968,7 @@
 .bd-import-body {
   flex: 1;
   width: 100%;
-  max-width: var(--bd-col);
+  max-width: var(--bd-import-col);
   margin: 0 auto;
   padding: 20px 16px 64px;
   display: flex;
@@ -1152,5 +1185,1097 @@
     animation-duration: 0.01ms !important;
     animation-delay: 0s !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================
+   卡包（cd- 前缀 · PRD v2 第五章）
+   ============================================================ */
+
+.bd-board,
+.bd-import {
+  /* 次数用完沉底色（弱化灰蓝，资格暂尽——区别于失效灰 --bd-zero-card，6.5） */
+  --cd-usedup-card: #d9e2ec;
+  --cd-usedup-text: #5c6b7c;
+}
+
+/* ---------- 进站 alert（5.3：全站最高浮层，z 1030 > 弹窗 1020） ---------- */
+
+.cd-alert-backdrop {
+  z-index: 1030;
+}
+
+.cd-alert-title {
+  margin: 0 0 10px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.cd-alert-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.cd-alert-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 8px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.cd-alert-item:hover {
+  background: var(--au-bg);
+}
+
+.cd-alert-item + .cd-alert-item {
+  border-top: 1px solid var(--au-border);
+}
+
+.cd-alert-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85), 0 0 0 3px var(--au-border);
+}
+
+.cd-alert-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.cd-alert-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--au-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+.cd-alert-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.cd-alert-acts {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 静默循环图标按钮（2026-09-03：提醒 → 周期静默 → 永久静默 → 提醒） */
+.cd-alert-mute-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--au-border);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.cd-alert-mute-icon:hover {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: var(--au-text-3);
+}
+
+.cd-alert-mute-icon .cd-flag-img {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---------- 独立小标签（6.5：状态/提醒统一小标签，品牌浅蓝底 + 深蓝字） ---------- */
+
+.cd-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--au-brand-soft);
+  color: var(--au-brand-text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+/* 记录色底上的弱标注 / 中性信息标签 */
+.cd-tag-plain {
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--au-text-2);
+}
+
+.cd-tag-warn {
+  background: var(--au-danger-soft);
+  color: var(--au-danger);
+}
+
+/* ---------- 折叠卡补充（5.4） ---------- */
+
+
+.cd-side-main {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--au-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cd-side-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.cd-mute-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--au-text-3);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cd-mute-btn:hover {
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--au-text);
+}
+
+/* ---------- 名称行旗标（续费图标 + 静默按钮）与双槽侧栏 ---------- */
+
+/* 名称行 flex：卡名省略截断只作用于文字，旗标常驻可见 */
+.cd-name-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.cd-name-line .bd-card-name {
+  /* 不 grow：旗标（续费/静音图标）必须紧贴标题文字，而非被推到行尾；
+     超长时靠 flex-shrink + min-width:0 收缩出省略号 */
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.cd-name-flags {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* 自动续费静态旗标：随开关实时出现/消失 */
+.cd-renew-flag {
+  display: inline-flex;
+  cursor: default;
+}
+
+/* 名称行旗标图标（assets SVG：dollar / mute / all-mute） */
+.cd-flag-img {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+/* 名称行内的静默按钮比侧栏版略小，不撑高标题行 */
+.cd-mute-inline {
+  width: 22px;
+  height: 22px;
+}
+
+/* 双槽侧栏：上行 = [剩 N 次]（仅次卡渲染）+ [剩余天数]（右缘对齐）；
+   下行 = 提醒/状态小标签——天数槽恒在右缘，列表纵向按天数对齐 */
+.cd-side-slots {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.cd-side-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.cd-side-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--au-text);
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 沉底两色（6.5）：已过期 = 失效灰（真正的失效）；已用完 = 弱化灰蓝（资格暂尽） */
+.cd-sunk-expired {
+  background: var(--bd-zero-card);
+}
+
+.cd-sunk-expired .bd-card-name,
+.cd-sunk-expired .cd-side-main,
+.cd-sunk-expired .cd-side-count,
+.cd-sunk-expired .cd-renew-flag {
+  color: #6b727a;
+}
+
+.cd-sunk-expired .bd-card-mark {
+  background: #6b727a;
+  opacity: 0.6;
+}
+
+.cd-sunk-usedup {
+  background: var(--cd-usedup-card);
+}
+
+.cd-sunk-usedup .bd-card-name,
+.cd-sunk-usedup .cd-side-main,
+.cd-sunk-usedup .cd-side-count,
+.cd-sunk-usedup .cd-renew-flag {
+  color: var(--cd-usedup-text);
+}
+
+.cd-sunk-usedup .bd-card-mark {
+  background: var(--cd-usedup-text);
+  opacity: 0.6;
+}
+
+/* ---------- 半展开行（余额式宽样式：左滑拉删除 / 右滑清零·减一 / 展开修改） ---------- */
+
+.cd-semi-card {
+  /* 减一进度蒙层的定位上下文 */
+  position: relative;
+}
+
+.cd-semi-main {
+  min-width: 0;
+}
+
+.cd-semi-meta {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--au-text);
+  opacity: 0.62;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cd-semi-renew {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 7px 0 0;
+  font-size: 12px;
+  color: var(--au-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.cd-semi-side {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cd-expand-btn {
+  flex: none;
+  padding: 8px 14px;
+  border: 1px solid rgba(26, 26, 26, 0.25);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--au-text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.cd-expand-btn:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+/* 沉底卡的摘要行同步压灰（5.4：两种沉底必须文字可辨，不只靠颜色） */
+.cd-sunk-expired .cd-semi-meta,
+.cd-sunk-expired .cd-semi-renew {
+  color: #565d64;
+  opacity: 1;
+}
+
+.cd-sunk-usedup .cd-semi-meta,
+.cd-sunk-usedup .cd-semi-renew {
+  color: var(--cd-usedup-text);
+  opacity: 1;
+}
+
+/* 减一进度蒙层：右滑越过清零按钮宽度后整卡渐显，越过提交阈值半程后
+   填充条随手指点亮——松手前的每一步都有进度反馈 */
+.cd-dec-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  overflow: hidden;
+  background: rgba(1, 15, 28, 0.55);
+  pointer-events: none;
+}
+
+.cd-dec-hint-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: rgba(91, 187, 238, 0.4);
+}
+
+.cd-dec-hint-text {
+  position: relative;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* ---------- 展开详情（5.4：meta 行 + 双能力区块 + 操作区） ---------- */
+
+.cd-detail {
+  flex: 1;
+  min-width: 0;
+}
+
+.cd-detail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+
+.cd-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+  font-size: 12px;
+  color: var(--au-text);
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+}
+
+.cd-block {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.cd-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--au-text);
+}
+
+.cd-block-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--au-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cd-block-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* 区块内「保存/取消」草稿按钮：始终独占下一行（flex-basis 撑满换行） */
+.cd-block-actions {
+  flex-basis: 100%;
+  display: flex;
+  gap: 8px;
+}
+
+/* 区块内的独立字段行（如周期刷新次数组）：与上一行字段分开、独占一行 */
+.cd-block-row {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.cd-block-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--au-text-2);
+}
+
+.cd-hint-warn {
+  color: var(--au-brand-text);
+  background: var(--au-brand-soft);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.cd-field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--au-text-2);
+  white-space: nowrap;
+}
+
+.cd-field-inline input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--au-border);
+  border-radius: 8px;
+  background: var(--au-card);
+  color: var(--au-text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  appearance: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cd-field-inline input:focus {
+  border-color: var(--au-brand);
+  box-shadow: 0 0 0 3px rgba(91, 187, 238, 0.25);
+}
+
+.cd-num-input {
+  width: 78px;
+}
+
+.cd-date-input {
+  width: 138px;
+}
+
+/* 周期下拉（周/月/季/年/固定天数）：与行内输入同规格，原生箭头保留 */
+.cd-select {
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--au-border);
+  border-radius: 8px;
+  background: var(--au-card);
+  color: var(--au-text);
+  font-size: 13px;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  /* 原生箭头消失后自绘下拉箭头（与边框同色，随 focus 变品牌蓝） */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23939393' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  padding-right: 28px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cd-select:focus {
+  border-color: var(--au-brand);
+  box-shadow: 0 0 0 3px rgba(91, 187, 238, 0.25);
+}
+
+.cd-actions-row {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.cd-mini-btn {
+  padding: 8px 14px;
+  border: 1px solid rgba(26, 26, 26, 0.25);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--au-text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease, color 0.15s ease;
+}
+
+.cd-mini-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.cd-mini-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 闸门置灰（B23）：样式置灰但仍可点击——点击给出解释 notice，移动端无 hover 可达 */
+.cd-btn-dim {
+  opacity: 0.45;
+}
+
+.cd-btn-on {
+  border-color: var(--au-brand);
+  color: var(--au-brand-text);
+}
+
+.cd-silence-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.cd-silence-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 148px;
+  border: 1px solid var(--au-border);
+  border-radius: 12px;
+  background: var(--au-card);
+  box-shadow: 0 10px 26px rgba(1, 15, 28, 0.18);
+  overflow: hidden;
+  animation: bd-menu-in 0.3s var(--bd-spring) both;
+}
+
+.cd-silence-menu button {
+  padding: 10px 14px;
+  border: none;
+  background: none;
+  color: var(--au-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cd-silence-menu button:hover {
+  background: var(--au-bg);
+}
+
+/* 静默中的卡：正常色 + 静音标识（静默不是终结态，不用灰，5.4） */
+.cd-switch input.bd-toggle-input:disabled + .bd-toggle-track {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---------- 建卡 / 编辑弹窗补充 ---------- */
+
+.cd-field-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.cd-field-hint {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--au-text-2);
+}
+
+.cd-field-hint-error {
+  color: var(--au-danger);
+}
+
+.cd-form-block {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--au-border);
+  border-radius: 12px;
+}
+
+.cd-form-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--au-text);
+}
+
+.cd-form-block-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* ---------- 导入页预览（5.6 / 6.4） ---------- */
+
+.cd-preview-group {
+  margin-top: 14px;
+}
+
+.cd-preview-group .bd-preview-title {
+  margin-bottom: 8px;
+}
+
+.cd-update-card {
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--au-border);
+  border-radius: 12px;
+  background: var(--au-card);
+}
+
+.cd-update-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--au-text);
+}
+
+.cd-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 9px;
+}
+
+.cd-diff-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--au-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cd-diff-field {
+  flex: none;
+  width: 68px;
+  color: var(--au-text);
+  font-weight: 700;
+}
+
+.cd-diff-old {
+  word-break: break-all;
+}
+
+.cd-diff-arrow {
+  flex: none;
+  color: var(--au-text-3);
+}
+
+.cd-diff-new {
+  font-weight: 700;
+  color: var(--au-brand-text);
+  word-break: break-all;
+}
+
+.cd-empty-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--au-text-3);
+}
+/* ============================================================
+   会员页 · 日历展示模式（cd-cal- · 飞书日程风格，2026-09-03 设计）
+   列表 ⇄ 日历分段控件 + 月视图网格 + 跨天日程条 + 卡片多选筛选
+   ============================================================ */
+
+/* 列表模式：模式切换与排序按钮同一行，右对齐、不超出列表列宽 */
+.bd-sort-row .cd-mode-seg {
+  margin-left: auto;
+}
+
+.cd-mode-seg {
+  display: inline-flex;
+  border: 1px solid var(--au-border);
+  border-radius: 10px;
+  background: var(--au-card);
+  overflow: hidden;
+  flex: none;
+}
+
+.cd-mode-seg button {
+  border: none;
+  background: transparent;
+  padding: 5px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--au-text-3);
+  cursor: pointer;
+}
+
+.cd-mode-seg button.cd-seg-active {
+  background: var(--au-brand);
+  color: #ffffff;
+}
+
+/* ---------- 工具栏（月份导航 + 今天 + 筛选 + 模式切换） ---------- */
+
+/* 日历不受列表列宽约束：居中突破到最多 1040px，小屏填满视口 */
+.cd-cal {
+  --cal-w: min(1040px, calc(100vw - 24px));
+  width: var(--cal-w);
+  margin-inline: calc((100% - var(--cal-w)) / 2);
+}
+
+.cd-cal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.cd-cal-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cd-cal-month {
+  min-width: 88px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.cd-cal-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ---------- 卡片多选筛选（排除集语义：默认全显） ---------- */
+
+.cd-cal-filter {
+  position: relative;
+}
+
+.cd-cal-filter-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1010;
+}
+
+.cd-cal-filter-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 1011;
+  width: 250px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--au-card);
+  border: 1px solid var(--au-border);
+  border-radius: 12px;
+  box-shadow: 0 10px 26px rgba(1, 15, 28, 0.16);
+  animation: bd-fade 0.15s ease both;
+}
+
+.cd-cal-filter-ops {
+  display: flex;
+  gap: 8px;
+  padding: 2px 4px 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--au-border);
+}
+
+.cd-cal-filter-search {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--au-border);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--au-text);
+  background: var(--au-bg);
+  outline: none;
+}
+
+.cd-cal-filter-search:focus {
+  border-color: var(--au-brand);
+}
+
+.cd-cal-filter-empty {
+  margin: 4px 6px;
+  font-size: 12px;
+  color: var(--au-text-3);
+}
+
+.cd-cal-filter-cap {
+  margin: 6px 6px 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--au-border);
+  font-size: 12px;
+  color: var(--au-text-3);
+}
+
+.cd-cal-filter-capped {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cd-cal-filter-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.cd-cal-filter-item:hover {
+  background: rgba(91, 187, 238, 0.08);
+}
+
+.cd-cal-filter-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.cd-cal-filter-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 月视图网格 ---------- */
+
+.cd-cal-grid {
+  border: 1px solid var(--au-border);
+  border-radius: 12px;
+  background: var(--au-card);
+  overflow: hidden;
+}
+
+.cd-cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid var(--au-border);
+}
+
+.cd-cal-weekdays span {
+  padding: 6px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--au-text-3);
+}
+
+.cd-cal-week {
+  position: relative;
+  border-bottom: 1px solid var(--au-border);
+  min-height: calc(30px + var(--lanes, 1) * 22px + 8px);
+}
+
+.cd-cal-week:last-child {
+  border-bottom: none;
+}
+
+/* 列底色层：竖分隔线 + 今天的整列淡底 */
+.cd-cal-bgcols {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  pointer-events: none;
+}
+
+.cd-cal-bgcols span {
+  border-right: 1px solid var(--au-border);
+}
+
+.cd-cal-bgcols span:last-child {
+  border-right: none;
+}
+
+.cd-cal-today-col {
+  background: rgba(91, 187, 238, 0.1);
+}
+
+.cd-cal-nums {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.cd-cal-num {
+  display: flex;
+  justify-content: center;
+  padding: 5px 0 1px;
+}
+
+.cd-cal-num i {
+  font-style: normal;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  font-size: 12px;
+  color: var(--au-text);
+}
+
+.cd-cal-num-out i {
+  color: var(--au-text-3);
+  opacity: 0.55;
+}
+
+.cd-cal-num.cd-cal-today i {
+  background: var(--au-brand);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+/* ---------- 跨天日程条层（车道 = 行，列 = 星期） ---------- */
+
+.cd-cal-bars {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: repeat(var(--lanes, 1), 20px);
+  row-gap: 2px;
+  padding-bottom: 6px;
+}
+
+.cd-cal-bar {
+  min-width: 0;
+  margin: 0 2px;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: none;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 20px;
+  color: rgba(13, 38, 59, 0.85);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.cd-cal-bar:hover {
+  filter: brightness(0.94);
+}
+
+.cd-cal-bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cd-cal-bar-clip {
+  flex: none;
+  opacity: 0.6;
+}
+
+.cd-cal-bar-expired {
+  background: #e2e6ea !important;
+  color: #8a95a1;
+  text-decoration: line-through;
+}
+
+/* 整段落在今日之前的段置灰（不划线；过期卡另叠加删除线） */
+.cd-cal-bar-past {
+  background: #e6e9ec !important;
+  color: #98a2ad;
+}
+
+/* ---------- 日历详情弹窗（只读） ---------- */
+
+.cd-cal-detail {
+  max-height: 82dvh;
+  overflow-y: auto;
+}
+
+.cd-ro-title {
+  margin: 0 0 10px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.cd-ro-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  margin: 0;
+  border-bottom: 1px dashed var(--au-border);
+  font-size: 13px;
+}
+
+.cd-ro-row:last-child {
+  border-bottom: none;
+}
+
+.cd-ro-label {
+  flex: none;
+  color: var(--au-text-3);
+}
+
+.cd-ro-value {
+  text-align: right;
+}
+
+@media (max-width: 480px) {
+  .cd-cal-bar {
+    font-size: 10px;
+    padding: 0 4px;
+  }
+
+  .cd-cal-filter-panel {
+    width: 220px;
   }
 }

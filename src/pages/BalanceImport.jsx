@@ -35,12 +35,9 @@ function parsePastedText(text) {
     }
 
     const [name, amountRaw] = parts
+    // parts 已经过 filter(Boolean)，首列必非空——无需再判"小程序名为空"
     const amount = Number(amountRaw.replace(/,/g, ''))
 
-    if (!name) {
-      errors.push({ line: idx + 1, raw: line, reason: '小程序名为空' })
-      return
-    }
     if (Number.isNaN(amount)) {
       if (idx === 0) return
       errors.push({ line: idx + 1, raw: line, reason: `余额「${amountRaw}」不是有效数字` })
@@ -129,7 +126,7 @@ export default function BalanceImport() {
       <div className="bd-import-body">
         <textarea
           className="bd-textarea"
-          placeholder={'小程序名\t余额\n黄金会员小程序\t8600\n视频会员小程序\t120'}
+          placeholder={'小程序名\t余额\n汉堡王\t34\n肯德基+\t120'}
           value={rawText}
           onChange={(e) => setRawText(e.target.value)}
           rows={10}
