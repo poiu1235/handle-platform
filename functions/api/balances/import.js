@@ -14,6 +14,7 @@ export async function onRequestPost(context) {
     app_name: r.app_name,
     amount: r.amount,
     updated_at: r.updated_at,
+    icon_key: r.icon_key || null,
     user_id: data.user.id,
   }))
 

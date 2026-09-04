@@ -19,7 +19,7 @@ export async function onRequestGet(context) {
   // 一次返回全量（含 amount=0）——0 余额筛选改为纯前端本地过滤（2026-09-02：
   // 对齐会员模式，进站即全量快照，开关不再触发第二次请求）；旧的 includeZero
   // 查询参数随之废弃（传了也忽略）
-  const query = 'select=id,app_name,amount,updated_at&order=updated_at.desc'
+  const query = 'select=id,app_name,amount,updated_at,icon_key&order=updated_at.desc'
 
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/balances?${query}`, {
     headers: restHeaders(env, data.accessToken),
@@ -44,6 +44,8 @@ export async function onRequestPost(context) {
       app_name: payload.app_name,
       amount: payload.amount,
       updated_at: payload.updated_at,
+      // 可选字段：前端没选图标时传 null/undefined，统一落成 null（= 未配置）
+      icon_key: payload.icon_key || null,
       user_id: data.user.id,
     }),
   })

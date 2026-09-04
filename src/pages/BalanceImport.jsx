@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import * as api from '../lib/apiClient'
+import { loadIconManifest, suggestIconKey } from '../lib/iconMatch'
 import './board.css'
 
 // ============================================================
@@ -56,14 +57,47 @@ function dedupeRows(rows) {
   return Array.from(map.values())
 }
 
+function IconThumb({ iconKey }) {
+  const [failed, setFailed] = useState(false)
+  if (!iconKey || failed) return <span className="bd-import-icon-empty">未匹配</span>
+  return (
+    <img
+      className="bd-import-icon-thumb"
+      src={`/small_icon/${encodeURIComponent(iconKey)}.png`}
+      alt=""
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
 export default function BalanceImport() {
   const { user, logout } = useAuth()
   const [rawText, setRawText] = useState('')
   const [submitState, setSubmitState] = useState({ status: 'idle', message: '' })
+  const [iconManifest, setIconManifest] = useState([])
+
+  useEffect(() => {
+    let cancelled = false
+    loadIconManifest().then((list) => {
+      if (!cancelled) setIconManifest(list)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const { rows, errors } = useMemo(() => parsePastedText(rawText), [rawText])
   const deduped = useMemo(() => dedupeRows(rows), [rows])
   const hasDuplicates = deduped.length !== rows.length
+
+  // 批量导入没有逐条手动确认的机会，所以直接在预览阶段按名称自动匹配图标，
+  // 跟着这一批一起提交进库——不用像原来那样导入完还得挨个点进编辑弹窗才触发一次匹配。
+  // 只是"预选"：匹配得不对，导入完之后照样能在列表页的编辑弹窗里随时改/清空。
+  const dedupedWithIcon = useMemo(
+    () => deduped.map((r) => ({ ...r, icon_key: suggestIconKey(r.app_name, iconManifest) })),
+    [deduped, iconManifest]
+  )
+  const matchedCount = dedupedWithIcon.filter((r) => r.icon_key).length
 
   const canSubmit =
     deduped.length > 0 && errors.length === 0 && submitState.status !== 'submitting'
@@ -76,10 +110,11 @@ export default function BalanceImport() {
     setSubmitState({ status: 'submitting', message: '' })
 
     const submitTime = new Date().toISOString()
-    const rows = deduped.map((r) => ({
+    const rows = dedupedWithIcon.map((r) => ({
       app_name: r.app_name,
       amount: r.amount,
       updated_at: submitTime,
+      icon_key: r.icon_key ?? null,
     }))
 
     try {
@@ -135,7 +170,9 @@ export default function BalanceImport() {
         {rawText.trim().length > 0 && (
           <div className="bd-preview">
             <p className="bd-preview-title">
-              解析预览{deduped.length > 0 && `（${deduped.length} 条）`}
+              解析预览{deduped.length > 0 && `（${deduped.length} 条`}
+              {deduped.length > 0 && matchedCount > 0 && `，已自动匹配 ${matchedCount} 个图标`}
+              {deduped.length > 0 && '）'}
               {hasDuplicates && (
                 <span className="bd-preview-note">同批次内有重名，已保留最后一条</span>
               )}
@@ -155,13 +192,17 @@ export default function BalanceImport() {
               <table className="bd-table">
                 <thead>
                   <tr>
+                    <th>图标</th>
                     <th>小程序名</th>
                     <th>余额</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {deduped.map((r) => (
+                  {dedupedWithIcon.map((r) => (
                     <tr key={r.app_name}>
+                      <td>
+                        <IconThumb iconKey={r.icon_key} />
+                      </td>
                       <td>{r.app_name}</td>
                       <td>{r.amount.toLocaleString()}</td>
                     </tr>

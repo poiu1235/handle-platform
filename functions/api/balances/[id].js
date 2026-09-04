@@ -40,7 +40,7 @@ export async function onRequestPatch(context) {
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/balances?id=eq.${params.id}`, {
     method: 'PATCH',
     headers: { ...restHeaders(env, data.accessToken), Prefer: 'return=representation' },
-    body: JSON.stringify(payload), // { app_name?, amount?, updated_at }
+    body: JSON.stringify(payload), // { app_name?, amount?, updated_at, icon_key? }（原样透传，icon_key 可传 null 清空）
   })
   const body = await res.json().catch(() => ({}))
   return json(body, res.status)

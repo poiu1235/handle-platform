@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "pages:dev": "wrangler pages dev --proxy=http://localhost:5173/",
-    "build": "vite build",
+    "build": "node scripts/gen-icon-manifest.js && vite build",
     "lint": "oxlint",
     "test:cards": "node scripts/test-cards-domain.mjs",
     "preview": "vite preview"

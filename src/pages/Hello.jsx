@@ -3,8 +3,15 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import * as api from '../lib/apiClient'
 import { useCardsStore } from '../lib/cardsStore'
+import {
+  loadIconManifest,
+  suggestIconKey,
+  GENERIC_DEFAULT_ICON_RE,
+  buildDefaultVisibleIcons,
+} from '../lib/iconMatch'
 import CardsPanel from './CardsPanel'
 import wordmark from '../assets/font_daoliti.svg'
+import { cardStyle, dominantColor } from '../lib/iconColor'
 import './board.css'
 
 // ============================================================
@@ -103,6 +110,29 @@ function sortItems(items, sortKey, sortDir) {
   return sorted
 }
 
+
+// ---------- 卡片名称前的小标记：有 icon_key 就显示 logo，没有/加载失败则回退成菱形点 ----------
+
+function CardMark({ iconKey }) {
+  const [failed, setFailed] = useState(false)
+
+  // iconKey 变化时（比如切换到另一条记录复用了同一实例的极少数情况）重置失败态
+  useEffect(() => {
+    setFailed(false)
+  }, [iconKey])
+
+  if (iconKey && !failed) {
+    return (
+      <img
+        className="bd-card-icon"
+        src={`/small_icon/${encodeURIComponent(iconKey)}.png`}
+        alt=""
+        onError={() => setFailed(true)}
+      />
+    )
+  }
+  return <span className="bd-card-mark" />
+}
 
 // ---------- 可左右拖动的余额卡片 ----------
 
@@ -341,9 +371,21 @@ function SwipeableBalanceCard({
         className={`bd-card ${isZero ? 'bd-card-zero' : ''} ${expanded ? 'bd-card-expanded' : 'bd-card-collapsed'}${
           rightPanelWidth > 0 ? ' bd-card-seam-right' : leftPanelWidth > 0 ? ' bd-card-seam-left' : ''
         }`}
-        style={{
-          background: isZero ? 'var(--bd-zero-card)' : colorFor('balance', item.id),
-        }}
+        style={
+          isZero
+            ? { background: 'var(--bd-zero-card)' }
+            : (() => {
+                const { background, nameColor, valueColor } = cardStyle(
+                  item.iconKey,
+                  colorFor('balance', item.id)
+                )
+                return {
+                  background,
+                  '--bd-card-name-color': nameColor,
+                  '--bd-card-value-color': valueColor,
+                }
+              })()
+        }
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -352,7 +394,7 @@ function SwipeableBalanceCard({
       >
         <div className="bd-card-main">
           <p className="bd-card-name">
-            <span className="bd-card-mark" />
+            <CardMark iconKey={item.iconKey} />
             {item.name}
           </p>
           {expanded && <p className="bd-card-meta">{formatUpdated(item.updatedAt)}</p>}
@@ -403,6 +445,23 @@ function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, 
     mode === 'edit' ? String(initialItem?.amount ?? '') : ''
   )
 
+  // 图标：null = 不配置（显示默认菱形点）。iconTouched 标记用户是否手动碰过选择器——
+  // 碰过之后，输入名称不再触发自动建议覆盖用户的选择（包括用户主动选"无"）。
+  const [iconKey, setIconKey] = useState(mode === 'edit' ? initialItem?.iconKey ?? null : null)
+  const [iconTouched, setIconTouched] = useState(mode === 'edit' && !!initialItem?.iconKey)
+  const [iconOptions, setIconOptions] = useState([])
+  const [iconQuery, setIconQuery] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    loadIconManifest().then((list) => {
+      if (!cancelled) setIconOptions(list)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const amountNumber = Number(amountText)
   const nameTrim = name.trim()
   // 修改弹窗重名预检（2026-09-02，对齐会员编辑弹窗）：改成已有其他记录的名字
@@ -414,50 +473,169 @@ function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, 
   const canSubmit =
     nameTrim.length > 0 && amountText.trim().length > 0 && !Number.isNaN(amountNumber) && !nameTaken
 
+  // 自动建议：只在用户还没手动碰过图标选择器时生效，命中就预选，没命中保持"无"。
+  // 用户一旦点了任意图标选项（含"无"），iconTouched 变 true，这里永久让位。
+  useEffect(() => {
+    if (iconTouched) return
+    setIconKey(suggestIconKey(nameTrim, iconOptions))
+  }, [nameTrim, iconOptions, iconTouched])
+
+  function pickIcon(key) {
+    setIconKey(key)
+    setIconTouched(true)
+    setIconQuery('') // 选中后收起网格，回到"已选中"视图；重新搜索或移除会再展开
+  }
+
+  // 搜索：按标题（文件名/key）做包含匹配，不区分大小写（中文本身不受影响）。
+  // "默认N"这组通用兜底图标不参与常规展示/搜索——只在搜不到任何结果时出现。
+  const iconQueryTrim = iconQuery.trim().toLowerCase()
+  const browsableIconOptions = useMemo(
+    () => iconOptions.filter((key) => !GENERIC_DEFAULT_ICON_RE.test(key)),
+    [iconOptions]
+  )
+  const defaultIconOptions = useMemo(
+    () => iconOptions.filter((key) => GENERIC_DEFAULT_ICON_RE.test(key)),
+    [iconOptions]
+  )
+  const matchedIconOptions = iconQueryTrim
+    ? browsableIconOptions.filter((key) => key.toLowerCase().includes(iconQueryTrim))
+    : buildDefaultVisibleIcons(browsableIconOptions)
+  // 选择框最多两行：连"无"一起 12 个格子，一排 6 个——超出部分不展示，
+  // 想找更靠后的图标用搜索框缩小范围
+  const filteredIconOptions = matchedIconOptions.slice(0, 11)
+  const showDefaultFallback = iconQueryTrim.length > 0 && matchedIconOptions.length === 0
+  // 选中了真实图标（非"无"）且当前没在搜索时，收起网格，只显示"已选中"的锚定预览；
+  // 用户重新在搜索框打字，或点预览上的"移除"，才会再展开选择网格
+  const showIconPicker = iconKey === null || iconQueryTrim.length > 0
+
   return (
     <div className="bd-modal-backdrop" onClick={onClose}>
       <div className="bd-modal-card" onClick={(e) => e.stopPropagation()}>
-        <h2 className="bd-modal-title">{mode === 'add' ? '新增余额记录' : '修改余额记录'}</h2>
-
-        {mode === 'add' && (
-          <p className="bd-modal-hint">
-            小程序名如果和已有记录重名，会直接覆盖那条记录、更新它的余额，不会新建一条重复的。
-          </p>
-        )}
-
-        <div className="bd-field">
-          <label>小程序名</label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="如：肯德基"
-            autoFocus
-          />
-          {nameTaken && <p className="cd-field-hint cd-field-hint-error">已有同名小程序，请换一个名字</p>}
-        </div>
-        <div className="bd-field">
-          <label>余额</label>
-          <input
-            value={amountText}
-            onChange={(e) => setAmountText(e.target.value)}
-            placeholder="如：50"
-            inputMode="decimal"
-          />
+        <div className="bd-modal-head">
+          <h2 className="bd-modal-title">{mode === 'add' ? '新增余额记录' : '修改余额记录'}</h2>
+          {mode === 'add' && (
+            <p className="bd-modal-hint">
+              小程序名如果和已有记录重名，会直接覆盖那条记录、更新它的余额，不会新建一条重复的。
+            </p>
+          )}
         </div>
 
-        {errorMessage && <div className="bd-notice bd-notice-error">{errorMessage}</div>}
+        <div className="bd-modal-scroll">
+          <div className="bd-field">
+            <label>小程序名</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="如：肯德基"
+              autoFocus
+            />
+            {nameTaken && <p className="cd-field-hint cd-field-hint-error">已有同名小程序，请换一个名字</p>}
+          </div>
+          <div className="bd-field">
+            <label>余额</label>
+            <input
+              value={amountText}
+              onChange={(e) => setAmountText(e.target.value)}
+              placeholder="如：50"
+              inputMode="decimal"
+            />
+          </div>
 
-        <div className="bd-modal-actions">
-          <button className="bd-btn bd-btn-ghost" onClick={onClose} disabled={submitting}>
-            取消
-          </button>
-          <button
-            className="bd-btn"
-            disabled={!canSubmit || submitting}
-            onClick={() => onSubmit({ name: name.trim(), amount: amountNumber })}
-          >
-            {submitting ? '保存中…' : '保存'}
-          </button>
+          <div className="bd-field">
+            <label>图标（可选）</label>
+
+            {!showIconPicker ? (
+              <div className="bd-icon-selected">
+                <img
+                  className="bd-icon-selected-img"
+                  src={`/small_icon/${encodeURIComponent(iconKey)}.png`}
+                  alt=""
+                />
+                <div className="bd-icon-selected-info">
+                  <span className="bd-icon-selected-name">{iconKey}</span>
+                  {!iconTouched && <span className="bd-icon-selected-tag">按名称自动匹配</span>}
+                </div>
+                <button
+                  type="button"
+                  className="bd-icon-selected-clear"
+                  onClick={() => {
+                    setIconKey(null)
+                    setIconTouched(true)
+                  }}
+                >
+                  移除
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  className="bd-icon-search"
+                  value={iconQuery}
+                  onChange={(e) => setIconQuery(e.target.value)}
+                  placeholder="搜索图标标题，比如「喜茶」"
+                />
+                <div className="bd-icon-picker">
+                  <button
+                    type="button"
+                    className={`bd-icon-option bd-icon-option-none ${iconKey === null ? 'bd-icon-option-active' : ''}`}
+                    onClick={() => pickIcon(null)}
+                  >
+                    无
+                  </button>
+                  {!showDefaultFallback &&
+                    filteredIconOptions.map((key) => (
+                      <button
+                        type="button"
+                        key={key}
+                        className={`bd-icon-option ${iconKey === key ? 'bd-icon-option-active' : ''}`}
+                        onClick={() => pickIcon(key)}
+                        title={key}
+                      >
+                        <img src={`/small_icon/${encodeURIComponent(key)}.png`} alt={key} />
+                      </button>
+                    ))}
+                </div>
+
+                {showDefaultFallback && (
+                  <>
+                    <p className="cd-field-hint">
+                      没有找到「{iconQuery.trim()}」相关的图标，可以先从下面选一个默认图标
+                    </p>
+                    <div className="bd-icon-picker bd-icon-picker--scroll">
+                      {defaultIconOptions.map((key) => (
+                        <button
+                          type="button"
+                          key={key}
+                          className={`bd-icon-option ${iconKey === key ? 'bd-icon-option-active' : ''}`}
+                          onClick={() => pickIcon(key)}
+                          title={key}
+                        >
+                          <img src={`/small_icon/${encodeURIComponent(key)}.png`} alt={key} />
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+
+          {errorMessage && <div className="bd-notice bd-notice-error">{errorMessage}</div>}
+        </div>
+
+        <div className="bd-modal-foot">
+          <div className="bd-modal-actions">
+            <button className="bd-btn bd-btn-ghost" onClick={onClose} disabled={submitting}>
+              取消
+            </button>
+            <button
+              className="bd-btn"
+              disabled={!canSubmit || submitting}
+              onClick={() => onSubmit({ name: name.trim(), amount: amountNumber, iconKey })}
+            >
+              {submitting ? '保存中…' : '保存'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -510,6 +688,25 @@ export default function Hello() {
   const [modalError, setModalError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
 
+  // ---------- 环境光（Ambient Glow）：展开卡片时，背景空白区跟随卡片主色渐变 ----------
+  // 只对余额卡（会呼吸展开）生效，0 余额卡是纯灰没有"主色"可言，展开时不点亮环境光。
+  // ambientColor 只在环境光"点亮"时更新，收起时保留最后一次的颜色不清空——
+  // 这样收起是纯粹的淡出（opacity 过渡），不会在淡出的同时又跳一次色相。
+  const [ambientColor, setAmbientColor] = useState('#5bbbee')
+  const expandedBalanceItem =
+    activeTab === 'balance' && expandedId
+      ? balanceItems.find((it) => it.id === expandedId) ?? null
+      : null
+  const ambientActive = !!expandedBalanceItem && expandedBalanceItem.amount !== 0
+
+  useEffect(() => {
+    if (!ambientActive || !expandedBalanceItem) return
+    setAmbientColor(
+      dominantColor(expandedBalanceItem.iconKey, colorFor('balance', expandedBalanceItem.id))
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ambientActive, expandedBalanceItem?.id, expandedBalanceItem?.iconKey])
+
   const fetchBalances = useCallback(
     async () => {
       if (!user) return
@@ -529,6 +726,7 @@ export default function Hello() {
             amount: Number(row.amount),
             unit: '元',
             updatedAt: row.updated_at,
+            iconKey: row.icon_key ?? null,
           }))
         )
         setBalanceState({ status: 'ok', message: '' })
@@ -614,7 +812,7 @@ export default function Hello() {
     setModalError('')
   }
 
-  async function handleModalSubmit({ name, amount }) {
+  async function handleModalSubmit({ name, amount, iconKey }) {
     if (!user) return
     setModalSubmitting(true)
     setModalError('')
@@ -626,12 +824,22 @@ export default function Hello() {
           ? await api.authorizedFetch('/api/balances', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ app_name: name, amount, updated_at: submitTime }),
+              body: JSON.stringify({
+                app_name: name,
+                amount,
+                updated_at: submitTime,
+                icon_key: iconKey ?? null,
+              }),
             })
           : await api.authorizedFetch(`/api/balances/${modalState.item.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ app_name: name, amount, updated_at: submitTime }),
+              body: JSON.stringify({
+                app_name: name,
+                amount,
+                updated_at: submitTime,
+                icon_key: iconKey ?? null,
+              }),
             })
 
       const body = await res.json().catch(() => ({}))
@@ -694,7 +902,11 @@ export default function Hello() {
   }
 
   return (
-    <div className="bd-board">
+    <div
+      className={`bd-board${ambientActive ? ' bd-ambient-active' : ''}`}
+      style={{ '--bd-ambient': ambientColor }}
+    >
+      <div className="bd-ambient-glow" aria-hidden="true" />
       <header className="bd-header">
         <div className="bd-header-top">
           <div>
