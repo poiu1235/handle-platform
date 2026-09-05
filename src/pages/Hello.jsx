@@ -215,11 +215,14 @@ function SwipeableBalanceCard({
     if (!measureEl) return
     setNameNaturalWidth(measureEl.offsetWidth)
 	
-	// 不判断 document.fonts.status——它在首次绘制前经常还没把自定义字体
-    // 放进加载队列，读到的是"假的 loaded"。document.fonts.ready 本身很轻，
-    // 即使真的已经就绪也是下一个微任务就 resolve，无条件等待更保险。
+	// 显式指定要等的字体，不依赖 document.fonts.ready 这个环境级别的"总闸"——
+    // 主动把 PT Sans / LXGW WenKai 加进加载队列并等它们各自加载完成，
+    // 不用猜浏览器有没有已经开始加载。
     let cancelled = false
-    document.fonts?.ready?.then(() => {
+    Promise.all([
+      document.fonts.load('700 30px "PT Sans"'),
+      document.fonts.load('700 30px "LXGW WenKai"'),
+    ]).then(() => {
       if (cancelled) return
       const el = titleMeasureRef.current
       if (el) setNameNaturalWidth(el.offsetWidth)
@@ -258,7 +261,10 @@ function SwipeableBalanceCard({
     observer.observe(mainEl)
 	
 	let cancelled = false
-    document.fonts?.ready?.then(() => { if (!cancelled) recomputeScale() })
+    Promise.all([
+      document.fonts.load('700 30px "PT Sans"'),
+      document.fonts.load('700 30px "LXGW WenKai"'),
+    ]).then(() => { if (!cancelled) recomputeScale() })
 
     return () => {
       cancelled = true
