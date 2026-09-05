@@ -214,6 +214,19 @@ function SwipeableBalanceCard({
     const measureEl = titleMeasureRef.current
     if (!measureEl) return
     setNameNaturalWidth(measureEl.offsetWidth)
+	
+	// 首次测量时自定义字体（PT Sans / LXGW WenKai）可能还没下载完成，
+	// offsetWidth 是用兜底字体量出来的、不准。等字体真正就绪后再补测一次，
+	// 覆盖掉那个用错字体测出来的值。
+	if (document.fonts && document.fonts.status !== 'loaded') {
+	  let cancelled = false
+	  document.fonts.ready.then(() => {
+	    if (cancelled) return
+	    const el = titleMeasureRef.current
+	    if (el) setNameNaturalWidth(el.offsetWidth)
+	  })
+	  return () => { cancelled = true }
+	}
   }, [item.name])
 
   useLayoutEffect(() => {
@@ -245,7 +258,16 @@ function SwipeableBalanceCard({
     recomputeScale()
     const observer = new ResizeObserver(recomputeScale)
     observer.observe(mainEl)
-    return () => observer.disconnect()
+	
+	let cancelled = false
+    if (document.fonts && document.fonts.status !== 'loaded') {
+      document.fonts.ready.then(() => { if (!cancelled) recomputeScale() })
+    }
+
+    return () => {
+      cancelled = true
+      observer.disconnect()
+    }
   }, [expanded, hasIconImage, item.name])
 
   // 标题 / 图标永远按最大号排版，这里把 titleScale 换算成"相对最大号的比例"
