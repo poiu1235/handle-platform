@@ -519,7 +519,8 @@ function SwipeableBalanceCard({
         >
           <div className="bd-card-title-row">
             <CardMark iconKey={item.iconKey} boxSize={hasIconImage ? iconOuterWidth : undefined} scale={hasIconImage ? iconScale : undefined} />
-            <span className="bd-card-name-box" style={{ width: nameOuterWidth }}>
+            /*nameOuterWidth*/
+			<span className="bd-card-name-box" style={{ width: 999 }}>
               <p
                 className="bd-card-name"
                 style={{
@@ -527,7 +528,7 @@ function SwipeableBalanceCard({
                   // 换算回"缩放前"（30px 字号下）应该给多宽，这样缩放之后
                   // 视觉上正好等于 nameOuterWidth；放不下时这个宽度会比文字
                   // 自然宽度还小，触发 ellipsis 截断——跟改造前的兜底行为一致
-                  width: nameScale > 0 ? nameOuterWidth / nameScale : 0,
+                  // width: nameScale > 0 ? nameOuterWidth / nameScale : 0,
                 }}
               >
                 {item.name}
