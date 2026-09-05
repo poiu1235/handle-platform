@@ -271,17 +271,6 @@ function SwipeableBalanceCard({
       observer.disconnect()
     }
   }, [expanded, hasIconImage, item.name])
-  
-  
-  {/* 临时诊断:每张卡片自己的名字 + 测到的自然宽度 + 有没有图标图片,排查完删掉 */}
-<div
-  style={{
-    position: 'absolute', top: 0, right: 0, fontSize: 9, color: 'red',
-    background: 'white', padding: '0 2px', zIndex: 999, whiteSpace: 'nowrap',
-  }}
->
-  {item.name} / nm{nameNaturalWidth.toFixed(0)} / icon{hasIconImage ? 'Y' : 'N'}
-</div>
 
   // 标题 / 图标永远按最大号排版，这里把 titleScale 换算成"相对最大号的比例"
   // 和"容器该给多宽"这两组渲染真正要用的数字。折叠态没有挤压需求，直接给
@@ -565,6 +554,15 @@ function SwipeableBalanceCard({
           >
             {item.name}
           </span>
+		    {/* 临时诊断:每张卡片自己的名字 + 测到的自然宽度 + 有没有图标图片,排查完删掉 */}
+<div
+  style={{
+    position: 'absolute', top: 0, right: 0, fontSize: 9, color: 'red',
+    background: 'white', padding: '0 2px', zIndex: 999, whiteSpace: 'nowrap',
+  }}
+>
+  {item.name} / nm{nameNaturalWidth.toFixed(0)} / icon{hasIconImage ? 'Y' : 'N'}
+</div>
         </div>
         <div className="bd-card-value" style={{ opacity: valueOpacity }}>
           <span className="bd-card-amount">{item.amount.toLocaleString()}</span>
