@@ -501,6 +501,10 @@ function SwipeableBalanceCard({
             </span>
           </div>
           {expanded && <p className="bd-card-meta">{formatUpdated(item.updatedAt)}</p>}
+          {/* 临时诊断：把关键数字打出来，排查完删掉 */}
+          <p style={{ fontSize: 9, lineHeight: 1.3, margin: '2px 0 0', opacity: 0.7, whiteSpace: 'nowrap' }}>
+            nw:{nameNaturalWidth.toFixed(1)} sc:{nameScale.toFixed(3)} ow:{nameOuterWidth.toFixed(1)} icon:{hasIconImage ? 'Y' : 'N'} len:{item.name.length}
+          </p>
           {/* 视觉上完全隐藏、脱离文档流，只是用来量"标题在 30px 最大字号下
               本来需要多宽"——不影响布局，也不会被截断/换行 */}
           <span
