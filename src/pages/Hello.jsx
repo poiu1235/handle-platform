@@ -181,10 +181,21 @@ function SwipeableBalanceCard({
   // 折叠态也要用到"标题在 30px 最大字号下的自然宽度"来算外层宽度，所以这里
   // 单独测一次，不受下面那个只在展开态才跑的 ResizeObserver 门槛限制——否则
   // 一条从没被展开过的记录，折叠态会因为量不到自然宽度而把标题宽度算成 0。
+  //
+  // 这里用 ResizeObserver 盯着测量用的隐藏 <span> 本身，而不是只在 mount 时
+  // 量一次：如果测量发生在自定义字体（var(--bd-font)）还没加载完成之前，
+  // 浏览器会先拿系统兜底字体量出一个偏窄的宽度；等自定义字体真正换上、这个
+  // 隐藏 span 的实际渲染宽度变化时，ResizeObserver 会自动再触发一次测量去
+  // 纠正，不会像"只测一次就定死"那样，字体换上后文字变宽了、外层框却还是
+  // 早期量错的窄尺寸，触发多余的 ellipsis 截断。
   useLayoutEffect(() => {
     const measureEl = titleMeasureRef.current
     if (!measureEl) return
-    setNameNaturalWidth(measureEl.offsetWidth)
+    const update = () => setNameNaturalWidth(measureEl.offsetWidth)
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(measureEl)
+    return () => observer.disconnect()
   }, [item.name])
 
   useLayoutEffect(() => {
