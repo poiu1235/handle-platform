@@ -170,38 +170,20 @@ function SwipeableBalanceCard({
   // 不再有任何 font-size / width 过渡，"从小变大"改成对已经定型的最大号内容
   // 做 transform: scale()（纯合成层操作，不触发重排），外面套一层
   // overflow:hidden 的容器用普通数字 width/height 过渡来占位和裁切。
+  //
+  // 【回退说明】上面这段是图标的方案，保留；但标题文字本身不能这么做——
+  // 真机实测粗体中文字形在 transform: scale() 缩小后会花字/糊字（不是省略号
+  // 截断，是字形本身画错了）。浏览器做 transform 缩放时是"先按最大号把字形
+  // 画成位图，再整体缩小"，不会重新走一遍字体 hinting/渲染管线，缩得越狠、
+  // 笔画越粗越容易糊。所以标题这里退回成直接改 font-size，让浏览器按目标
+  // 字号重新排版文字（清晰，但重新带回了最初那个"字号在动、iOS 端排版结果
+  // 会滞后"的高度跳变老问题——这个问题留着后面单独解决，不能为了消除跳变
+  // 把字先糊了）。
   const titleMainRef = useRef(null)
   const titleMeasureRef = useRef(null)
   const [titleScale, setTitleScale] = useState(1)
-  const [nameNaturalWidth, setNameNaturalWidth] = useState(0)
-  const [nameNaturalHeight, setNameNaturalHeight] = useState(0)
-  const [mainAvailableWidth, setMainAvailableWidth] = useState(0)
 
   const hasIconImage = !!item.iconKey
-
-  // 折叠态也要用到"标题在 30px 最大字号下的自然宽度/高度"来算外层宽度和高度，
-  // 所以这里单独测一次，不受下面那个只在展开态才跑的 ResizeObserver 门槛
-  // 限制——否则一条从没被展开过的记录，折叠态会因为量不到自然尺寸而把标题
-  // 宽高算成 0。
-  //
-  // 这里用 ResizeObserver 盯着测量用的隐藏 <span> 本身，而不是只在 mount 时
-  // 量一次：如果测量发生在自定义字体（var(--bd-font)）还没加载完成之前，
-  // 浏览器会先拿系统兜底字体量出一个偏窄的宽度；等自定义字体真正换上、这个
-  // 隐藏 span 的实际渲染尺寸变化时，ResizeObserver 会自动再触发一次测量去
-  // 纠正，不会像"只测一次就定死"那样，字体换上后文字变宽了、外层框却还是
-  // 早期量错的窄尺寸，触发多余的 ellipsis 截断。
-  useLayoutEffect(() => {
-    const measureEl = titleMeasureRef.current
-    if (!measureEl) return
-    const update = () => {
-      setNameNaturalWidth(measureEl.offsetWidth)
-      setNameNaturalHeight(measureEl.offsetHeight)
-    }
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(measureEl)
-    return () => observer.disconnect()
-  }, [item.name])
 
   useLayoutEffect(() => {
     if (!expanded) return
@@ -225,8 +207,6 @@ function SwipeableBalanceCard({
       const c1 = iconRange + (1 / 3) * naturalTextWidth
       const rawScale = c1 > 0 ? (available - c0) / c1 : 1
       setTitleScale(Math.max(0, Math.min(1, rawScale)))
-      setNameNaturalWidth(naturalTextWidth)
-      setMainAvailableWidth(available)
     }
 
     recomputeScale()
@@ -235,26 +215,12 @@ function SwipeableBalanceCard({
     return () => observer.disconnect()
   }, [expanded, hasIconImage, item.name])
 
-  // 标题 / 图标永远按最大号排版，这里把 titleScale 换算成"相对最大号的比例"
-  // 和"容器该给多宽"这两组渲染真正要用的数字。折叠态没有挤压需求，直接给
-  // 固定比例；展开态才用上面测出来的 titleScale。
+  // 图标永远按最大号排版，换算成"相对最大号的比例"给 transform: scale() 用；
+  // 标题字号则直接算出目标 px 值，等下当 font-size 用（不再走 transform）。
   const nameFontTarget = expanded ? 20 + 10 * titleScale : 15
-  const nameScale = nameFontTarget / 30
   const iconSizeTarget = expanded ? (hasIconImage ? 20 + 20 * titleScale : 20) : 20
   const iconScale = hasIconImage ? iconSizeTarget / 40 : 1
   const iconOuterWidth = hasIconImage ? 40 * iconScale : 8
-  const iconMarginRight = hasIconImage ? 8 : 9
-  // 正常情况下，外层宽度就是"自然宽度 × 比例"；只有当算法在展开态把 titleScale
-  // 已经钳到 0、可用空间却还是不够时（rawScale 原本是负数），才需要再夹一次
-  // 剩余可用宽度，把多出来的部分交给 .bd-card-name 自带的 ellipsis 去截断——
-  // 跟这套算法改造前的兜底行为完全一致。
-  const nameIdealWidth = nameNaturalWidth * nameScale
-  const nameOuterWidth = expanded
-    ? Math.min(nameIdealWidth, Math.max(0, mainAvailableWidth - iconOuterWidth - iconMarginRight))
-    : nameIdealWidth
-  // 高度不需要跟宽度一样考虑"放不下夹一次"——ellipsis 只发生在水平方向，
-  // 高度单纯跟着缩放比例走就行
-  const nameOuterHeight = nameNaturalHeight * nameScale
 
   const isZero = item.amount === 0
   const editDeleteWidth = ACTION_BTN_WIDTH * 2
@@ -485,26 +451,11 @@ function SwipeableBalanceCard({
         >
           <div className="bd-card-title-row">
             <CardMark iconKey={item.iconKey} boxSize={hasIconImage ? iconOuterWidth : undefined} scale={hasIconImage ? iconScale : undefined} />
-            <span className="bd-card-name-box" style={{ width: nameOuterWidth, height: nameOuterHeight }}>
-              <p
-                className="bd-card-name"
-                style={{
-                  transform: `scale(${nameScale})`,
-                  // 换算回"缩放前"（30px 字号下）应该给多宽，这样缩放之后
-                  // 视觉上正好等于 nameOuterWidth；放不下时这个宽度会比文字
-                  // 自然宽度还小，触发 ellipsis 截断——跟改造前的兜底行为一致
-                  width: nameScale > 0 ? nameOuterWidth / nameScale : 0,
-                }}
-              >
-                {item.name}
-              </p>
-            </span>
+            <p className="bd-card-name" style={{ fontSize: nameFontTarget }}>
+              {item.name}
+            </p>
           </div>
           {expanded && <p className="bd-card-meta">{formatUpdated(item.updatedAt)}</p>}
-          {/* 临时诊断：把关键数字打出来，排查完删掉 */}
-          <p style={{ fontSize: 9, lineHeight: 1.3, margin: '2px 0 0', opacity: 0.7, whiteSpace: 'nowrap' }}>
-            nw:{nameNaturalWidth.toFixed(1)} sc:{nameScale.toFixed(3)} ow:{nameOuterWidth.toFixed(1)} icon:{hasIconImage ? 'Y' : 'N'} len:{item.name.length}
-          </p>
           {/* 视觉上完全隐藏、脱离文档流，只是用来量"标题在 30px 最大字号下
               本来需要多宽"——不影响布局，也不会被截断/换行 */}
           <span

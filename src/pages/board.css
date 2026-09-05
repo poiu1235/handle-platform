@@ -575,6 +575,16 @@
   min-width: 0;
 }
 
+/* 标题文字直接吃 flex 剩余空间、允许收缩——放不下时靠浏览器原生的
+   overflow:hidden + text-overflow:ellipsis 截断，不再套一层 JS 算宽度的
+   容器（那层容器配合 transform: scale() 用于缩放，真机上粗体中文字形缩小
+   后会糊/花，所以标题这块退回直接改 font-size，见 SwipeableBalanceCard
+   里的说明）。 */
+.bd-card-title-row > .bd-card-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .bd-card-icon-box {
   display: inline-block;
   flex: none;
