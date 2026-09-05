@@ -549,16 +549,28 @@
    放到 40px 最抢眼；标题次之 30px；日期和"元"这类辅助信息统一 20px。
    每个元素自己（.bd-card-name / .bd-card-icon / .bd-card-amount / .bd-card-meta /
    .bd-card-unit）身上都挂了 transition，所以这里只是"目标值"变了——真正的
-   放大过程是图标和文字自己平滑地长大过去，不是折叠态和展开态之间的瞬间切换 */
+   放大过程是图标和文字自己平滑地长大过去，不是折叠态和展开态之间的瞬间切换。
+
+   标题被金额区域挤压时的"该缩多少缩多少"，靠的是组件里 JS 算出来的
+   --bd-title-scale（0~1，挂在 .bd-card-main 上，声明见 SwipeableBalanceCard）：
+   它是用"标题在 30px 最大字号下本来需要多宽"和"这个盒子实际分到多少可用宽度"
+   联立解出来的一个精确比例，不是按容器宽度的百分比瞎猜——所以短标题在同样窄的
+   空间里几乎不缩，长标题会立刻按字数比例开始缩，缩到 1（也就是 20px 地板）
+   还放不下，才轮到下面 .bd-card-name 自带的 ellipsis 兜底截断。
+   .bd-card-main 这里给 flex-basis: 0% 是为了让它的宽度完全由 flex 分配算法
+   决定、不受自己文字内容影响，JS 那边用 ResizeObserver 测的才是真正干净的
+   "可用宽度"，不会跟这里的缩放互相踩踏形成死循环。 */
+.bd-card-expanded .bd-card-main {
+  flex: 1 1 0%;
+}
+
 .bd-card-expanded .bd-card-name {
-  font-size: 30px;
+  font-size: calc(20px + 10px * var(--bd-title-scale, 1));
 }
 
 .bd-card-expanded .bd-card-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  vertical-align: -11px;
+  width: calc(20px + 20px * var(--bd-title-scale, 1));
+  height: calc(20px + 20px * var(--bd-title-scale, 1));
 }
 
 .bd-card-expanded .bd-card-amount {
@@ -588,12 +600,13 @@
   width: 20px;
   height: 20px;
   margin-right: 8px;
-  border-radius: 6px;
+  /* 用百分比而不是固定 px：图标不管缩到多小/放到多大，圆角比例都保持一致，
+     不用再为每一档尺寸单独调一次圆角数值 */
+  border-radius: 25%;
   object-fit: cover;
-  vertical-align: -5px;
+  vertical-align: middle;
   background: rgba(255, 255, 255, 0.4);
-  transition: width 0.32s var(--bd-ease), height 0.32s var(--bd-ease),
-    border-radius 0.32s var(--bd-ease), vertical-align 0.32s var(--bd-ease);
+  transition: width 0.32s var(--bd-ease), height 0.32s var(--bd-ease);
   /* 苹果风格的"高光边"：不是描一圈实色边框，而是左上一道亮、右下一道更淡的亮，
      像有一束光从左上打过来，图标边缘被照出一层釉面质感——比纯黑框更"高级"，
      也不会跟卡片渐变背景的颜色打架。中间再叠一圈极淡的白边兜底，

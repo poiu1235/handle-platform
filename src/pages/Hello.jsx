@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import * as api from '../lib/apiClient'
@@ -171,6 +171,51 @@ function SwipeableBalanceCard({
   const lastSampleRef = useRef({ x: 0, t: 0 })
   const momentumFrame = useRef(null)
   const rowRef = useRef(null)
+
+  // ---------- 展开态标题自适应缩放：优先缩小字号，最后才截断省略 ----------
+  // titleMainRef 测的是标题所在容器（.bd-card-main）实际分到的可用宽度——
+  // 这个盒子用了 flex: 1 1 0%，宽度只由 flex 分配算法决定，不受自己文字内容
+  // 影响，所以可以放心用 ResizeObserver 实时测量，不会跟下面的缩放互相踩踏。
+  // titleMeasureRef 是一个视觉上完全隐藏、脱离文档流的 <span>，用跟标题一样的
+  // 字体在最大字号（30px）下渲染同一段文字，测出"这段标题本来需要多宽"。
+  // 有了"可用宽度"和"文字在最大字号下的自然宽度"这两个数，再加上图标本身
+  // 的最大/最小尺寸，就能直接解出一个 0~1 的缩放比例，让标题和图标"该缩多少
+  // 缩多少"，缩到底（20px）还放不下才轮到 ellipsis 兜底截断。
+  const titleMainRef = useRef(null)
+  const titleMeasureRef = useRef(null)
+  const [titleScale, setTitleScale] = useState(1)
+
+  const hasIconImage = !!item.iconKey
+
+  useLayoutEffect(() => {
+    if (!expanded) return
+    const mainEl = titleMainRef.current
+    const measureEl = titleMeasureRef.current
+    if (!mainEl || !measureEl) return
+
+    function recomputeScale() {
+      const available = mainEl.clientWidth
+      const naturalTextWidth = measureEl.offsetWidth
+      // 图标（真图片）在 20~40px 之间跟标题同步缩放；没有图标图片、退化成菱形
+      // 标记的卡片，菱形本身固定 8px 不参与缩放，公式里对应的"可变范围"就是 0
+      const iconMin = hasIconImage ? 20 : 8
+      const iconMax = hasIconImage ? 40 : 8
+      const marginRight = hasIconImage ? 8 : 9
+      const iconRange = iconMax - iconMin
+      // 标题字号 fontSize(s) = 20 + 10s，文字像素宽度近似跟字号线性缩放，
+      // 于是 usedWidth(s) = 图标(s) + 间距 + 文字宽度(s) 是一个关于 s 的一次式，
+      // 令它等于可用宽度 available，直接解出 s，不用迭代/试错
+      const c0 = iconMin + marginRight + (2 / 3) * naturalTextWidth
+      const c1 = iconRange + (1 / 3) * naturalTextWidth
+      const rawScale = c1 > 0 ? (available - c0) / c1 : 1
+      setTitleScale(Math.max(0, Math.min(1, rawScale)))
+    }
+
+    recomputeScale()
+    const observer = new ResizeObserver(recomputeScale)
+    observer.observe(mainEl)
+    return () => observer.disconnect()
+  }, [expanded, hasIconImage, item.name])
 
   const isZero = item.amount === 0
   const editDeleteWidth = ACTION_BTN_WIDTH * 2
@@ -395,12 +440,35 @@ function SwipeableBalanceCard({
         onPointerCancel={handlePointerUp}
         onClick={handleCardClick}
       >
-        <div className="bd-card-main">
+        <div
+          className="bd-card-main"
+          ref={titleMainRef}
+          style={{ '--bd-title-scale': titleScale }}
+        >
           <p className="bd-card-name">
             <CardMark iconKey={item.iconKey} />
             {item.name}
           </p>
           {expanded && <p className="bd-card-meta">{formatUpdated(item.updatedAt)}</p>}
+          {/* 视觉上完全隐藏、脱离文档流，只是用来量"标题在 30px 最大字号下
+              本来需要多宽"——不影响布局，也不会被截断/换行 */}
+          <span
+            ref={titleMeasureRef}
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              left: -9999,
+              top: 0,
+              visibility: 'hidden',
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              fontSize: '30px',
+              fontWeight: 700,
+              fontFamily: 'var(--bd-font)',
+            }}
+          >
+            {item.name}
+          </span>
         </div>
         <div className="bd-card-value" style={{ opacity: valueOpacity }}>
           <span className="bd-card-amount">{item.amount.toLocaleString()}</span>
