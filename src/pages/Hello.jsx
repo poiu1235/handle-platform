@@ -519,7 +519,7 @@ function SwipeableBalanceCard({
         >
           <div className="bd-card-title-row">
             <CardMark iconKey={item.iconKey} boxSize={hasIconImage ? iconOuterWidth : undefined} scale={hasIconImage ? iconScale : undefined} />
-            /*nameOuterWidth*/
+            
 			<span className="bd-card-name-box" style={{ width: 999 }}>
               <p
                 className="bd-card-name"
