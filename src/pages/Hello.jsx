@@ -201,7 +201,6 @@ function SwipeableBalanceCard({
   // overflow:hidden 的容器用普通数字 width/height 过渡来占位和裁切。
   const titleMainRef = useRef(null)
   const titleMeasureRef = useRef(null)
-  const nameVisibleRef = useRef(null)   // 补上这一行
   const [titleScale, setTitleScale] = useState(1)
   const [nameNaturalWidth, setNameNaturalWidth] = useState(0)
   const [mainAvailableWidth, setMainAvailableWidth] = useState(0)
@@ -215,20 +214,6 @@ function SwipeableBalanceCard({
     const measureEl = titleMeasureRef.current
     if (!measureEl) return
     setNameNaturalWidth(measureEl.offsetWidth)
-	
-	// 显式指定要等的字体，不依赖 document.fonts.ready 这个环境级别的"总闸"——
-    // 主动把 PT Sans / LXGW WenKai 加进加载队列并等它们各自加载完成，
-    // 不用猜浏览器有没有已经开始加载。
-    let cancelled = false
-    Promise.all([
-      document.fonts.load('700 30px "PT Sans"'),
-      document.fonts.load('700 30px "LXGW WenKai"'),
-    ]).then(() => {
-      if (cancelled) return
-      const el = titleMeasureRef.current
-      if (el) setNameNaturalWidth(el.offsetWidth)
-    })
-    return () => { cancelled = true }
   }, [item.name])
 
   useLayoutEffect(() => {
@@ -260,17 +245,7 @@ function SwipeableBalanceCard({
     recomputeScale()
     const observer = new ResizeObserver(recomputeScale)
     observer.observe(mainEl)
-	
-	let cancelled = false
-    Promise.all([
-      document.fonts.load('700 30px "PT Sans"'),
-      document.fonts.load('700 30px "LXGW WenKai"'),
-    ]).then(() => { if (!cancelled) recomputeScale() })
-
-    return () => {
-      cancelled = true
-      observer.disconnect()
-    }
+    return () => observer.disconnect()
   }, [expanded, hasIconImage, item.name])
 
   // 标题 / 图标永远按最大号排版，这里把 titleScale 换算成"相对最大号的比例"
@@ -520,9 +495,8 @@ function SwipeableBalanceCard({
         >
           <div className="bd-card-title-row">
             <CardMark iconKey={item.iconKey} boxSize={hasIconImage ? iconOuterWidth : undefined} scale={hasIconImage ? iconScale : undefined} />
-			<span className="bd-card-name-box" style={{ width: nameOuterWidth }}>
+            <span className="bd-card-name-box" style={{ width: nameOuterWidth }}>
               <p
-			    ref={nameVisibleRef}
                 className="bd-card-name"
                 style={{
                   transform: `scale(${nameScale})`,
@@ -556,15 +530,6 @@ function SwipeableBalanceCard({
           >
             {item.name}
           </span>
-		    {/* 临时诊断:每张卡片自己的名字 + 测到的自然宽度 + 有没有图标图片,排查完删掉 */}
-<div
-  style={{
-    position: 'absolute', top: 0, right: 0, fontSize: 9, color: 'red',
-    background: 'white', padding: '0 2px', zIndex: 999, whiteSpace: 'nowrap',
-  }}
->
-  {item.name} / nm{nameNaturalWidth.toFixed(0)} / sw{nameVisibleRef.current?.scrollWidth ?? '-'} / cw{nameVisibleRef.current?.clientWidth ?? '-'} / nm{nameNaturalWidth.toFixed(0)}
-</div>
         </div>
         <div className="bd-card-value" style={{ opacity: valueOpacity }}>
           <span className="bd-card-amount">{item.amount.toLocaleString()}</span>
