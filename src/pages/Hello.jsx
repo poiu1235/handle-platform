@@ -11,7 +11,7 @@ import {
 } from '../lib/iconMatch'
 import CardsPanel from './CardsPanel'
 import wordmark from '../assets/font_daoliti.svg'
-import { cardStyle, dominantColor } from '../lib/iconColor'
+import { cardStyle } from '../lib/iconColor'
 import './board.css'
 
 // ============================================================
@@ -373,14 +373,17 @@ function SwipeableBalanceCard({
         }`}
         style={
           isZero
-            ? { background: 'var(--bd-zero-card)' }
+            ? { backgroundColor: 'var(--bd-zero-card)' }
             : (() => {
                 const { background, nameColor, valueColor } = cardStyle(
                   item.iconKey,
                   colorFor('balance', item.id)
                 )
                 return {
-                  background,
+                  // 用 backgroundImage（长属性）而不是 background 简写：简写会把
+                  // background-size / background-position 一并重置成 inline 优先级
+                  // 的初始值，CSS 里给"展开态缓慢流动"用的那两个属性就会被顶掉
+                  backgroundImage: background,
                   '--bd-card-name-color': nameColor,
                   '--bd-card-value-color': valueColor,
                 }
@@ -688,25 +691,6 @@ export default function Hello() {
   const [modalError, setModalError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
 
-  // ---------- 环境光（Ambient Glow）：展开卡片时，背景空白区跟随卡片主色渐变 ----------
-  // 只对余额卡（会呼吸展开）生效，0 余额卡是纯灰没有"主色"可言，展开时不点亮环境光。
-  // ambientColor 只在环境光"点亮"时更新，收起时保留最后一次的颜色不清空——
-  // 这样收起是纯粹的淡出（opacity 过渡），不会在淡出的同时又跳一次色相。
-  const [ambientColor, setAmbientColor] = useState('#5bbbee')
-  const expandedBalanceItem =
-    activeTab === 'balance' && expandedId
-      ? balanceItems.find((it) => it.id === expandedId) ?? null
-      : null
-  const ambientActive = !!expandedBalanceItem && expandedBalanceItem.amount !== 0
-
-  useEffect(() => {
-    if (!ambientActive || !expandedBalanceItem) return
-    setAmbientColor(
-      dominantColor(expandedBalanceItem.iconKey, colorFor('balance', expandedBalanceItem.id))
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ambientActive, expandedBalanceItem?.id, expandedBalanceItem?.iconKey])
-
   const fetchBalances = useCallback(
     async () => {
       if (!user) return
@@ -902,11 +886,7 @@ export default function Hello() {
   }
 
   return (
-    <div
-      className={`bd-board${ambientActive ? ' bd-ambient-active' : ''}`}
-      style={{ '--bd-ambient': ambientColor }}
-    >
-      <div className="bd-ambient-glow" aria-hidden="true" />
+    <div className="bd-board">
       <header className="bd-header">
         <div className="bd-header-top">
           <div>

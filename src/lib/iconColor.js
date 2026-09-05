@@ -35,12 +35,6 @@ function resolveSelectedColor(iconKey, defaultColor) {
   return colors[0]
 }
 
-// 卡片的"主色"（跟 cardStyle/cardBackground 取的是同一个色，只是不拼渐变），
-// 给展开态的环境光效果（ambient glow）用：需要一个纯色去驱动 --bd-ambient。
-export function dominantColor(iconKey, defaultColor) {
-  return resolveSelectedColor(iconKey, defaultColor)
-}
-
 export function cardBackground(iconKey, defaultColor) {
   const color = resolveSelectedColor(iconKey, defaultColor)
   return `linear-gradient(90deg, ${color}, #ffffff)`

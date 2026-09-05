@@ -6,15 +6,6 @@
    全部选择器带 bd- 前缀，与 index.css / auth.css 互不干扰。
    ============================================================ */
 
-/* 环境光颜色需要注册成 <color> 语法才能被 transition 平滑插值（否则自定义属性
-   默认按字符串处理，过渡时是硬切换，不会有渐变过程）。不支持 @property 的浏览器
-   会自动降级为瞬时切换，不影响功能，只是少了过渡动画。 */
-@property --bd-ambient {
-  syntax: '<color>';
-  inherits: true;
-  initial-value: #5bbbee;
-}
-
 .bd-board,
 .bd-import {
   --au-navy: #010f1c;
@@ -33,7 +24,7 @@
   --au-danger-soft: #fee2e2;
   /* 0 余额卡片：明显比页面底色深一档，一眼可辨 */
   --bd-zero-card: #cdd3d9;
-  --bd-font: 'PT Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --bd-font: 'PT Sans', -apple-system, 'PingFang SC', 'Microsoft YaHei', 'HarmonyOS Sans SC', sans-serif;
   --bd-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --bd-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   /* 内容列：移动端优先，不撑满整屏；超宽屏时居中（与 auth 卡片居中一致）。
@@ -77,45 +68,6 @@
   background: var(--au-bg);
   overflow: hidden;
   position: relative;
-  /* 独立建立层叠上下文：环境光图层用 z-index:-1 塞到所有内容背后，
-     isolation 保证这个负值只在 bd-board 内部生效，不会被外层内容干扰 */
-  isolation: isolate;
-  --bd-ambient: #5bbbee;
-  transition: --bd-ambient 0.8s var(--bd-ease);
-}
-
-/* ---------- 环境光（Ambient Glow）：展开卡片时背景空白区跟随主色泛光 ----------
-   做法接近 Apple Photos / Spotify 的"相框氛围光"：不是整块背景直接换色，而是
-   几团跟随 --bd-ambient 色相、经过大幅模糊的柔光斑，叠在原本的浅灰底色上。
-   颜色变化交给 --bd-ambient 的 @property 过渡去插值，这里只负责亮度（opacity）
-   的显隐过渡，两者节奏错开一点，观感更像"光晕自己在悄悄呼吸"而不是硬开关。 */
-.bd-ambient-glow {
-  position: absolute;
-  inset: -8%;
-  z-index: -1;
-  pointer-events: none;
-  opacity: 0;
-  background:
-    radial-gradient(46% 38% at 16% -4%, color-mix(in srgb, var(--bd-ambient) 60%, transparent) 0%, transparent 72%),
-    radial-gradient(42% 34% at 88% 12%, color-mix(in srgb, var(--bd-ambient) 42%, transparent) 0%, transparent 70%),
-    radial-gradient(56% 46% at 50% 106%, color-mix(in srgb, var(--bd-ambient) 36%, transparent) 0%, transparent 75%);
-  filter: blur(64px) saturate(1.25);
-  transition: opacity 0.7s var(--bd-ease);
-  will-change: opacity;
-}
-
-.bd-board.bd-ambient-active .bd-ambient-glow {
-  opacity: 1;
-}
-
-/* 尊重"减少动态效果"系统偏好：直接关掉光晕的位移/色相过渡感，只留开关的瞬时切换 */
-@media (prefers-reduced-motion: reduce) {
-  .bd-board {
-    transition: none;
-  }
-  .bd-ambient-glow {
-    transition: none;
-  }
 }
 
 /* ---------- 深蓝 hero 头部 ---------- */
@@ -529,6 +481,28 @@
   box-shadow: 0 10px 26px rgba(1, 15, 28, 0.16);
 }
 
+/* 展开态卡片的"流动"效果：卡片背景是 iconColor.js 算出来的两段式渐变
+   （主色 → 白色），本身颜色不变，只是把渐变画布拉大到 240%，再让
+   background-position 缓慢来回平移——相当于在同一条连续渐变上"平移取景框"，
+   过渡天然平滑，不会出现色块跳变，观感就是渐变边界在卡片里慢慢呼吸漂移。
+   零余额卡是纯色没有渐变可流动，排除掉。 */
+.bd-card-expanded:not(.bd-card-zero) {
+  background-size: 240% 240%;
+  animation: bd-card-flow 9s ease-in-out infinite;
+}
+
+@keyframes bd-card-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bd-card-expanded:not(.bd-card-zero) {
+    animation: none;
+  }
+}
+
 /* 滑出操作面板时，卡片与按钮的接缝一侧改为直角，
    整行读作一个连续的圆角整体（外缘仍由卡片/面板各自的圆角负责） */
 .bd-card-seam-right {
@@ -564,11 +538,39 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: font-size 0.32s var(--bd-ease);
 }
 
-.bd-card-expanded .bd-card-name,
 .bd-card-static .bd-card-name {
   font-size: 16px;
+}
+
+/* 展开态跟折叠态拉开一个明显的字号差：金额是这张卡的核心信息，跟图标一起
+   放到 40px 最抢眼；标题次之 30px；日期和"元"这类辅助信息统一 20px。
+   每个元素自己（.bd-card-name / .bd-card-icon / .bd-card-amount / .bd-card-meta /
+   .bd-card-unit）身上都挂了 transition，所以这里只是"目标值"变了——真正的
+   放大过程是图标和文字自己平滑地长大过去，不是折叠态和展开态之间的瞬间切换 */
+.bd-card-expanded .bd-card-name {
+  font-size: 30px;
+}
+
+.bd-card-expanded .bd-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  vertical-align: -11px;
+}
+
+.bd-card-expanded .bd-card-amount {
+  font-size: 40px;
+}
+
+.bd-card-expanded .bd-card-meta {
+  font-size: 20px;
+}
+
+.bd-card-expanded .bd-card-unit {
+  font-size: 20px;
 }
 
 .bd-card-mark {
@@ -590,6 +592,16 @@
   object-fit: cover;
   vertical-align: -5px;
   background: rgba(255, 255, 255, 0.4);
+  transition: width 0.32s var(--bd-ease), height 0.32s var(--bd-ease),
+    border-radius 0.32s var(--bd-ease), vertical-align 0.32s var(--bd-ease);
+  /* 苹果风格的"高光边"：不是描一圈实色边框，而是左上一道亮、右下一道更淡的亮，
+     像有一束光从左上打过来，图标边缘被照出一层釉面质感——比纯黑框更"高级"，
+     也不会跟卡片渐变背景的颜色打架。中间再叠一圈极淡的白边兜底，
+     保证图标在任何色系背景上都有清晰的轮廓分界。 */
+  box-shadow:
+    -0.5px -0.5px 1.5px rgba(255, 255, 255, 0.95),
+    0.5px 0.5px 1.5px rgba(255, 255, 255, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.3);
 }
 
 .bd-card-meta {
@@ -602,6 +614,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   animation: bd-meta-in 0.25s var(--bd-ease) both;
+  transition: font-size 0.32s var(--bd-ease);
 }
 
 .bd-card-zero .bd-card-name,
@@ -626,6 +639,7 @@
   font-weight: 700;
   color: inherit;
   font-variant-numeric: tabular-nums;
+  transition: font-size 0.32s var(--bd-ease);
 }
 
 .bd-card-unit {
@@ -633,6 +647,7 @@
   font-size: 12px;
   color: inherit;
   opacity: 0.72;
+  transition: font-size 0.32s var(--bd-ease);
 }
 
 /* ---------- 滑动操作按钮 ---------- */
