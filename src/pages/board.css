@@ -592,7 +592,10 @@
 }
 
 .bd-card-name-box .bd-card-name {
-  font-size: 30px;
+  /* 恒按最大号排版（"从小变大"由 transform: scale() 完成，见上方注释）。
+     最大号走 CSS 变量：余额 30px（默认），会员半展开卡覆盖为 22px——
+     会员名称行右侧有旗标常驻，字号档位低一档给旗标让位（2026-09-05 裁定） */
+  font-size: var(--bd-name-max, 30px);
   transform-origin: left center;
   transition: transform 0.32s var(--bd-ease);
 }
@@ -1641,9 +1644,12 @@
   gap: 7px;
 }
 
-.cd-name-line .bd-card-name {
+.cd-name-line .bd-card-name,
+.cd-name-line .bd-card-title-row {
   /* 不 grow：旗标（续费/静音图标）必须紧贴标题文字，而非被推到行尾；
-     超长时靠 flex-shrink + min-width:0 收缩出省略号 */
+     超长时靠 flex-shrink + min-width:0 收缩出省略号。
+     折叠卡/详情头：标题行内是裸 .bd-card-name（15px/18px 固定档）；
+     半展开卡：标题行内是 bd-card-name-box（内联宽度由缩放模型算出） */
   flex: 0 1 auto;
   min-width: 0;
 }
@@ -1653,6 +1659,12 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  /* 白色底片（v3.2 图标体系随附）：卡背景换成 icon 主色渐变后，渐变左端是
+     饱和色，黑色系 SVG 旗标直接贴底会失去对比——垫一层半透明白片保证
+     在任意主色上都清晰。观感密度可后续视觉复核再调 */
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  padding: 3px 5px;
 }
 
 /* 自动续费静态旗标：随开关实时出现/消失 */
@@ -1734,15 +1746,29 @@
   opacity: 0.6;
 }
 
+/* 沉底卡的图标（v3.2 用户裁定）：保持原彩色、不做灰化——灰底 + 彩色 logo
+   的组合已经足够区分"沉底"，且 logo 是身份标识不该变味。只有回退菱形点
+   （.bd-card-mark，上方两条例程）跟随文字压灰。 */
+
 /* ---------- 半展开行（余额式宽样式：左滑拉删除 / 右滑清零·减一 / 展开修改） ---------- */
 
 .cd-semi-card {
   /* 减一进度蒙层的定位上下文 */
   position: relative;
+  /* 半展开卡标题最大字号档位（见 .bd-card-name-box .bd-card-name 的变量说明）：
+     比余额（30px）低一档，给常驻旗标让位 */
+  --bd-name-max: 22px;
 }
 
 .cd-semi-main {
   min-width: 0;
+  /* 名称行对比度变量（v3.2 图标体系）：随 icon 主色渐变由 cardBgStyle 挂上
+     （同余额 .bd-card-main），深色主色上卡名自动翻白 */
+  color: var(--bd-card-name-color, var(--au-text));
+  /* 宽度完全由 flex 分配算法决定、不受自己文字内容影响——半展开卡的标题
+     自适应缩放依赖用 ResizeObserver 测"干净的可用宽度"，不能跟标题缩放
+     互相踩踏形成死循环（同余额 .bd-card-expanded .bd-card-main 的处理） */
+  flex: 1 1 0%;
 }
 
 .cd-semi-meta {
@@ -1849,6 +1875,14 @@
   justify-content: space-between;
   gap: 12px;
   cursor: pointer;
+  /* 名称行对比度变量（v3.2，同 .cd-semi-main） */
+  color: var(--bd-card-name-color, var(--au-text));
+}
+
+/* 全量详情头（v3.2 图标体系）：固定档位、不参与缩放——详情是终点层级，
+   没有滑动挤压，无需自适应；图标尺寸由 CardMark 的 boxSize/scale 内联控制 */
+.cd-detail-head .bd-card-name {
+  font-size: 18px;
 }
 
 

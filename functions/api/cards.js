@@ -163,6 +163,20 @@ export async function onRequestPost(context) {
     row.muted = payload.muted
   }
 
+  // 图标（v3.2，对齐 balances.icon_key）：null = 恢复自动匹配；非空 = 清单 key。
+  // 不校验 key 是否真存在于清单——展示层 onError 自带菱形点回退（伪造仅自伤）
+  if (payload.icon_key !== undefined) {
+    if (payload.icon_key === null) {
+      row.icon_key = null
+    } else {
+      if (typeof payload.icon_key !== 'string') return json({ error: 'icon_key 需为字符串或 null' }, 400)
+      const iconKey = payload.icon_key.trim()
+      if (!iconKey) return json({ error: 'icon_key 不能为空字符串（清空请传 null）' }, 400)
+      if (iconKey.length > 64) return json({ error: 'icon_key 过长' }, 400)
+      row.icon_key = iconKey
+    }
+  }
+
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/cards?on_conflict=user_id,name`, {
     method: 'POST',
     headers: restHeaders(env, data.accessToken, {

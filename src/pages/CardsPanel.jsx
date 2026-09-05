@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as api from '../lib/apiClient'
 import { loadCards, removeLocal, setEntryHandled, upsertLocal, useCardsStore } from '../lib/cardsStore'
@@ -17,6 +17,11 @@ import {
   todayISO,
 } from '../lib/cardsDomain'
 import { BILLING_CYCLES } from '../../shared/cardsConfig.js'
+import { cardStyle } from '../lib/iconColor'
+import { suggestIconKey } from '../lib/iconMatch'
+import { useIconManifest } from '../lib/useIconManifest'
+import CardMark from '../components/CardMark'
+import { IconPickerField, useCardIconState } from '../components/IconPicker'
 import dollarIcon from '../assets/dollar.svg'
 import muteIcon from '../assets/mute.svg'
 import allMuteIcon from '../assets/all-mute.svg'
@@ -31,9 +36,27 @@ import './board.css'
 // 右滑次操作〔浅拉清零 · 到底减一〕、「展开修改」进全量详情）→
 // 全量详情（次数 / 续费区块 + 静默 / 修改）。FAB / 建卡 / 修改 /
 // 删除弹窗仅在标签激活时渲染。样式见 ./board.css（cd- 前缀，复用 bd- 体系）。
+// v3.2（2026-09-05）图标体系：cards.icon_key 落库（null = 按卡名自动匹配），
+// 卡背景换 icon 主色渐变（cardBgStyle / iconColor.js，对齐余额），半展开卡
+// 标题自适应缩放照抄 SwipeableBalanceCard 的 transform-scale 模型
+// （档位低一档：字号 17~22、图标 20~28，给常驻旗标让位）。
 // ============================================================
 
 const CYCLE_LABEL = Object.fromEntries(BILLING_CYCLES.map((c) => [c.key, c.label]))
+
+// 卡片背景：icon 主色 → 白色渐变 + 名称行对比度变量（对齐余额 cardStyle 体系）。
+// iconKey 为 null（未指定且自动匹配未命中/清单未加载）时 cardStyle 回退传入的
+// hash 色，渐变结构不变。沉底卡不调用（保持灰底，见各调用处的 sunkReason 分支）。
+function cardBgStyle(iconKey, fallbackColor) {
+  const { background, nameColor } = cardStyle(iconKey, fallbackColor)
+  return {
+    // 用 backgroundImage（长属性）而不是 background 简写：简写会把
+    // background-size / background-position 一并重置成 inline 优先级的初始值，
+    // CSS 里给"展开态缓慢流动"用的那两个属性就会被顶掉（同余额的处理）
+    backgroundImage: background,
+    '--bd-card-name-color': nameColor,
+  }
+}
 
 // iOS 式开关：复用 0 余额开关的轨道样式（布局属性动画、布局常量照抄余额模块）
 function Toggle({ checked, disabled, onChange, label }) {
@@ -105,11 +128,12 @@ function MuteCycleButton({ view, onCycle, className = 'cd-mute-btn cd-mute-inlin
 
 // 名称行旗标：续费图标 + 静默循环按钮（B22：静默必须可见、可解、可再静默）。
 // 修订 2026-09-03：提醒中不显示按钮——静默状态才出现图标，点击循环
-// （周期 → 永久 → 解除）；静默入口在详情弹窗
-function CardNameFlags({ view, onCycleMute }) {
+// （周期 → 永久 → 解除）；静默入口在详情弹窗。
+// ref 转发：半展开卡标题缩放要把旗标宽度计入"固定占用"（可用宽度扣减 + ResizeObserver）
+const CardNameFlags = forwardRef(function CardNameFlags({ view, onCycleMute }, ref) {
   const { row } = view
   return (
-    <span className="cd-name-flags">
+    <span className="cd-name-flags" ref={ref}>
       {row.auto_renew && (
         <span className="cd-renew-flag" title="自动续费中">
           <AutoRenewIcon />
@@ -118,7 +142,7 @@ function CardNameFlags({ view, onCycleMute }) {
       {view.muted && <MuteCycleButton view={view} onCycle={onCycleMute} />}
     </span>
   )
-}
+})
 
 // ---------- 展开行容器（5.4：跳层 + 居中滚动，交互常量照抄余额模块） ----------
 
@@ -159,6 +183,7 @@ const usedUpNotice = (row) => (row.auto_renew ? USED_UP_NOTICE : null)
 function SemiExpandedCardRow({
   view,
   stackIndex,
+  iconKey,
   onDelete,
   onClear,
   onDecrement,
@@ -211,6 +236,77 @@ function SemiExpandedCardRow({
   // dragX > 0（右滑）→ 左面板（清零/减一）；dragX < 0（左滑）→ 右面板（删除）
   const leftPanelWidth = Math.max(dragX, 0)
   const rightPanelWidth = Math.max(-dragX, 0)
+
+  // ---------- 标题自适应缩放（照抄余额 SwipeableBalanceCard 的 transform-scale 模型） ----------
+  // 算法同余额：用"标题在最大字号下的自然宽度"和"标题容器实际分到的可用宽度"
+  // 联立解出 0~1 的缩放比例；标题/图标永远按最大号排版（22px / 28px），
+  // "从小变大"用 transform: scale()（不触发重排，WebKit 无排版滞后问题），
+  // 外层 overflow:hidden 容器用普通数字 width 过渡占位裁切。
+  // 档位比余额低一档（字号 17~22 vs 20~30、图标 20~28 vs 20~40）：会员卡名称行
+  // 右侧还有续费/静默旗标常驻，字号让出空间（2026-09-05 裁定）。
+  const semiMainRef = useRef(null)
+  const semiMeasureRef = useRef(null)
+  const nameFlagsRef = useRef(null)
+  const hasIconImage = !!iconKey
+  const [titleScale, setTitleScale] = useState(1)
+  const [nameNaturalWidth, setNameNaturalWidth] = useState(0)
+  const [mainAvailableWidth, setMainAvailableWidth] = useState(0)
+
+  // 自然宽度单独测一次：不受下面"可用宽度"测量的依赖影响，保证首帧前就有值
+  useLayoutEffect(() => {
+    const measureEl = semiMeasureRef.current
+    if (!measureEl) return
+    setNameNaturalWidth(measureEl.offsetWidth)
+  }, [row.name])
+
+  useLayoutEffect(() => {
+    const mainEl = semiMainRef.current
+    const measureEl = semiMeasureRef.current
+    const flagsEl = nameFlagsRef.current
+    if (!mainEl || !measureEl) return
+
+    function recomputeScale() {
+      // 旗标是不随缩放变化的"固定占用"：从可用宽度里扣掉（含 cd-name-line 的 gap），
+      // 静默按钮出现/消失不改变容器自身宽度，必须单独 observe 旗标
+      const reservedWidth = (flagsEl ? flagsEl.offsetWidth : 0) + 7
+      const available = mainEl.clientWidth - reservedWidth
+      const naturalTextWidth = measureEl.offsetWidth
+      // 没有图标图片、退化成菱形标记的卡：菱形固定 8px 不参与缩放，可变范围为 0
+      const iconMin = hasIconImage ? 20 : 8
+      const iconMax = hasIconImage ? 28 : 8
+      const marginRight = hasIconImage ? 8 : 9
+      const iconRange = iconMax - iconMin
+      // 标题字号 fontSize(s) = 17 + 5s，文字像素宽度近似跟字号线性缩放，
+      // usedWidth(s) = 图标(s) + 间距 + 文字宽度(s) 是关于 s 的一次式，直接解出 s
+      const c0 = iconMin + marginRight + (17 / 22) * naturalTextWidth
+      const c1 = iconRange + (5 / 22) * naturalTextWidth
+      const rawScale = c1 > 0 ? (available - c0) / c1 : 1
+      setTitleScale(Math.max(0, Math.min(1, rawScale)))
+      setNameNaturalWidth(naturalTextWidth)
+      setMainAvailableWidth(available)
+    }
+
+    recomputeScale()
+    const observer = new ResizeObserver(recomputeScale)
+    observer.observe(mainEl)
+    if (flagsEl) observer.observe(flagsEl)
+    return () => observer.disconnect()
+  }, [hasIconImage, row.name])
+
+  // 把 titleScale 换算成渲染要用的四个数字（公式与余额一致，档位不同）
+  const nameFontTarget = 17 + 5 * titleScale
+  const nameScale = nameFontTarget / 22
+  const iconSizeTarget = hasIconImage ? 20 + 8 * titleScale : 20
+  const iconScale = hasIconImage ? iconSizeTarget / 28 : 1
+  const iconOuterWidth = hasIconImage ? 28 * iconScale : 8
+  const iconMarginRight = hasIconImage ? 8 : 9
+  // 正常情况外层宽度 = 自然宽度 × 比例；titleScale 钳到 0 还放不下时夹到剩余
+  // 可用宽度，把多出来的部分交给 .bd-card-name 自带的 ellipsis 截断（同余额兜底）
+  const nameIdealWidth = nameNaturalWidth * nameScale
+  const nameOuterWidth = Math.min(
+    nameIdealWidth,
+    Math.max(0, mainAvailableWidth - iconOuterWidth - iconMarginRight)
+  )
 
   function animateMomentum(fromX, toX, velocity) {
     if (momentumFrame.current) cancelAnimationFrame(momentumFrame.current)
@@ -384,20 +480,36 @@ function SemiExpandedCardRow({
         className={`bd-card bd-card-expanded cd-semi-card${view.sunkReason ? (view.sunkReason === 'expired' ? ' cd-sunk-expired' : ' cd-sunk-usedup') : ''}${
           rightPanelWidth > 0 ? ' bd-card-seam-right' : leftPanelWidth > 0 ? ' bd-card-seam-left' : ''
         }`}
-        style={{ background: view.sunkReason ? undefined : colorForCard(row.id) }}
+        style={view.sunkReason ? undefined : cardBgStyle(iconKey, colorForCard(row.id))}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         onClick={handleCardClick}
       >
-        <div className="cd-semi-main" style={{ opacity: valueOpacity }}>
+        <div className="cd-semi-main" ref={semiMainRef} style={{ opacity: valueOpacity }}>
           <div className="cd-name-line">
-            <p className="bd-card-name">
-              <span className="bd-card-mark" />
-              {view.row.name}
-            </p>
-            <CardNameFlags view={view} onCycleMute={onCycleMute} />
+            <div className="bd-card-title-row">
+              <CardMark
+                iconKey={iconKey}
+                boxSize={hasIconImage ? iconOuterWidth : undefined}
+                scale={hasIconImage ? iconScale : undefined}
+              />
+              <span className="bd-card-name-box" style={{ width: nameOuterWidth }}>
+                <p
+                  className="bd-card-name"
+                  style={{
+                    transform: `scale(${nameScale})`,
+                    // 换算回"缩放前"（22px 字号下）应该给多宽，缩放之后视觉上正好
+                    // 等于 nameOuterWidth；放不下时触发 ellipsis 截断（同余额兜底）
+                    width: nameScale > 0 ? nameOuterWidth / nameScale : 0,
+                  }}
+                >
+                  {view.row.name}
+                </p>
+              </span>
+            </div>
+            <CardNameFlags view={view} onCycleMute={onCycleMute} ref={nameFlagsRef} />
           </div>
           <p className="cd-semi-meta">{dotDate(row.start_date)} − {dotDate(row.end_date)}</p>
           <p className="cd-semi-renew">
@@ -415,6 +527,25 @@ function SemiExpandedCardRow({
               <span>未开自动续费</span>
             )}
           </p>
+          {/* 视觉上完全隐藏、脱离文档流：量"卡名在最大字号（22px）下本来需要多宽"，
+              不影响布局（同余额 SwipeableBalanceCard 的测量节点） */}
+          <span
+            ref={semiMeasureRef}
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              left: -9999,
+              top: 0,
+              visibility: 'hidden',
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              fontSize: '22px',
+              fontWeight: 700,
+              fontFamily: 'var(--bd-font)',
+            }}
+          >
+            {view.row.name}
+          </span>
         </div>
 
         {canSwipeSessions && hintOpacity > 0 && (
@@ -481,7 +612,7 @@ function SemiExpandedCardRow({
 
 // ---------- 折叠卡（5.4） ----------
 
-function CardRow({ view, stackIndex, stackTotal, onToggleExpand, onCycleMute }) {
+function CardRow({ view, iconKey, stackIndex, stackTotal, onToggleExpand, onCycleMute }) {
   const { row } = view
   const info = collapsedInfo(view)
   const zIndex = (stackTotal ?? 0) - (stackIndex ?? 0)
@@ -492,15 +623,21 @@ function CardRow({ view, stackIndex, stackTotal, onToggleExpand, onCycleMute }) 
     <div className="bd-row bd-row-collapsed" style={{ zIndex, '--stagger': stackIndex }}>
       <div
         className={`bd-card bd-card-collapsed ${sunkClass}`}
-        style={{ background: view.sunkReason ? undefined : colorForCard(row.id) }}
+        style={view.sunkReason ? undefined : cardBgStyle(iconKey, colorForCard(row.id))}
         onClick={() => onToggleExpand(row.id)}
       >
         <div className="bd-card-main">
           <div className="cd-name-line">
-            <p className="bd-card-name">
-              <span className="bd-card-mark" />
-              {view.row.name}
-            </p>
+            {/* 折叠态无缩放：图标固定 20px（bd-card-icon 恒 40px，用 scale 缩到位），
+                卡名走 15px 基础字号 + flex 收缩省略（同旧行为） */}
+            <div className="bd-card-title-row">
+              <CardMark
+                iconKey={iconKey}
+                boxSize={iconKey ? 20 : undefined}
+                scale={iconKey ? 20 / 28 : undefined}
+              />
+              <p className="bd-card-name">{view.row.name}</p>
+            </div>
             <CardNameFlags view={view} onCycleMute={onCycleMute} />
           </div>
         </div>
@@ -528,7 +665,7 @@ function CardRow({ view, stackIndex, stackTotal, onToggleExpand, onCycleMute }) 
 // ---------- 全量详情（半展开「展开修改」后的全字段修改态：双能力区块 + 静默 / 修改；
 // 删除走半展开左滑，顺延走「修改」弹窗终止日期——操作区不再各设按钮） ----------
 
-function CardDetail({ view, today, onPatch, onNotice, onEdit, onCollapse }) {
+function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollapse }) {
   const row = view.row
   const maxDdl = ddlMax(today)
 
@@ -761,14 +898,20 @@ function CardDetail({ view, today, onPatch, onNotice, onEdit, onCollapse }) {
   return (
     <div
       className={`bd-card bd-card-expanded ${sunkClass}`}
-      style={{ background: view.sunkReason ? undefined : colorForCard(row.id) }}
+      style={view.sunkReason ? undefined : cardBgStyle(iconKey, colorForCard(row.id))}
     >
       <div className="cd-detail">
         <div className="cd-detail-head" onClick={onCollapse}>
-          <p className="bd-card-name">
-            <span className="bd-card-mark" />
-            {view.row.name}
-          </p>
+          {/* 详情是终点层级：图标固定 22px、卡名固定 18px，不参与缩放（CSS 见
+              .cd-detail-head 段） */}
+          <div className="bd-card-title-row">
+            <CardMark
+              iconKey={iconKey}
+              boxSize={iconKey ? 22 : undefined}
+              scale={iconKey ? 22 / 28 : undefined}
+            />
+            <p className="bd-card-name">{view.row.name}</p>
+          </div>
         </div>
 
         <div className="cd-meta">
@@ -1106,6 +1249,14 @@ function CardAddModal({ today, onClose, onCreated }) {
   const maxDdl = ddlMax(today)
   const trimmedName = name.trim()
   const duplicate = rows.find((r) => r.name === trimmedName)
+  // 图标（v3.2）：手动指定落库 key；未指定 = 自动匹配（落库 null，展示层推导）。
+  // 命中同名卡的预填边界由 resetToken 驱动（duplicate.id 变化 → 重置为该卡的
+  // icon_key；离开同名 → 回到自动匹配跟随）
+  const icon = useCardIconState({
+    name: trimmedName,
+    initialKey: duplicate ? duplicate.icon_key || null : null,
+    resetToken: duplicate ? duplicate.id : null,
+  })
 
   // PRD 5.5「同名覆盖表单预填」：命中同名卡时以它的当前状态预填表单——
   // "维持不是开启"：重录一张续费中的卡而不碰续费开关，提交后仍是续费中，
@@ -1265,6 +1416,11 @@ function CardAddModal({ today, onClose, onCreated }) {
         else payload.billing_cycle = formCycle
       }
     }
+    // 图标（v3.2）：只在用户手动指定过时携带——merge-duplicates 语义下"未携带 =
+    // 保留现值"，自动匹配是展示层推导不落库，未携带才能不覆盖库内既有选择。
+    // manual 只在手动 pick 后为 true（iconKey 必非空）；「恢复自动」= manual false
+    // → 不携带，库内 null → 展示层回到按名称自动匹配
+    if (icon.manual) payload.icon_key = icon.iconKey
     return payload
   }
 
@@ -1309,6 +1465,17 @@ function CardAddModal({ today, onClose, onCreated }) {
             onChange={(e) => setName(e.target.value)}
             placeholder="如：Tony-理发季卡（商户名-卡名）"
             autoFocus
+          />
+        </div>
+
+        <div className="bd-field">
+          <label>图标</label>
+          <IconPickerField
+            value={icon.iconKey}
+            showAutoTag={!icon.manual}
+            clearLabel={icon.manual ? '恢复自动' : null}
+            onPick={icon.pick}
+            onClear={icon.restoreAuto}
           />
         </div>
 
@@ -1514,6 +1681,13 @@ function CardEditModal({ row, rows, today, onClose, onSaved }) {
   const nameTaken =
     nameTrim !== row.name && rows.some((r) => r.id !== row.id && r.name === nameTrim)
 
+  // 图标（v3.2）：编辑预填库内 icon_key；未指定 = 自动匹配（跟随时不进 diff）
+  const icon = useCardIconState({
+    name: nameTrim,
+    initialKey: row.icon_key || null,
+    resetToken: row.id,
+  })
+
   const errors = {}
   if (!nameTrim) errors.name = '请填写卡名'
   else if (nameTaken) errors.name = '已有同名卡券，请换一个名字'
@@ -1529,8 +1703,15 @@ function CardEditModal({ row, rows, today, onClose, onSaved }) {
     if (endDate > maxDdl) errors.endDate = `终止日期不能晚于 ${maxDdl}`
     else if (endDate < startDate) errors.endDate = '终止日期不能早于起始日期'
   }
+  // 图标变化判定（diff-only）：手动态 ↔ 自动态互转、或手动换了 key 才算改过。
+  // 手动态提交落库 key；自动态提交显式 null（覆盖库内手动值，回到展示层自动匹配）
+  const iconChanged =
+    icon.manual !== (row.icon_key != null) || (icon.manual && icon.iconKey !== row.icon_key)
   const changed =
-    nameTrim !== row.name || startDate !== row.start_date || (!renewLocked && endDate !== row.end_date)
+    nameTrim !== row.name ||
+    startDate !== row.start_date ||
+    (!renewLocked && endDate !== row.end_date) ||
+    iconChanged
   const canSubmit = changed && Object.keys(errors).length === 0 && !submitting
 
   async function handleSubmit() {
@@ -1541,6 +1722,7 @@ function CardEditModal({ row, rows, today, onClose, onSaved }) {
     if (nameTrim !== row.name) patch.name = nameTrim
     if (startDate !== row.start_date) patch.start_date = startDate
     if (!renewLocked && endDate !== row.end_date) patch.end_date = endDate // 锁定时永不携带
+    if (iconChanged) patch.icon_key = icon.manual ? icon.iconKey : null
     try {
       const res = await api.authorizedFetch(`/api/cards/${row.id}`, {
         method: 'PATCH',
@@ -1573,6 +1755,16 @@ function CardEditModal({ row, rows, today, onClose, onSaved }) {
             autoFocus
           />
           {errors.name && <p className="cd-field-hint cd-field-hint-error">{errors.name}</p>}
+        </div>
+        <div className="bd-field">
+          <label>图标</label>
+          <IconPickerField
+            value={icon.iconKey}
+            showAutoTag={!icon.manual}
+            clearLabel={icon.manual ? '恢复自动' : null}
+            onPick={icon.pick}
+            onClear={icon.restoreAuto}
+          />
         </div>
         <div className="bd-field">
           <label>起始日期</label>
@@ -1706,6 +1898,16 @@ export default function CardsPanel({ active, onActivate }) {
   }
 
   const views = useMemo(() => rows.map((r) => deriveCardView(r, today)), [rows, today])
+  // 每行卡片的展示 icon（v3.2）：库内 icon_key 优先（手动指定），null 按卡名自动
+  // 匹配——历史行/导入行不回填，靠展示层推导保证每张卡都有图标（cards.sql v3.2）
+  const iconManifest = useIconManifest()
+  const iconKeyById = useMemo(
+    () =>
+      Object.fromEntries(
+        rows.map((r) => [r.id, r.icon_key || suggestIconKey(r.name, iconManifest)])
+      ),
+    [rows, iconManifest]
+  )
   const sorted = useMemo(() => sortCardViews(views, sortKey, sortDir), [views, sortKey, sortDir])
   const expiredCount = useMemo(() => views.filter((v) => v.status === 'expired').length, [views])
   const visible = useMemo(
@@ -1991,6 +2193,7 @@ export default function CardsPanel({ active, onActivate }) {
                   <ExpandedCardRow key={v.row.id}>
                     <CardDetail
                       view={v}
+                      iconKey={iconKeyById[v.row.id]}
                       today={today}
                       onPatch={(patch, opts) => patchCard(v.row.id, patch, opts)}
                       onNotice={showNotice}
@@ -2005,6 +2208,7 @@ export default function CardsPanel({ active, onActivate }) {
                   <SemiExpandedCardRow
                     key={v.row.id}
                     view={v}
+                    iconKey={iconKeyById[v.row.id]}
                     stackIndex={idx}
                     onDelete={(row) => setDeleteTarget(row)}
                     onClear={clearSessionsFromSemi}
@@ -2019,6 +2223,7 @@ export default function CardsPanel({ active, onActivate }) {
                 <CardRow
                   key={v.row.id}
                   view={v}
+                  iconKey={iconKeyById[v.row.id]}
                   stackIndex={idx}
                   stackTotal={visible.length}
                   onToggleExpand={toggleSemiExpand}

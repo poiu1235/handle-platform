@@ -1,4 +1,4 @@
-# 生活卡包 · 库表与接口设计（依据 PRD v2.4）· v3（2026-09-02：去 indefinite、name+merchant 合并）
+# 生活卡包 · 库表与接口设计（依据 PRD v2.4）· v3（2026-09-02：去 indefinite、name+merchant 合并）· v3.2（2026-09-05：icon_key 图标列）
 
 > 状态：v3（2026-09-02，产品裁定：**取消"永久卡"概念**——删除 `indefinite` 列
 > （"无限期卡"标注无消费方；DDL 留空的物化行为本身保留，仍落"今天 + 配置 B"
@@ -85,6 +85,7 @@ Supabase PostgREST / RPC（用户 token → RLS）
 | `period_days` | int null，CHECK `> 0` | 3.1 / 3.4.2 | **合同固定天数**（"30 天月卡""365 天年卡"写合同多少是多少）；非空 → 结算按固定天数推进；空 → 按 billing_cycle 日历推进；互斥同上 |
 | `next_billing_date` | date null | 3.1 | 只有开启自动续费的卡才有、才可改；与 DDL 相互独立（4-B18），顺延同推进 |
 | `muted` | text not null default `'none'`，CHECK 枚举 | 3.3.2 / 4-B22 | `none / cycle / forever`；`cycle` 的自动解除 = **凡 end_date 实际变化即解除**（单枚触发器承载全部渠道，第 4 节）；`forever` 只能手动解除 |
+| `icon_key` | text null | **v3.2（2026-09-05）** | 图标 = `public/small_icon/` 清单 key（不含 .png，资产体系对齐 `balances.icon_key`）。**null = 未指定 → 展示层按卡名自动匹配**（`src/lib/iconMatch.js suggestIconKey`，匹配不到回退菱形点）——与余额"null = 菱形点"的差异是有意为之：历史行/导入行不回填，靠展示层推导保证每张卡都有图标；手动指定落库 key，「恢复自动匹配」写 null。不参与唯一键与任何推导；卡背景渐变随 icon 主色（`src/lib/iconColor.js`） |
 | `created_at` / `updated_at` | timestamptz | — | `updated_at` 由 `moddatetime` 触发器维护 |
 
 ### 2.1 校验分层（为什么有些进 DB、有些留在 CF 层）
@@ -228,6 +229,9 @@ Supabase PostgREST / RPC（用户 token → RLS）
   不变式；DB CHECK 与 RPC 的 trim 均只处理 ASCII 空格——两处字符集已收敛
   一致，v3.1；NBSP、全角空格等 Unicode 空白由应用层 JS trim 处理），
   CF 层判空也按 trim 后的值。
+- **icon_key（v3.2）不进本 RPC**：导入卡不带图标——新增行落 null（展示层按
+  卡名自动匹配）、已存在同名卡更新时不在 UPDATE 列 → 保留库内现值。未来若
+  导入文件要支持图标列，需同步扩 RPC 的 insert/update 列清单。
 - **4-B27 合并态校验（功能评审 2026-08-31 #1；用户裁定 2026-09-03 修订）**：
   resolved 续费为开（行内值 ?? 库内现值）而**合成后**缺周期/合同天数时，UPDATE
   必撞 `cards_renew_complete` 且**整批回滚**——JS 预览（classifyImport）与 RPC 内
@@ -277,7 +281,8 @@ Supabase 透传错误（含 CHECK message）原样返回给前端展示。
 { name, start_date?, end_date?,                          // v3：卡名即展示名；end_date 缺失 → CF 物化"今天+配置B"
   total_sessions|null, remaining_sessions|null,         // null = 次数能力关闭（显式写空）
   auto_renew, billing_cycle|null, period_days|null,     // 周期信息二选一（3.1 互斥）
-  next_billing_date|null, muted? }
+  next_billing_date|null, muted?, icon_key? }           // icon_key（v3.2）：清单 key 或 null（= 恢复自动匹配）；
+                                                        // 表单契约：仅用户手动指定时携带，未携带 = 保留现值
 转发：POST /rest/v1/cards?on_conflict=user_id,name
       Prefer: resolution=merge-duplicates,return=representation   ← 1 次
 服务端职责：
@@ -320,6 +325,9 @@ Supabase 透传错误（含 CHECK message）原样返回给前端展示。
                                    //  连续 PATCH { muted: 下一档 }，档位序列
                                    //  提醒→周期→永久→提醒（非续费卡两态），
                                    //  2026-09-03 裁定，5.4 / 5.3 alert 同则）
+{ icon_key? }                      // 图标（v3.2）：清单 key 或 null（= 恢复自动匹配）；
+                                   //  CF 校验：null 放行、空字符串 400、>64 字符 400；
+                                   //  key 是否真在清单内不校验（展示层 onError 回退菱形点）
 转发：PATCH /rest/v1/cards?id=eq.{id}  Prefer: return=representation      ← 1 次
 服务端职责：
   · 字段白名单：name 可改（2026-09-02 裁定放开，对齐余额）——trim 后判空 → 400；
@@ -588,6 +596,12 @@ classifyImport(rows, loadedCards, today) =>
     start_date = 本地今天 → 通过（CF 用客户端传入的本地日期，而非服务器 UTC
     的"昨天"）；导入 RPC 内的行判定过期 / 物化默认仍用 DB current_date，
     与前端预览的边界偏差 ≤1 天（4-B8 同款接受）。
+16. **icon_key（v3.2）**：POST/PATCH 携带清单 key → 落库；携带 null → 清空
+    （展示层回到按名称自动匹配）；空字符串 / >64 字符 → 400；不携带 → 同名
+    覆盖（POST）保留现值、导入新增落 null；GET 返回行自动带 icon_key
+    （settle_my_cards `select *`）。展示层断言：icon_key null + 卡名命中清单
+    → 显示自动匹配图标；未命中 → 菱形点；加载失败（404）→ onError 回退菱形点；
+    沉底卡图标保持彩色（2026-09-05 裁定）。
 
 ---
 

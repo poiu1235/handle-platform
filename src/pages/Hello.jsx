@@ -4,11 +4,11 @@ import { useAuth } from '../lib/AuthContext'
 import * as api from '../lib/apiClient'
 import { useCardsStore } from '../lib/cardsStore'
 import {
-  loadIconManifest,
   suggestIconKey,
-  GENERIC_DEFAULT_ICON_RE,
-  buildDefaultVisibleIcons,
 } from '../lib/iconMatch'
+import { useIconManifest } from '../lib/useIconManifest'
+import CardMark from '../components/CardMark'
+import { IconPickerField } from '../components/IconPicker'
 import CardsPanel from './CardsPanel'
 import wordmark from '../assets/font_daoliti.svg'
 import { cardStyle } from '../lib/iconColor'
@@ -111,38 +111,9 @@ function sortItems(items, sortKey, sortDir) {
 }
 
 
-// ---------- 卡片名称前的小标记：有 icon_key 就显示 logo，没有/加载失败则回退成菱形点 ----------
-// boxSize / scale 只在展开态那张可交互卡片上用得到（见 SwipeableBalanceCard 下方的
-// 说明）：图片本身永远按 40px 最大号排版，用 transform: scale(scale) 做"从小变大"，
-// 外面套一层 boxSize×boxSize、overflow:hidden 的容器负责占位和裁切。静态预览卡片
-// （bd-card-static，不参与展开/收起）不传这两个 prop，走原来的固定尺寸渲染。
-function CardMark({ iconKey, boxSize, scale }) {
-  const [failed, setFailed] = useState(false)
-
-  // iconKey 变化时（比如切换到另一条记录复用了同一实例的极少数情况）重置失败态
-  useEffect(() => {
-    setFailed(false)
-  }, [iconKey])
-
-  if (iconKey && !failed) {
-    const img = (
-      <img
-        className="bd-card-icon"
-        src={`/small_icon/${encodeURIComponent(iconKey)}.png`}
-        alt=""
-        style={scale != null ? { transform: `scale(${scale})` } : undefined}
-        onError={() => setFailed(true)}
-      />
-    )
-    if (boxSize == null) return img
-    return (
-      <span className="bd-card-icon-box" style={{ width: boxSize, height: boxSize }}>
-        {img}
-      </span>
-    )
-  }
-  return <span className="bd-card-mark" />
-}
+// ---------- 卡片名称前的小标记 ----------
+// CardMark 已抽到 src/components/CardMark.jsx（余额/会员列表共用，含
+// boxSize/scale 的 transform:scale 占位渲染）。
 
 // ---------- 可左右拖动的余额卡片 ----------
 
@@ -581,18 +552,7 @@ function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, 
   // 碰过之后，输入名称不再触发自动建议覆盖用户的选择（包括用户主动选"无"）。
   const [iconKey, setIconKey] = useState(mode === 'edit' ? initialItem?.iconKey ?? null : null)
   const [iconTouched, setIconTouched] = useState(mode === 'edit' && !!initialItem?.iconKey)
-  const [iconOptions, setIconOptions] = useState([])
-  const [iconQuery, setIconQuery] = useState('')
-
-  useEffect(() => {
-    let cancelled = false
-    loadIconManifest().then((list) => {
-      if (!cancelled) setIconOptions(list)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const iconOptions = useIconManifest()
 
   const amountNumber = Number(amountText)
   const nameTrim = name.trim()
@@ -615,30 +575,8 @@ function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, 
   function pickIcon(key) {
     setIconKey(key)
     setIconTouched(true)
-    setIconQuery('') // 选中后收起网格，回到"已选中"视图；重新搜索或移除会再展开
+    // 搜索词的清空/网格收起由 IconPickerField 内部处理
   }
-
-  // 搜索：按标题（文件名/key）做包含匹配，不区分大小写（中文本身不受影响）。
-  // "默认N"这组通用兜底图标不参与常规展示/搜索——只在搜不到任何结果时出现。
-  const iconQueryTrim = iconQuery.trim().toLowerCase()
-  const browsableIconOptions = useMemo(
-    () => iconOptions.filter((key) => !GENERIC_DEFAULT_ICON_RE.test(key)),
-    [iconOptions]
-  )
-  const defaultIconOptions = useMemo(
-    () => iconOptions.filter((key) => GENERIC_DEFAULT_ICON_RE.test(key)),
-    [iconOptions]
-  )
-  const matchedIconOptions = iconQueryTrim
-    ? browsableIconOptions.filter((key) => key.toLowerCase().includes(iconQueryTrim))
-    : buildDefaultVisibleIcons(browsableIconOptions)
-  // 选择框最多两行：连"无"一起 12 个格子，一排 6 个——超出部分不展示，
-  // 想找更靠后的图标用搜索框缩小范围
-  const filteredIconOptions = matchedIconOptions.slice(0, 11)
-  const showDefaultFallback = iconQueryTrim.length > 0 && matchedIconOptions.length === 0
-  // 选中了真实图标（非"无"）且当前没在搜索时，收起网格，只显示"已选中"的锚定预览；
-  // 用户重新在搜索框打字，或点预览上的"移除"，才会再展开选择网格
-  const showIconPicker = iconKey === null || iconQueryTrim.length > 0
 
   return (
     <div className="bd-modal-backdrop" onClick={onClose}>
@@ -675,81 +613,17 @@ function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, 
 
           <div className="bd-field">
             <label>图标（可选）</label>
-
-            {!showIconPicker ? (
-              <div className="bd-icon-selected">
-                <img
-                  className="bd-icon-selected-img"
-                  src={`/small_icon/${encodeURIComponent(iconKey)}.png`}
-                  alt=""
-                />
-                <div className="bd-icon-selected-info">
-                  <span className="bd-icon-selected-name">{iconKey}</span>
-                  {!iconTouched && <span className="bd-icon-selected-tag">按名称自动匹配</span>}
-                </div>
-                <button
-                  type="button"
-                  className="bd-icon-selected-clear"
-                  onClick={() => {
-                    setIconKey(null)
-                    setIconTouched(true)
-                  }}
-                >
-                  移除
-                </button>
-              </div>
-            ) : (
-              <>
-                <input
-                  className="bd-icon-search"
-                  value={iconQuery}
-                  onChange={(e) => setIconQuery(e.target.value)}
-                  placeholder="搜索图标标题，比如「喜茶」"
-                />
-                <div className="bd-icon-picker">
-                  <button
-                    type="button"
-                    className={`bd-icon-option bd-icon-option-none ${iconKey === null ? 'bd-icon-option-active' : ''}`}
-                    onClick={() => pickIcon(null)}
-                  >
-                    无
-                  </button>
-                  {!showDefaultFallback &&
-                    filteredIconOptions.map((key) => (
-                      <button
-                        type="button"
-                        key={key}
-                        className={`bd-icon-option ${iconKey === key ? 'bd-icon-option-active' : ''}`}
-                        onClick={() => pickIcon(key)}
-                        title={key}
-                      >
-                        <img src={`/small_icon/${encodeURIComponent(key)}.png`} alt={key} />
-                      </button>
-                    ))}
-                </div>
-
-                {showDefaultFallback && (
-                  <>
-                    <p className="cd-field-hint">
-                      没有找到「{iconQuery.trim()}」相关的图标，可以先从下面选一个默认图标
-                    </p>
-                    <div className="bd-icon-picker bd-icon-picker--scroll">
-                      {defaultIconOptions.map((key) => (
-                        <button
-                          type="button"
-                          key={key}
-                          className={`bd-icon-option ${iconKey === key ? 'bd-icon-option-active' : ''}`}
-                          onClick={() => pickIcon(key)}
-                          title={key}
-                        >
-                          <img src={`/small_icon/${encodeURIComponent(key)}.png`} alt={key} />
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </>
-            )}
+            <IconPickerField
+              value={iconKey}
+              noneOption
+              showAutoTag={!iconTouched}
+              clearLabel="移除"
+              onPick={pickIcon}
+              onClear={() => {
+                setIconKey(null)
+                setIconTouched(true)
+              }}
+            />
           </div>
 
           {errorMessage && <div className="bd-notice bd-notice-error">{errorMessage}</div>}
