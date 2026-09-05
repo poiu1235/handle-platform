@@ -588,7 +588,7 @@
   min-width: 0;
   overflow: hidden;
   vertical-align: middle;
-  transition: width 0.32s var(--bd-ease);
+  transition: width 0.32s var(--bd-ease), height 0.32s var(--bd-ease);
 }
 
 .bd-card-name-box .bd-card-name {

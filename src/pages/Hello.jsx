@@ -174,24 +174,29 @@ function SwipeableBalanceCard({
   const titleMeasureRef = useRef(null)
   const [titleScale, setTitleScale] = useState(1)
   const [nameNaturalWidth, setNameNaturalWidth] = useState(0)
+  const [nameNaturalHeight, setNameNaturalHeight] = useState(0)
   const [mainAvailableWidth, setMainAvailableWidth] = useState(0)
 
   const hasIconImage = !!item.iconKey
 
-  // 折叠态也要用到"标题在 30px 最大字号下的自然宽度"来算外层宽度，所以这里
-  // 单独测一次，不受下面那个只在展开态才跑的 ResizeObserver 门槛限制——否则
-  // 一条从没被展开过的记录，折叠态会因为量不到自然宽度而把标题宽度算成 0。
+  // 折叠态也要用到"标题在 30px 最大字号下的自然宽度/高度"来算外层宽度和高度，
+  // 所以这里单独测一次，不受下面那个只在展开态才跑的 ResizeObserver 门槛
+  // 限制——否则一条从没被展开过的记录，折叠态会因为量不到自然尺寸而把标题
+  // 宽高算成 0。
   //
   // 这里用 ResizeObserver 盯着测量用的隐藏 <span> 本身，而不是只在 mount 时
   // 量一次：如果测量发生在自定义字体（var(--bd-font)）还没加载完成之前，
   // 浏览器会先拿系统兜底字体量出一个偏窄的宽度；等自定义字体真正换上、这个
-  // 隐藏 span 的实际渲染宽度变化时，ResizeObserver 会自动再触发一次测量去
+  // 隐藏 span 的实际渲染尺寸变化时，ResizeObserver 会自动再触发一次测量去
   // 纠正，不会像"只测一次就定死"那样，字体换上后文字变宽了、外层框却还是
   // 早期量错的窄尺寸，触发多余的 ellipsis 截断。
   useLayoutEffect(() => {
     const measureEl = titleMeasureRef.current
     if (!measureEl) return
-    const update = () => setNameNaturalWidth(measureEl.offsetWidth)
+    const update = () => {
+      setNameNaturalWidth(measureEl.offsetWidth)
+      setNameNaturalHeight(measureEl.offsetHeight)
+    }
     update()
     const observer = new ResizeObserver(update)
     observer.observe(measureEl)
@@ -247,6 +252,9 @@ function SwipeableBalanceCard({
   const nameOuterWidth = expanded
     ? Math.min(nameIdealWidth, Math.max(0, mainAvailableWidth - iconOuterWidth - iconMarginRight))
     : nameIdealWidth
+  // 高度不需要跟宽度一样考虑"放不下夹一次"——ellipsis 只发生在水平方向，
+  // 高度单纯跟着缩放比例走就行
+  const nameOuterHeight = nameNaturalHeight * nameScale
 
   const isZero = item.amount === 0
   const editDeleteWidth = ACTION_BTN_WIDTH * 2
@@ -477,7 +485,7 @@ function SwipeableBalanceCard({
         >
           <div className="bd-card-title-row">
             <CardMark iconKey={item.iconKey} boxSize={hasIconImage ? iconOuterWidth : undefined} scale={hasIconImage ? iconScale : undefined} />
-            <span className="bd-card-name-box" style={{ width: nameOuterWidth }}>
+            <span className="bd-card-name-box" style={{ width: nameOuterWidth, height: nameOuterHeight }}>
               <p
                 className="bd-card-name"
                 style={{
