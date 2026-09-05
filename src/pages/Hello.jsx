@@ -215,18 +215,16 @@ function SwipeableBalanceCard({
     if (!measureEl) return
     setNameNaturalWidth(measureEl.offsetWidth)
 	
-	// 首次测量时自定义字体（PT Sans / LXGW WenKai）可能还没下载完成，
-	// offsetWidth 是用兜底字体量出来的、不准。等字体真正就绪后再补测一次，
-	// 覆盖掉那个用错字体测出来的值。
-	if (document.fonts && document.fonts.status !== 'loaded') {
-	  let cancelled = false
-	  document.fonts.ready.then(() => {
-	    if (cancelled) return
-	    const el = titleMeasureRef.current
-	    if (el) setNameNaturalWidth(el.offsetWidth)
-	  })
-	  return () => { cancelled = true }
-	}
+	// 不判断 document.fonts.status——它在首次绘制前经常还没把自定义字体
+    // 放进加载队列，读到的是"假的 loaded"。document.fonts.ready 本身很轻，
+    // 即使真的已经就绪也是下一个微任务就 resolve，无条件等待更保险。
+    let cancelled = false
+    document.fonts?.ready?.then(() => {
+      if (cancelled) return
+      const el = titleMeasureRef.current
+      if (el) setNameNaturalWidth(el.offsetWidth)
+    })
+    return () => { cancelled = true }
   }, [item.name])
 
   useLayoutEffect(() => {
@@ -260,9 +258,7 @@ function SwipeableBalanceCard({
     observer.observe(mainEl)
 	
 	let cancelled = false
-    if (document.fonts && document.fonts.status !== 'loaded') {
-      document.fonts.ready.then(() => { if (!cancelled) recomputeScale() })
-    }
+    document.fonts?.ready?.then(() => { if (!cancelled) recomputeScale() })
 
     return () => {
       cancelled = true
