@@ -271,6 +271,17 @@ function SwipeableBalanceCard({
       observer.disconnect()
     }
   }, [expanded, hasIconImage, item.name])
+  
+  
+  {/* 临时诊断:每张卡片自己的名字 + 测到的自然宽度 + 有没有图标图片,排查完删掉 */}
+<div
+  style={{
+    position: 'absolute', top: 0, right: 0, fontSize: 9, color: 'red',
+    background: 'white', padding: '0 2px', zIndex: 999, whiteSpace: 'nowrap',
+  }}
+>
+  {item.name} / nm{nameNaturalWidth.toFixed(0)} / icon{hasIconImage ? 'Y' : 'N'}
+</div>
 
   // 标题 / 图标永远按最大号排版，这里把 titleScale 换算成"相对最大号的比例"
   // 和"容器该给多宽"这两组渲染真正要用的数字。折叠态没有挤压需求，直接给
@@ -519,8 +530,7 @@ function SwipeableBalanceCard({
         >
           <div className="bd-card-title-row">
             <CardMark iconKey={item.iconKey} boxSize={hasIconImage ? iconOuterWidth : undefined} scale={hasIconImage ? iconScale : undefined} />
-            
-			<span className="bd-card-name-box" style={{ width: 999 }}>
+			<span className="bd-card-name-box" style={{ width: nameOuterWidth }}>
               <p
                 className="bd-card-name"
                 style={{
@@ -528,7 +538,7 @@ function SwipeableBalanceCard({
                   // 换算回"缩放前"（30px 字号下）应该给多宽，这样缩放之后
                   // 视觉上正好等于 nameOuterWidth；放不下时这个宽度会比文字
                   // 自然宽度还小，触发 ellipsis 截断——跟改造前的兜底行为一致
-                  // width: nameScale > 0 ? nameOuterWidth / nameScale : 0,
+                  width: nameScale > 0 ? nameOuterWidth / nameScale : 0,
                 }}
               >
                 {item.name}
