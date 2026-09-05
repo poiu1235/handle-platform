@@ -201,6 +201,7 @@ function SwipeableBalanceCard({
   // overflow:hidden 的容器用普通数字 width/height 过渡来占位和裁切。
   const titleMainRef = useRef(null)
   const titleMeasureRef = useRef(null)
+  const nameVisibleRef = useRef(null)   // 补上这一行
   const [titleScale, setTitleScale] = useState(1)
   const [nameNaturalWidth, setNameNaturalWidth] = useState(0)
   const [mainAvailableWidth, setMainAvailableWidth] = useState(0)
