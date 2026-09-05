@@ -24,7 +24,7 @@
   --au-danger-soft: #fee2e2;
   /* 0 余额卡片：明显比页面底色深一档，一眼可辨 */
   --bd-zero-card: #cdd3d9;
-  --bd-font: 'PT Sans', -apple-system, 'PingFang SC', 'Microsoft YaHei', 'HarmonyOS Sans SC', sans-serif;
+  --bd-font: 'PT Sans', 'LXGW WenKai', -apple-system, 'PingFang SC', 'Microsoft YaHei', 'HarmonyOS Sans SC', sans-serif;
   --bd-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --bd-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   /* 内容列：移动端优先，不撑满整屏；超宽屏时居中（与 auth 卡片居中一致）。
