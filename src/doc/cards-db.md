@@ -89,6 +89,8 @@ Supabase PostgREST / RPC（用户 token → RLS）
 
 ### 2.1 校验分层（为什么有些进 DB、有些留在 CF 层）
 
+索引两个（建表语句内创建）：`cards_settle_idx (user_id, next_billing_date) where auto_renew`（结算追赶扫描专用部分索引）、`cards_user_ddl_idx (user_id, end_date)`；同名精确查找由 `cards_user_key` 唯一索引覆盖，无额外索引。
+
 | 校验 | 层 | 出处 | 理由 |
 | --- | --- | --- | --- |
 | `end_date ≥ start_date` | **DB CHECK** | 4-B6 | 不变式，永不可调 |
@@ -223,7 +225,9 @@ Supabase PostgREST / RPC（用户 token → RLS）
   恢复"对称：机器同样不得擅自关闭），能力开关只能经手动 PATCH。两个相邻端点
   对同一 JSON 形状语义相反是刻意的，维护时不要"顺手统一"。
 - **trim 与匹配**：RPC 内对 name 的**匹配与写入都做 trim**（3.6.1 唯一键
-  不变式；"重庆火锅　"与"重庆火锅"是同一条记录），CF 层判空也按 trim 后的值。
+  不变式；DB CHECK 与 RPC 的 trim 均只处理 ASCII 空格——两处字符集已收敛
+  一致，v3.1；NBSP、全角空格等 Unicode 空白由应用层 JS trim 处理），
+  CF 层判空也按 trim 后的值。
 - **4-B27 合并态校验（功能评审 2026-08-31 #1；用户裁定 2026-09-03 修订）**：
   resolved 续费为开（行内值 ?? 库内现值）而**合成后**缺周期/合同天数时，UPDATE
   必撞 `cards_renew_complete` 且**整批回滚**——JS 预览（classifyImport）与 RPC 内
@@ -312,8 +316,10 @@ Supabase 透传错误（含 CHECK message）原样返回给前端展示。
                                    //  清空且卡在续费中 → cards_renew_complete 拒绝透传）；
                                    //  auto_renew=true（开启/重开）必须同时携带扣款日 +
                                    //  周期——4-B20，CF 预留校验（第 12 节，评审 #2）
-{ muted }                          // 静默（'none'|'cycle'|'forever'；折叠卡静音图标
-                                   //  一键解除 = PATCH { muted:'none' }，5.4）
+{ muted }                          // 静默（'none'|'cycle'|'forever'；三态图标点击循环 =
+                                   //  连续 PATCH { muted: 下一档 }，档位序列
+                                   //  提醒→周期→永久→提醒（非续费卡两态），
+                                   //  2026-09-03 裁定，5.4 / 5.3 alert 同则）
 转发：PATCH /rest/v1/cards?id=eq.{id}  Prefer: return=representation      ← 1 次
 服务端职责：
   · 字段白名单：name 可改（2026-09-02 裁定放开，对齐余额）——trim 后判空 → 400；
@@ -398,7 +404,7 @@ Supabase 透传错误（含 CHECK message）原样返回给前端展示。
 | S6 取消续费 | PATCH { auto_renew:false } | 扣款日/周期字段保留（4-B20） |
 | S9 清零/标记用完 | PATCH { remaining_sessions:0 } | 沉底/提醒效应由前端推导（4-B10） |
 | S10 手动顺延 | PATCH { end_date }（非续费卡） | 续费卡由前端先置灰（4-B21）；静默解除由触发器（4-B22） |
-| S11 静默 | PATCH { muted } | 静音图标一键解除同端点 |
+| S11 静默 | PATCH { muted } | 三态图标点击循环同端点（提醒→周期→永久→提醒；非续费卡两态，2026-09-03） |
 | S14 DDL 留空 | POST（end_date 缺失由 CF 物化）/ 导入由 RPC 物化 | 之后扫描再缺 DDL → 保留现值不刷新（3.6.3） |
 | S16 用完撞扣款窗口 | 无请求 | 前端推导：次数用完只排除到期提醒（4-B10） |
 
@@ -522,7 +528,8 @@ classifyImport(rows, loadedCards, today) =>
 
 1. **merge-duplicates 覆盖**：同名 POST 两次 → 合并为一条；第二次未携带 muted
    → 库内 muted 保留现值（部分字段契约）；携带显式 null 的次数字段 → 能力关闭；
-   缺商户的 POST → 400、导入行缺商户 → 行报错（商户必填，v2.4 裁定）。
+   POST 卡名 trim 后为空 → 400、导入行卡名 trim 后为空 → 行报错（v3：卡名即
+   展示名，无独立商户字段，原 v2.4"缺商户报错"断言随之作废）。
 2. **三分支**：行过期 + 库内正常 → 更新为过期（判死落库）；行过期 + 库内已过期
    → 跳过；行过期 + 库内没有 → 插入过期记录（4-B4）；行有效 → 正常 upsert。
 3. **固定天数追赶**：period_days=30 的卡、1/31 锚点、追赶 3 个周期 → 扣款日
