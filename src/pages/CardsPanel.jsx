@@ -129,9 +129,12 @@ function MuteCycleButton({ view, onCycle, className = 'cd-mute-btn cd-mute-inlin
 // 名称行旗标：续费图标 + 静默循环按钮（B22：静默必须可见、可解、可再静默）。
 // 修订 2026-09-03：提醒中不显示按钮——静默状态才出现图标，点击循环
 // （周期 → 永久 → 解除）；静默入口在详情弹窗。
-// ref 转发：半展开卡标题缩放要把旗标宽度计入"固定占用"（可用宽度扣减 + ResizeObserver）
+// 修订 2026-09-06：两个旗标都没有时不渲染容器（行尾不留空占位/白点）。
+// ref 转发：半展开卡标题缩放要把旗标宽度计入"固定占用"（可用宽度扣减 +
+// ResizeObserver）；容器卸载时 ref 置 null，可用宽度扣减随之归零
 const CardNameFlags = forwardRef(function CardNameFlags({ view, onCycleMute }, ref) {
   const { row } = view
+  if (!row.auto_renew && !view.muted) return null
   return (
     <span className="cd-name-flags" ref={ref}>
       {row.auto_renew && (
@@ -291,14 +294,18 @@ function SemiExpandedCardRow({
     observer.observe(mainEl)
     if (flagsEl) observer.observe(flagsEl)
     return () => observer.disconnect()
-  }, [hasIconImage, row.name])
+    // 旗标的出现/消失（静默循环、续费开关）改变"固定占用"宽度，也要触发重算；
+    // ref 随条件渲染 detach/attach，重跑 effect 才能重新 observe
+  }, [hasIconImage, row.name, view.muted, row.auto_renew])
 
-  // 把 titleScale 换算成渲染要用的四个数字（公式与余额一致，档位不同）
+  // 把 titleScale 换算成渲染要用的四个数字（公式与余额一致，档位不同）。
+  // 注意 scale 的基准是 .bd-card-icon 的 CSS 尺寸（恒 40px），不是会员档位的
+  // 最大值 28——否则缩放后的图比外框大，会从左上角开始被裁掉
   const nameFontTarget = 17 + 5 * titleScale
   const nameScale = nameFontTarget / 22
   const iconSizeTarget = hasIconImage ? 20 + 8 * titleScale : 20
-  const iconScale = hasIconImage ? iconSizeTarget / 28 : 1
-  const iconOuterWidth = hasIconImage ? 28 * iconScale : 8
+  const iconScale = hasIconImage ? iconSizeTarget / 40 : 1
+  const iconOuterWidth = hasIconImage ? 40 * iconScale : 8
   const iconMarginRight = hasIconImage ? 8 : 9
   // 正常情况外层宽度 = 自然宽度 × 比例；titleScale 钳到 0 还放不下时夹到剩余
   // 可用宽度，把多出来的部分交给 .bd-card-name 自带的 ellipsis 截断（同余额兜底）
@@ -628,13 +635,13 @@ function CardRow({ view, iconKey, stackIndex, stackTotal, onToggleExpand, onCycl
       >
         <div className="bd-card-main">
           <div className="cd-name-line">
-            {/* 折叠态无缩放：图标固定 20px（bd-card-icon 恒 40px，用 scale 缩到位），
-                卡名走 15px 基础字号 + flex 收缩省略（同旧行为） */}
+            {/* 折叠态无缩放：图标固定 20px（bd-card-icon 恒 40px，scale 相对 40
+                缩到位，框 = 40 × scale），卡名走 15px 基础字号 + flex 收缩省略 */}
             <div className="bd-card-title-row">
               <CardMark
                 iconKey={iconKey}
                 boxSize={iconKey ? 20 : undefined}
-                scale={iconKey ? 20 / 28 : undefined}
+                scale={iconKey ? 20 / 40 : undefined}
               />
               <p className="bd-card-name">{view.row.name}</p>
             </div>
@@ -902,13 +909,13 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
     >
       <div className="cd-detail">
         <div className="cd-detail-head" onClick={onCollapse}>
-          {/* 详情是终点层级：图标固定 22px、卡名固定 18px，不参与缩放（CSS 见
-              .cd-detail-head 段） */}
+          {/* 详情是终点层级：图标固定 22px（scale 相对 40 的 CSS 尺寸缩到位）、
+              卡名固定 18px，不参与缩放（CSS 见 .cd-detail-head 段） */}
           <div className="bd-card-title-row">
             <CardMark
               iconKey={iconKey}
               boxSize={iconKey ? 22 : undefined}
-              scale={iconKey ? 22 / 28 : undefined}
+              scale={iconKey ? 22 / 40 : undefined}
             />
             <p className="bd-card-name">{view.row.name}</p>
           </div>
