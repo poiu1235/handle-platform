@@ -521,6 +521,7 @@ function SwipeableBalanceCard({
             <CardMark iconKey={item.iconKey} boxSize={hasIconImage ? iconOuterWidth : undefined} scale={hasIconImage ? iconScale : undefined} />
 			<span className="bd-card-name-box" style={{ width: nameOuterWidth }}>
               <p
+			    ref={nameVisibleRef}
                 className="bd-card-name"
                 style={{
                   transform: `scale(${nameScale})`,
@@ -561,7 +562,7 @@ function SwipeableBalanceCard({
     background: 'white', padding: '0 2px', zIndex: 999, whiteSpace: 'nowrap',
   }}
 >
-  {item.name} / nm{nameNaturalWidth.toFixed(0)} / icon{hasIconImage ? 'Y' : 'N'}
+  {item.name} / nm{nameNaturalWidth.toFixed(0)} / sw{nameVisibleRef.current?.scrollWidth ?? '-'} / cw{nameVisibleRef.current?.clientWidth ?? '-'}
 </div>
         </div>
         <div className="bd-card-value" style={{ opacity: valueOpacity }}>
