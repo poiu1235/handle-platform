@@ -216,6 +216,40 @@ function RoDetailDemo() {
   )
 }
 
+// 真实 CardsCalendar 复刻：移动端 5 条日程应整体可滚动（不再截断），
+// 清空后显示空格子
+function CalendarDemo() {
+  const mk = (id, name, s, e) => ({
+    row: { id, name, start_date: s, end_date: e, muted: null, auto_renew: true,
+      billing_cycle: 'month', next_billing_date: e, remaining_sessions: 2, total_sessions: 10, period_days: null },
+    status: 'active', sunkReason: null,
+  })
+  const views = [
+    mk('a', '腾讯视频', '2026-08-20', '2026-09-10'),
+    mk('b', '网易云音乐', '2026-08-25', '2026-09-30'),
+    mk('c', '乐刻', '2026-09-02', '2026-09-25'),
+    mk('d', '宠物家', '2026-09-05', '2026-09-18'),
+    mk('e', 'QQ音乐', '2026-09-06', '2026-09-12'),
+    mk('f', '未选卡A', '2026-09-01', '2026-09-15'),
+    mk('g', '未选卡B', '2026-09-08', '2026-09-28'),
+  ]
+  const [selected, setSelected] = useState(new Set(['a', 'b', 'c', 'd', 'e']))
+  const iconKeyById = Object.fromEntries(views.map(v => [v.row.id, 'AcFun']))
+  return h('div', { className: 'bd-board', style: { height: '560px', border: '1px solid #e0e0e5', borderRadius: '12px' } },
+    h('div', { style: { padding: '10px 16px', background: '#010f1c', color: '#fff', fontFamily: 'var(--bd-font)' } }, 'Handle 数据管理端（模拟页头）'),
+    h('div', { style: { padding: '8px 16px' } }, h('button', { type: 'button', className: 'bd-sort-btn', onClick: () => setSelected(new Set()) }, '模拟：清空选择')),
+    h('div', { className: 'bd-list' },
+      h(CardsCalendar, {
+        views, today: '2026-09-06', selectedIds: selected,
+        onToggleCard: (id) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.size < 5 && s.add(id); return s }),
+        onSetAll: (ids) => setSelected(ids),
+        onOpenCard: () => {},
+        modeSeg: h('div', { className: 'cd-seg' }, h('span', { className: 'cd-seg-active' }, '日历')),
+        iconKeyById,
+      })),
+  )
+}
+
 function Demo() {
   return h('div', null,
     h('h3', null, '扣款提醒窗口 → 红环 30px（剩 4/30）+ 次数胶囊'),
@@ -254,6 +288,8 @@ function Demo() {
     h(RoDetailDemo),
     h('h3', null, '建卡图标字段：自动匹配 → 「移除」打开网格自由选择 → 「恢复自动」'),
     h(IconFieldDemo),
+    h('h3', null, '日历模式（真实组件）：5 条日程整体可滚动不截断；清空后显示空格子'),
+    h(CalendarDemo),
   )
 }
 createRoot(document.getElementById('root')).render(h(Demo))

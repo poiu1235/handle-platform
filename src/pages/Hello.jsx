@@ -191,6 +191,21 @@ function SwipeableBalanceCard({
     // text-overflow: ellipsis 也会触发截断（把最后一个字换成省略号），
     // 这个缓冲用来吸收这种取整误差，不是为了留视觉空白
     setNameNaturalWidth(measureEl.offsetWidth + 2)
+
+    // 挂载这一刻的布局/字体应用有时还没完全稳定，测出来的宽度会偏小；
+    // 展开态之所以从没复现过这个问题，是因为用户点开的那一刻页面早就
+    // 稳定了。这里在下一帧补测一次，不用去纠结具体是哪个环节没稳定，
+    // 直接晚一点点重新测一遍，覆盖掉可能不准的首次测量结果。
+    let cancelled = false
+    const raf = requestAnimationFrame(() => {
+      if (cancelled) return
+      const el = titleMeasureRef.current
+      if (el) setNameNaturalWidth(el.offsetWidth + 2)
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+    }
   }, [item.name])
 
   useLayoutEffect(() => {
