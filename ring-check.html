@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>DaysRing 设计预览</title>
+<link rel="stylesheet" href="/src/pages/board.css" />
+<style>
+  body { margin: 0; background: #ffffff; }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 24px 16px 60px; }
+  .wrap h1 { font-family: var(--bd-font); font-size: 18px; color: var(--au-text); margin: 0 0 4px; }
+  .wrap p.sub { font-family: var(--bd-font); font-size: 13px; color: var(--au-text-2); margin: 0 0 8px; }
+  .wrap h3 { font-family: var(--bd-font); font-size: 14px; color: #646464; margin: 22px 0 10px; }
+  .row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+  .stepper { display: flex; align-items: center; gap: 14px; }
+  .stepper button {
+    width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--au-border);
+    background: var(--au-card); font-size: 20px; cursor: pointer; font-family: var(--bd-font);
+  }
+  .stepper button:hover { background: var(--au-brand-soft); }
+  .val { font-family: var(--bd-font); font-size: 14px; color: var(--au-text-2); min-width: 120px; }
+</style>
+</head>
+<body>
+<div class="bd-board">
+  <div class="wrap" id="root"></div>
+</div>
+<script type="module">
+import { createElement as h, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import DaysRing from '/src/components/DaysRing.jsx'
+
+function Demo() {
+  const [v, setV] = useState(3)
+  return h('div', null,
+    h('h1', null, 'DaysRing 环形倒计时'),
+    h('p', { className: 'sub' }, 'src/components/DaysRing.jsx · SVG 渐变弧 + 居中大数字，value 驱动、变化带动画'),
+    h('h3', null, '设计稿复刻（value 3，弧长 ≈ 85%）'),
+    h('div', { className: 'row' }, h(DaysRing, { value: 3, max: 3.5 })),
+    h('h3', null, '常规用法：剩余天数 / 周期（中文标签，大尺寸）'),
+    h('div', { className: 'row' },
+      h(DaysRing, { value: 3, max: 30, label: '剩余天数', size: 120 }),
+      h(DaysRing, { value: 18, max: 30, label: '剩余天数', size: 120 }),
+    ),
+    h('h3', null, '动态调整：点 − / + 改数字，环随之动画伸缩'),
+    h('div', { className: 'stepper' },
+      h('button', { onClick: () => setV(x => Math.max(0, x - 1)) }, '−'),
+      h(DaysRing, { value: v, max: 30, label: '剩余天数' }),
+      h('button', { onClick: () => setV(x => Math.min(30, x + 1)) }, '+'),
+      h('span', { className: 'val' }, `当前 value = ${v} / 30`),
+    ),
+    h('h3', null, '边界：0（空环）/ 满环 / 3 位 / 4 位数字自动缩字号'),
+    h('div', { className: 'row' },
+      h(DaysRing, { value: 0, max: 30, label: '剩余天数' }),
+      h(DaysRing, { value: 30, max: 30, label: '剩余天数' }),
+      h(DaysRing, { value: 365, max: 730, label: '剩余天数' }),
+      h(DaysRing, { value: 1500, max: 2000, label: '剩余天数' }),
+    ),
+  )
+}
+createRoot(document.getElementById('root')).render(h(Demo))
+</script>
+</body>
+</html>

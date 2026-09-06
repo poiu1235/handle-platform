@@ -189,8 +189,14 @@ export function collapsedInfo(view) {
     if (view.reminders.billing) tags.push({ key: 'billing', text: billingTag(view) })
     return { main: '已用完', count: null, tags }
   }
-  const { expiring, billing } = view.reminders
-  if (billing && (!expiring || view.daysToBilling <= view.daysToDdl)) {
+  // 扣款倒计时直读 daysToBilling（2026-09-06 用户裁定：列表主信息不看静默——
+  // 静默只免提醒弹窗/进站 alert，钱照扣，"X 天后扣款"恒可见）。
+  // reminders.billing 是静默会排除的提醒口径，不能用作这里的判据；
+  // 窗口不变（BILLING_REMINDER_DAYS），续费卡扣款日 ≡ DDL，同日时扣款文案优先
+  const { expiring } = view.reminders
+  const billingInWindow =
+    view.daysToBilling !== null && view.daysToBilling <= BILLING_REMINDER_DAYS
+  if (billingInWindow && (!expiring || view.daysToBilling <= view.daysToDdl)) {
     return { main: billingCountdown(view.daysToBilling), count, tags }
   }
   // 到期提醒窗口与常态同文案（剩 N 天），不再单列分支
