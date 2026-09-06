@@ -171,6 +171,25 @@ function ToastDemo() {
   )
 }
 
+// 移动端筛选下拉复刻：面板应从触发按钮左缘向右展开，不超出屏幕
+function FilterDemo() {
+  const [open, setOpen] = useState(true)
+  return h('div', { className: 'cd-cal-filter', style: { margin: '0 16px', display: 'inline-block' } },
+    h('button', { type: 'button', className: 'bd-sort-btn', onClick: () => setOpen(v => !v) }, '卡片筛选 0/23 ▾'),
+    open && h('div', { className: 'cd-cal-filter-panel' },
+      h('input', { className: 'cd-cal-filter-search', placeholder: '搜索卡名' }),
+      h('div', { className: 'cd-cal-filter-ops' },
+        h('button', { type: 'button', className: 'bd-btn' }, '全选(23 张)'),
+        h('button', { type: 'button', className: 'bd-btn' }, '清空')),
+      ['音乐合集App', '腾讯视频', '皓齿刷牙', '中健银座'].map(n =>
+        h('label', { key: n, className: 'cd-cal-filter-item' },
+          h('input', { type: 'checkbox', readOnly: true }),
+          h('span', { className: 'cd-cal-filter-dot', style: { background: '#a9dace' } }),
+          h('span', { className: 'cd-cal-filter-name' }, n))),
+    ),
+  )
+}
+
 function Demo() {
   return h('div', null,
     h('h3', null, '扣款提醒窗口 → 红环 30px（剩 4/30）+ 次数胶囊'),
@@ -203,6 +222,8 @@ function Demo() {
     detailCard({ name: '清晨瑜伽季卡', bg: '#e3f3fc', nameColor: 'var(--au-text)', flagFilter: 'none' }),
     h('h3', null, '悬浮 toast：滚动下面的列表框，提示应吸附在列表框顶部'),
     h(ToastDemo),
+    h('h3', null, '移动端筛选下拉：面板不应超出屏幕左缘（390px 视口）'),
+    h(FilterDemo),
     h('h3', null, '建卡图标字段：自动匹配 → 「移除」打开网格自由选择 → 「恢复自动」'),
     h(IconFieldDemo),
   )
