@@ -624,8 +624,8 @@
 
 .bd-card-name-box .bd-card-name {
   /* 恒按最大号排版（"从小变大"由 transform: scale() 完成，见上方注释）。
-     最大号走 CSS 变量：余额 30px（默认），会员半展开卡覆盖为 22px——
-     会员名称行右侧有旗标常驻，字号档位低一档给旗标让位（2026-09-05 裁定） */
+     最大号走 CSS 变量：余额与会员半展开卡均为 30px（2026-09-06 裁定会员
+     做大到同档；长卡名的让位由缩放算法扣减旗标宽度后自动解决） */
   font-size: var(--bd-name-max, 30px);
   transform-origin: left center;
   transition: transform 0.32s var(--bd-ease);
@@ -1660,14 +1660,17 @@
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.55);
+  /* 裸放（2026-09-06 裁定）：旗标图标跟随标题对比度着色（.cd-name-flags .cd-flag-img），
+     白色底片会在深色主色上把翻白的图标吞掉，不再垫底 */
+  background: transparent;
   color: var(--au-text-3);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
 .cd-mute-btn:hover {
-  background: rgba(255, 255, 255, 0.9);
+  /* 悬停反馈用标题对比度色兑透明：深色主色上亮出一圈白、浅色上压一圈深 */
+  background: color-mix(in srgb, var(--bd-card-name-color, var(--au-text)) 18%, transparent);
   color: var(--au-text);
 }
 
@@ -1696,9 +1699,17 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  /* v3.2 修订（2026-09-06 用户裁定）：容器不垫白色底片——静默按钮自带圆形
-     白底（.cd-mute-btn），自动续费 $ 旗标裸放；两个旗标都没有时组件不渲染
+  /* v3.2 修订（2026-09-06 用户裁定）：容器不垫白色底片，$ 旗标与静默图标都
+     裸放在卡面渐变上、跟随标题对比度着色；两个旗标都没有时组件不渲染
      本容器（CardNameFlags 返回 null），行尾不留白点 */
+}
+
+/* 旗标 SVG 跟随标题对比度（变量由 cardBgStyle 挂在卡上）：背景暗 →
+   brightness(0) invert(1) 翻白，背景亮 → none 保持素材深色线稿。
+   进站 alert 里的静默图标不在 .cd-name-flags 内、拿不到变量，回退 none
+   维持深色原样（白底弹窗上本就该是深色） */
+.cd-name-flags .cd-flag-img {
+  filter: var(--cd-flag-filter, none);
 }
 
 /* 自动续费静态旗标：随开关实时出现/消失 */
@@ -1790,8 +1801,8 @@
   /* 减一进度蒙层的定位上下文 */
   position: relative;
   /* 半展开卡标题最大字号档位（见 .bd-card-name-box .bd-card-name 的变量说明）：
-     比余额（30px）低一档，给常驻旗标让位 */
-  --bd-name-max: 22px;
+     与余额展开态一致（30px，2026-09-06 裁定做大） */
+  --bd-name-max: 30px;
 }
 
 .cd-semi-main {
@@ -1806,10 +1817,13 @@
 }
 
 .cd-semi-meta {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--au-text);
-  opacity: 0.62;
+  /* 沿袭余额展开态 meta 样式（.bd-card-meta / .bd-card-expanded .bd-card-meta）：
+     15px、margin 5px、继承名称行对比度色、透明度 0.6（2026-09-06 裁定）；
+     tabular-nums 与省略截断是会员卡日期行的既有增强，观感无差 */
+  margin: 5px 0 0;
+  font-size: 15px;
+  color: inherit;
+  opacity: 0.6;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
@@ -1822,7 +1836,9 @@
   gap: 6px;
   margin: 7px 0 0;
   font-size: 12px;
-  color: var(--au-text-2);
+  /* 扣款/续费说明行跟随名称行对比度色（2026-09-06 裁定：同标题，背景暗 → 白、
+     亮 → 黑）；「续费中」小标签自带底色与字色，不受继承影响 */
+  color: inherit;
   white-space: nowrap;
   overflow: hidden;
 }

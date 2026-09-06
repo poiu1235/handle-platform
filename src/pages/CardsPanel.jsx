@@ -45,8 +45,8 @@ import './board.css'
 // 删除弹窗仅在标签激活时渲染。样式见 ./board.css（cd- 前缀，复用 bd- 体系）。
 // v3.2（2026-09-05）图标体系：cards.icon_key 落库（null = 按卡名自动匹配），
 // 卡背景换 icon 主色渐变（cardBgStyle / iconColor.js，对齐余额），半展开卡
-// 标题自适应缩放照抄 SwipeableBalanceCard 的 transform-scale 模型
-// （档位低一档：字号 17~22、图标 20~28，给常驻旗标让位）。
+// 标题自适应缩放照抄 SwipeableBalanceCard 的模型（2026-09-06 裁定：档位与
+// 余额展开态一致——标题 20~30px、图标 20~40px）。
 // ============================================================
 
 const CYCLE_LABEL = Object.fromEntries(BILLING_CYCLES.map((c) => [c.key, c.label]))
@@ -62,6 +62,10 @@ function cardBgStyle(iconKey, fallbackColor) {
     // CSS 里给"展开态缓慢流动"用的那两个属性就会被顶掉（同余额的处理）
     backgroundImage: background,
     '--bd-card-name-color': nameColor,
+    // 名称行旗标（续费 $ / 静默钟）是深色线稿 SVG <img>，color 染不上，
+    // 用滤镜跟随标题的对比度裁定（同标题：背景暗 → 翻白，背景亮 → 保持深色）。
+    // chooseTextColor 的返回口径：翻白时 nameColor 恒为字面量 '#ffffff'
+    '--cd-flag-filter': nameColor === '#ffffff' ? 'brightness(0) invert(1)' : 'none',
   }
 }
 
@@ -260,13 +264,13 @@ function CardRow({
   const leftPanelWidth = Math.max(dragX, 0)
   const rightPanelWidth = Math.max(-dragX, 0)
 
-  // ---------- 标题自适应缩放（照抄余额 SwipeableBalanceCard 的 transform-scale 模型） ----------
+  // ---------- 标题自适应缩放（照抄余额 SwipeableBalanceCard，档位一致） ----------
   // 算法同余额：用"标题在最大字号下的自然宽度"和"标题容器实际分到的可用宽度"
-  // 联立解出 0~1 的缩放比例；标题/图标永远按最大号排版（22px / 28px），
+  // 联立解出 0~1 的缩放比例；标题/图标永远按最大号排版（30px / 40px），
   // "从小变大"用 transform: scale()（不触发重排，WebKit 无排版滞后问题），
   // 外层 overflow:hidden 容器用普通数字 width 过渡占位裁切。
-  // 档位比余额低一档（字号 17~22 vs 20~30、图标 20~28 vs 20~40）：会员卡名称行
-  // 右侧还有续费/静默旗标常驻，字号让出空间（2026-09-05 裁定）。
+  // 档位与余额展开态一致（字号 20~30、图标 20~40，2026-09-06 裁定做大）；
+  // 名称行右侧的续费/静默旗标宽度由缩放算法作为固定占用扣减，长卡名自动让位。
   const semiMainRef = useRef(null)
   const semiMeasureRef = useRef(null)
   const nameFlagsRef = useRef(null)
@@ -297,13 +301,14 @@ function CardRow({
       const naturalTextWidth = measureEl.offsetWidth
       // 没有图标图片、退化成菱形标记的卡：菱形固定 8px 不参与缩放，可变范围为 0
       const iconMin = hasIconImage ? 20 : 8
-      const iconMax = hasIconImage ? 28 : 8
+      const iconMax = hasIconImage ? 40 : 8
       const marginRight = hasIconImage ? 8 : 9
       const iconRange = iconMax - iconMin
-      // 标题字号 fontSize(s) = 17 + 5s，文字像素宽度近似跟字号线性缩放，
+      // 标题字号 fontSize(s) = 20 + 10s（与余额展开档位一致，2026-09-06 裁定做大），
+      // 文字像素宽度近似跟字号线性缩放，
       // usedWidth(s) = 图标(s) + 间距 + 文字宽度(s) 是关于 s 的一次式，直接解出 s
-      const c0 = iconMin + marginRight + (17 / 22) * naturalTextWidth
-      const c1 = iconRange + (5 / 22) * naturalTextWidth
+      const c0 = iconMin + marginRight + (20 / 30) * naturalTextWidth
+      const c1 = iconRange + (10 / 30) * naturalTextWidth
       const rawScale = c1 > 0 ? (available - c0) / c1 : 1
       setTitleScale(Math.max(0, Math.min(1, rawScale)))
       setNameNaturalWidth(naturalTextWidth)
@@ -319,15 +324,16 @@ function CardRow({
     // ref 随条件渲染 detach/attach，重跑 effect 才能重新 observe
   }, [expanded, hasIconImage, row.name, view.muted, row.auto_renew])
 
-  // 把 titleScale 换算成渲染要用的数字（公式与余额一致，档位不同）。
+  // 把 titleScale 换算成渲染要用的数字（公式与档位都与余额展开态一致，
+  // 2026-09-06 裁定做大：标题 20~30px、图标 20~40px）。
   // 标题用 transform: scale（文字重排滞后问题，同余额稳定版）；图标是图片，
   // 用 CardMark 的 size 模式直接按目标 px 渲染 img——元素尺寸 = 目标尺寸
-  // （2026-09-06 裁定：会员侧 img 元素不允许恒 40×40），"从小变大"由 CardMark
+  // （会员侧 img 元素不允许恒 40×40），"从小变大"由 CardMark
   // 内联的 width/height 过渡承担，不影响余额依赖的 .bd-card-icon CSS 结构。
   // 折叠态给固定小档（字号 15 / 图标 20），观感与旧折叠卡一致。
-  const nameFontTarget = expanded ? 17 + 5 * titleScale : 15
-  const nameScale = nameFontTarget / 22
-  const iconSizeTarget = expanded && hasIconImage ? 20 + 8 * titleScale : 20
+  const nameFontTarget = expanded ? 20 + 10 * titleScale : 15
+  const nameScale = nameFontTarget / 30
+  const iconSizeTarget = expanded && hasIconImage ? 20 + 20 * titleScale : 20
   const iconOuterWidth = hasIconImage ? iconSizeTarget : 8
   const iconMarginRight = hasIconImage ? 8 : 9
   // 正常情况外层宽度 = 自然宽度 × 比例；titleScale 钳到 0 还放不下时夹到剩余
@@ -585,9 +591,9 @@ function CardRow({
               )}
             </p>
           )}
-          {/* 视觉上完全隐藏、脱离文档流：量"卡名在最大字号（22px）下本来需要多宽"，
+          {/* 视觉上完全隐藏、脱离文档流：量"卡名在最大字号（30px）下本来需要多宽"，
               不影响布局（同余额 SwipeableBalanceCard 的测量节点）。折叠态也要用
-              （折叠标题宽 = 自然宽度 × 15/22），所以两个状态常驻渲染 */}
+              （折叠标题宽 = 自然宽度 × 15/30），所以两个状态常驻渲染 */}
           <span
             ref={semiMeasureRef}
             aria-hidden="true"
@@ -598,7 +604,7 @@ function CardRow({
               visibility: 'hidden',
               whiteSpace: 'nowrap',
               pointerEvents: 'none',
-              fontSize: '22px',
+              fontSize: '30px',
               fontWeight: 700,
               fontFamily: 'var(--bd-font)',
             }}
