@@ -232,13 +232,16 @@ export function CardReadonlyDetail({ view, today, iconKey }) {
   return (
     <div className="cd-ro">
       <p className="cd-ro-title">
-        <span className="cd-icon-chip" style={{ background: colorForCard(row.id) }}>
-          {iconKey ? (
-            <img src={`/small_icon/${encodeURIComponent(iconKey)}.png`} alt="" />
-          ) : (
-            <span className="bd-card-mark" />
-          )}
-        </span>
+        {/* 裸 icon（2026-09-06 用户裁定：去掉记录色底）；无 icon 回退小菱形 */}
+        {iconKey ? (
+          <img
+            className="cd-ro-title-icon"
+            src={`/small_icon/${encodeURIComponent(iconKey)}.png`}
+            alt=""
+          />
+        ) : (
+          <span className="bd-card-mark" />
+        )}
         {row.name}
       </p>
       {rows.map(([label, value, icon]) => (

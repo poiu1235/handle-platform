@@ -2888,6 +2888,19 @@
   vertical-align: -2px;
 }
 
+/* 只读详情标题：裸 icon（2026-09-06 用户裁定：去掉记录色底），无 icon 回退菱形 */
+.cd-ro-title-icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.cd-ro-title .bd-card-mark {
+  margin-right: 0;
+}
+
 /* 只读详情标题的 icon 芯片间距 */
 .cd-ro-title {
   display: flex;
