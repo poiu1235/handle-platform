@@ -184,7 +184,10 @@ function SwipeableBalanceCard({
   useLayoutEffect(() => {
     const measureEl = titleMeasureRef.current
     if (!measureEl) return
-    setNameNaturalWidth(measureEl.offsetWidth)
+    // +2px 缓冲：offsetWidth 会把亚像素宽度取整/截断，哪怕只差 0.x px，
+    // text-overflow: ellipsis 也会触发截断（把最后一个字换成省略号），
+    // 这个缓冲用来吸收这种取整误差，不是为了留视觉空白
+    setNameNaturalWidth(measureEl.offsetWidth + 2)
   }, [item.name])
 
   useLayoutEffect(() => {
@@ -195,7 +198,9 @@ function SwipeableBalanceCard({
 
     function recomputeScale() {
       const available = mainEl.clientWidth
-      const naturalTextWidth = measureEl.offsetWidth
+      // 同样 +2px 缓冲，理由跟折叠态那处一致——两处必须保持同一套缓冲量，
+      // 否则展开/折叠之间对"标题需要多宽"的判断会不一致
+      const naturalTextWidth = measureEl.offsetWidth + 2
       // 图标（真图片）在 20~40px 之间跟标题同步缩放；没有图标图片、退化成菱形
       // 标记的卡片，菱形本身固定 8px 不参与缩放，公式里对应的"可变范围"就是 0
       const iconMin = hasIconImage ? 20 : 8
