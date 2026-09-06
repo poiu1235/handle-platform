@@ -15,8 +15,8 @@ import { useIconManifest } from '../lib/useIconManifest'
 //   value       当前选中的 key（null = 未指定/自动，是否显示网格由此决定）
 //   noneOption  网格里是否渲染"无"格（余额 true；会员无"无"的概念，false）
 //   showAutoTag 预览上是否挂"按名称自动匹配"标签
-//   clearLabel  预览右侧按钮文案（余额「移除」；会员手动指定时「恢复自动」；
-//               null = 不渲染按钮）
+//   clearLabel  预览右侧按钮文案（余额恒为「移除」；会员自动匹配时「移除」、
+//               手动指定后「恢复自动」；null = 不渲染按钮）
 //   onPick(key) 点选任意图标（noneOption 时也可能收到 null）
 //   onClear()   预览按钮回调
 export function IconPickerField({
@@ -138,7 +138,10 @@ export function IconPickerField({
 
 // 会员卡表单的图标状态机（建卡 / 编辑共用）：null = 按名称自动匹配（落库 null，
 // 展示层 suggestIconKey 推导），手动指定后落库具体 key。manual 标记用户是否
-// 指定过——未指定时名称变化实时跟随自动建议；点「恢复自动」回到跟随态。
+// 接管过选择——接管后（pick 或 clear）自动跟随永久让位，直到「恢复自动」。
+// clear()（2026-09-06 用户裁定，对齐余额「移除」）：自动匹配预览上的「移除」=
+// 清空展示值并停掉跟随，网格展开供自由选择；此后 key 为 null、manual 为 true——
+// 提交会携带 icon_key = null（清除库内既有 key，记录回到按名称自动匹配）。
 // 与余额的差异：余额 iconTouched 后"无"也是终态；会员没有"无"，恢复自动 =
 // 回到跟随（同名覆盖提交契约见 CardAddModal buildSubmitPayload）。
 export function useCardIconState({ name, initialKey, resetToken }) {
@@ -154,8 +157,8 @@ export function useCardIconState({ name, initialKey, resetToken }) {
     setManual(!!initialKey)
   }
 
-  // 自动建议：只在用户还没手动指定时生效，名称/清单变化就实时跟随；一旦手动
-  // 指定过（pick），这里永久让位，直到「恢复自动」回到跟随态
+  // 自动建议：只在用户还没手动接管时生效，名称/清单变化就实时跟随；一旦手动
+  // 接管过（pick / clear），这里永久让位，直到「恢复自动」回到跟随态
   useEffect(() => {
     if (manual) return
     setIconKey(suggestIconKey(name, options))
@@ -166,10 +169,15 @@ export function useCardIconState({ name, initialKey, resetToken }) {
     setManual(true)
   }
 
+  function clear() {
+    setIconKey(null)
+    setManual(true)
+  }
+
   function restoreAuto() {
     setIconKey(null)
     setManual(false)
   }
 
-  return { iconKey, manual, pick, restoreAuto }
+  return { iconKey, manual, pick, clear, restoreAuto }
 }

@@ -579,6 +579,27 @@ function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, 
   const canSubmit =
     nameTrim.length > 0 && amountText.trim().length > 0 && !Number.isNaN(amountNumber) && !nameTaken
 
+  // 新增模式重名预填（2026-09-06，对齐会员新增弹窗）：名称与已有记录完全一致时，
+  // 把那条记录的当前余额/图标带出来预填，并在头部标红提醒——提交会按名称覆盖
+  // 那条记录，预填能让人一眼看到自己即将改的是哪条、原来是多少，而不是凭空
+  // 填一个可能偏差很大的数字。只在第一次命中某条记录时预填一次，之后用户自己
+  // 改动这些字段，就不再被同一条命中结果反复覆盖。
+  const duplicateItem =
+    mode === 'add' ? items.find((it) => it.name === nameTrim) ?? null : null
+  const prefilledForId = useRef(null)
+
+  useEffect(() => {
+    if (!duplicateItem) {
+      prefilledForId.current = null
+      return
+    }
+    if (prefilledForId.current === duplicateItem.id) return
+    prefilledForId.current = duplicateItem.id
+    setAmountText(String(duplicateItem.amount))
+    setIconKey(duplicateItem.iconKey ?? null)
+    setIconTouched(true)
+  }, [duplicateItem])
+
   // 自动建议：只在用户还没手动碰过图标选择器时生效，命中就预选，没命中保持"无"。
   // 用户一旦点了任意图标选项（含"无"），iconTouched 变 true，这里永久让位。
   useEffect(() => {
@@ -600,6 +621,11 @@ function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, 
           {mode === 'add' && (
             <p className="bd-modal-hint">
               小程序名如果和已有记录重名，会直接覆盖那条记录、更新它的余额，不会新建一条重复的。
+            </p>
+          )}
+          {mode === 'add' && duplicateItem && (
+            <p className="bd-modal-hint bd-modal-hint-danger">
+              已有同名记录「{duplicateItem.name}」：已预填它的当前余额和图标，提交将以表单内容覆盖该记录。
             </p>
           )}
         </div>

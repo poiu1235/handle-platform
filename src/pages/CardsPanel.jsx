@@ -18,7 +18,7 @@ import {
 } from '../lib/cardsDomain'
 import { BILLING_CYCLES, BILLING_REMINDER_DAYS, EXPIRY_REMINDER_DAYS } from '../../shared/cardsConfig.js'
 import { cardStyle } from '../lib/iconColor'
-import { suggestIconKey } from '../lib/iconMatch'
+import { NO_ICON_KEY, suggestIconKey } from '../lib/iconMatch'
 import { useIconManifest } from '../lib/useIconManifest'
 import DaysRing from '../components/DaysRing'
 import CardMark from '../components/CardMark'
@@ -32,6 +32,7 @@ import foldUpIcon from '../assets/icons/fold-up.svg'
 import iconDelete from '../assets/icons/delete.svg'
 import iconMinus from '../assets/icons/minus.svg'
 import iconClear from '../assets/icons/clear.svg'
+import editorIcon from '../assets/icons/editor.svg'
 import './board.css'
 
 // ============================================================
@@ -830,7 +831,7 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
   function submitEnable() {
     const rText = enableRemaining.trim()
     if (!/^\d+$/.test(rText) || Number(rText) <= 0) {
-      onNotice('开启次数能力时剩余次数必填且需大于 0', 'error')
+      onNotice('开启次数时剩余次数必填且需大于 0', 'error')
       return
     }
     onPatch({ remaining_sessions: Number(rText) }, { after: () => setEnabling(false) })
@@ -930,7 +931,7 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
       if (refreshModeDraft === 'fixed') {
         const cText = refreshCountDraft.trim()
         if (!/^\d+$/.test(cText) || Number(cText) <= 0) {
-          onNotice('每周期刷新次数需为大于 0 的整数（或选「无限」）', 'error')
+          onNotice('配额次数需为大于 0 的整数（或选「无限」）', 'error')
           return
         }
         if (Number(cText) !== row.total_sessions) patch.total_sessions = Number(cText)
@@ -1034,10 +1035,10 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
               <span className="cd-block-sub">
                 {view.hasSessions
                   ? `剩 ${row.remaining_sessions}${row.total_sessions != null ? ` / 共 ${row.total_sessions}` : ''} 次`
-                  : '未开启次数能力'}
+                  : '未开启次数'}
               </span>
             </span>
-            <Toggle checked={view.hasSessions} onChange={handleSessionsToggle} label="次数能力开关" />
+            <Toggle checked={view.hasSessions} onChange={handleSessionsToggle} label="次数开关" />
           </div>
           {enabling ? (
             <div className="cd-block-body">
@@ -1091,11 +1092,13 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
               {renewEnabling ? (
                 <>
                   自动续费
+                  <img className="cd-block-head-icon" src={moneyIcon} alt="" aria-hidden="true" />
                   <span className="cd-block-sub">先选周期再选扣款日；保存后开启，有效期将与扣款日一致</span>
                 </>
               ) : row.auto_renew ? (
                 <>
                   自动续费
+                  <img className="cd-block-head-icon" src={moneyIcon} alt="" aria-hidden="true" />
                   <span className="cd-block-sub">
                     {row.period_days != null
                       ? `每 ${row.period_days} 天`
@@ -1105,7 +1108,7 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
                     {row.next_billing_date ? ` · 下次 ${shortDate(row.next_billing_date)} 扣款` : ''}
                     {view.hasSessions &&
                       (row.total_sessions != null
-                        ? ` · 每周期刷新 ${row.total_sessions} 次`
+                        ? ` · 配额 ${row.total_sessions} 次`
                         : ' · 次数不自动重置')}
                   </span>
                 </>
@@ -1166,7 +1169,7 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
                 const upper = billingMaxForCycle(today, cycleDraft, days)
                 return (
                   <label className="cd-field-inline">
-                    下次扣款日
+                    扣款日
                     <input
                       type="date"
                       className="cd-date-input"
@@ -1181,7 +1184,7 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
               {view.hasSessions && (
                 <div className="cd-block-row">
                   <label className="cd-field-inline">
-                    周期刷新次数
+                    配额次数
                     <select
                       className="cd-select"
                       value={refreshModeDraft}
@@ -1196,7 +1199,7 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
                   </label>
                   {refreshModeDraft === 'fixed' && (
                     <label className="cd-field-inline">
-                      每周期刷新
+                      配额
                       <input
                         className="cd-num-input"
                         inputMode="numeric"
@@ -1204,6 +1207,7 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
                         value={refreshCountDraft}
                         onChange={(e) => setRefreshCountDraft(e.target.value)}
                       />
+                      <span className="cd-field-unit">次</span>
                     </label>
                   )}
                 </div>
@@ -1235,14 +1239,26 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
               onClick={() => setSilenceOpen((o) => !o)}
             >
               {view.muted ? (row.muted === 'forever' ? '静默中' : '本周期静默中') : '静默'}
+              {/* 当前状态图标，与下方菜单三态同一套素材（2026-09-06 用户裁定） */}
+              <MuteStateIcon muted={view.muted ? row.muted : 'none'} />
             </button>
             {silenceOpen && (
               <span className="cd-silence-menu">
-                <button type="button" onClick={() => setMuted('none')}>不静默</button>
+                {/* 图标与列表旗标同一套素材，随状态对应（2026-09-06 用户裁定加图标） */}
+                <button type="button" onClick={() => setMuted('none')}>
+                  不静默
+                  <MuteStateIcon muted="none" />
+                </button>
                 {row.auto_renew && (
-                  <button type="button" onClick={() => setMuted('cycle')}>本周期静默</button>
+                  <button type="button" onClick={() => setMuted('cycle')}>
+                    本周期静默
+                    <MuteStateIcon muted="cycle" />
+                  </button>
                 )}
-                <button type="button" onClick={() => setMuted('forever')}>静默</button>
+                <button type="button" onClick={() => setMuted('forever')}>
+                  静默
+                  <MuteStateIcon muted="forever" />
+                </button>
               </span>
             )}
           </span>
@@ -1252,14 +1268,16 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
               type="button"
               className="cd-mini-btn cd-btn-dim"
               onClick={() =>
-                onNotice('自动续费卡不可直接修改终止日期：请先关闭自动续费（续费区块开关），再来编辑')
+                onNotice('自动续费卡不可修改：请先关闭自动续费（续费区块开关），再来编辑')
               }
             >
               修改
+              <img className="cd-btn-icon" src={editorIcon} alt="" aria-hidden="true" />
             </button>
           ) : (
             <button type="button" className="cd-mini-btn" onClick={onEdit}>
               修改
+              <img className="cd-btn-icon" src={editorIcon} alt="" aria-hidden="true" />
             </button>
           )}
         </div>
@@ -1419,7 +1437,7 @@ function CardAddModal({ today, onClose, onCreated }) {
   // 周期刷新次数（与详情同则）：只在 续费开 + 次数能力开 + 固定次数 模式下校验
   if (renewOn && sessionsOn && refreshMode === 'fixed') {
     if (!/^\d+$/.test(total.trim()) || Number(total) <= 0) {
-      errors.total = '每周期刷新次数需为大于 0 的整数'
+      errors.total = '配额次数需为大于 0 的整数'
     }
   }
   const ddlExpired = endDate !== '' && endDate < today
@@ -1516,10 +1534,11 @@ function CardAddModal({ today, onClose, onCreated }) {
         else payload.billing_cycle = formCycle
       }
     }
-    // 图标（v3.2）：只在用户手动指定过时携带——merge-duplicates 语义下"未携带 =
-    // 保留现值"，自动匹配是展示层推导不落库，未携带才能不覆盖库内既有选择。
-    // manual 只在手动 pick 后为 true（iconKey 必非空）；「恢复自动」= manual false
-    // → 不携带，库内 null → 展示层回到按名称自动匹配
+    // 图标（v3.2）：只在用户手动接管过选择时携带——merge-duplicates 语义下
+    // "未携带 = 保留现值"，自动匹配是展示层推导不落库，未携带才能不覆盖库内
+    // 既有选择。manual 在 pick 后为 true（key 非空，携带具体 key）；「移除」
+    // 后未选（key null）也携带 icon_key = null = 清除库内 key 回到自动匹配；
+    // 「恢复自动」= manual false → 不携带，库内 null → 展示层回到按名称自动匹配
     if (icon.manual) payload.icon_key = icon.iconKey
     return payload
   }
@@ -1548,9 +1567,7 @@ function CardAddModal({ today, onClose, onCreated }) {
       <div className="bd-modal-card" onClick={(e) => e.stopPropagation()}>
         <div className="bd-modal-head">
           <h2 className="bd-modal-title">添加一张卡</h2>
-          <p className="bd-modal-hint">
-            一种卡 + 两个可选能力（次数 / 自动续费）。与已有卡「卡名」相同将直接覆盖那条记录的最新状态。
-          </p>
+          <p className="bd-modal-hint">与已有卡「卡名」相同将直接覆盖那条记录的最新状态。</p>
           {duplicate && (
             <p className="bd-modal-hint bd-modal-hint-danger">
               已有同名卡「{duplicate.name}」：已预填它的当前状态，提交将以表单内容覆盖该记录（静默设置保留不变）。
@@ -1563,7 +1580,7 @@ function CardAddModal({ today, onClose, onCreated }) {
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="如：Tony-理发季卡（商户名-卡名）"
+            placeholder="如：腾讯视频（商户名[-卡种（可选）]）"
             autoFocus
           />
         </div>
@@ -1571,11 +1588,12 @@ function CardAddModal({ today, onClose, onCreated }) {
         <div className="bd-field">
           <label>图标</label>
           <IconPickerField
-            value={icon.iconKey}
+            value={icon.iconKey === NO_ICON_KEY ? null : icon.iconKey}
+            noneOption
             showAutoTag={!icon.manual}
-            clearLabel={icon.manual ? '恢复自动' : null}
-            onPick={icon.pick}
-            onClear={icon.restoreAuto}
+            clearLabel={icon.manual ? (icon.iconKey ? '恢复自动' : null) : '移除'}
+            onPick={(key) => icon.pick(key ?? NO_ICON_KEY)}
+            onClear={icon.manual ? icon.restoreAuto : icon.clear}
           />
         </div>
 
@@ -1591,7 +1609,7 @@ function CardAddModal({ today, onClose, onCreated }) {
             />
           </div>
           <div className="bd-field">
-            <label>{renewOn ? '终止日期（= 下次扣款日）' : '终止日期（不填 = 最长 2 年）'}</label>
+            <label>{renewOn ? '终止日期（= 扣款日）' : '终止日期（不填 = 最长 2 年）'}</label>
             <input
               type="date"
               value={renewOn ? billingDate : endDate}
@@ -1610,10 +1628,10 @@ function CardAddModal({ today, onClose, onCreated }) {
         <div className="cd-form-block">
           <div className="cd-form-block-head">
             <span>
-              次数能力
-              <span className="cd-block-sub">记剩余次数；每周期刷新在自动续费区块配置</span>
+              次数
+              <span className="cd-block-sub">记剩余次数；配额次数在自动续费区块配置</span>
             </span>
-            <Toggle checked={sessionsOn} onChange={setSessionsOn} label="次数能力" />
+            <Toggle checked={sessionsOn} onChange={setSessionsOn} label="次数" />
           </div>
           {sessionsOn && (
             <div className="cd-form-block-body">
@@ -1637,6 +1655,7 @@ function CardAddModal({ today, onClose, onCreated }) {
           <div className="cd-form-block-head">
             <span>
               自动续费
+              <img className="cd-block-head-icon" src={moneyIcon} alt="" aria-hidden="true" />
               <span className="cd-block-sub">开启后扣款日到达即自动顺延</span>
             </span>
             <Toggle checked={renewOn} disabled={ddlExpired && !renewOn} onChange={toggleRenew} label="自动续费" />
@@ -1686,7 +1705,7 @@ function CardAddModal({ today, onClose, onCreated }) {
                 const upper = billingMaxForCycle(today, cycle, Number(days))
                 return (
                   <label className="cd-field-inline">
-                    下次扣款日
+                    扣款日
                     <input
                       type="date"
                       className="cd-date-input"
@@ -1702,7 +1721,7 @@ function CardAddModal({ today, onClose, onCreated }) {
               {sessionsOn && (
                 <div className="cd-block-row">
                   <label className="cd-field-inline">
-                    周期刷新次数
+                    配额次数
                     <select
                       className="cd-select"
                       value={refreshMode}
@@ -1717,7 +1736,7 @@ function CardAddModal({ today, onClose, onCreated }) {
                   </label>
                   {refreshMode === 'fixed' && (
                     <label className="cd-field-inline">
-                      每周期刷新
+                      配额
                       <input
                         className="cd-num-input"
                         inputMode="numeric"
@@ -1725,6 +1744,7 @@ function CardAddModal({ today, onClose, onCreated }) {
                         value={total}
                         onChange={(e) => setTotal(e.target.value)}
                       />
+                      <span className="cd-field-unit">次</span>
                     </label>
                   )}
                 </div>
@@ -1859,11 +1879,12 @@ function CardEditModal({ row, rows, today, onClose, onSaved }) {
         <div className="bd-field">
           <label>图标</label>
           <IconPickerField
-            value={icon.iconKey}
+            value={icon.iconKey === NO_ICON_KEY ? null : icon.iconKey}
+            noneOption
             showAutoTag={!icon.manual}
-            clearLabel={icon.manual ? '恢复自动' : null}
-            onPick={icon.pick}
-            onClear={icon.restoreAuto}
+            clearLabel={icon.manual ? (icon.iconKey ? '恢复自动' : null) : '移除'}
+            onPick={(key) => icon.pick(key ?? NO_ICON_KEY)}
+            onClear={icon.manual ? icon.restoreAuto : icon.clear}
           />
         </div>
         <div className="bd-field">
@@ -1999,12 +2020,16 @@ export default function CardsPanel({ active, onActivate }) {
 
   const views = useMemo(() => rows.map((r) => deriveCardView(r, today)), [rows, today])
   // 每行卡片的展示 icon（v3.2）：库内 icon_key 优先（手动指定），null 按卡名自动
-  // 匹配——历史行/导入行不回填，靠展示层推导保证每张卡都有图标（cards.sql v3.2）
+  // 匹配，NO_ICON_KEY（用户明确选"无"）→ null → 渲染名称行前的小菱形；
+  // 历史行/导入行不回填，靠展示层推导保证每张卡都有图标（cards.sql v3.2）
   const iconManifest = useIconManifest()
   const iconKeyById = useMemo(
     () =>
       Object.fromEntries(
-        rows.map((r) => [r.id, r.icon_key || suggestIconKey(r.name, iconManifest)])
+        rows.map((r) => [
+          r.id,
+          r.icon_key === NO_ICON_KEY ? null : r.icon_key || suggestIconKey(r.name, iconManifest),
+        ])
       ),
     [rows, iconManifest]
   )
@@ -2262,7 +2287,13 @@ export default function CardsPanel({ active, onActivate }) {
               <div className="bd-notice">部分数据可能未及时刷新，请稍后重新打开</div>
             )}
             {noticeText && (
-              <div className={`bd-notice ${noticeKind === 'error' ? 'bd-notice-error' : ''}`}>{noticeText}</div>
+              /* 瞬时提示用悬浮 toast：吸附在列表滚动可视区顶部（bd-notice-toast），
+                 拉到列表底部也可见，useAutoDismiss 到时消失 */
+              <div
+                className={`bd-notice bd-notice-toast ${noticeKind === 'error' ? 'bd-notice-error' : ''}`}
+              >
+                {noticeText}
+              </div>
             )}
 
             {status === 'pending' && rows.length === 0 && (

@@ -407,6 +407,17 @@
   margin: 4px 0 12px;
 }
 
+/* 瞬时提示的悬浮 toast（2026-09-06 用户裁定）：吸附在 .bd-list 滚动可视区的
+   顶部——列表拉到最底提示仍在，到时（useAutoDismiss）自动消失。压过卡片行
+   （展开行 z 1000），低于进站弹窗（1030） */
+.bd-notice-toast {
+  position: sticky;
+  top: 0;
+  z-index: 1015;
+  margin: 0 0 12px;
+  box-shadow: 0 8px 22px rgba(1, 15, 28, 0.18);
+}
+
 .bd-notice a {
   color: inherit;
   font-weight: 700;
@@ -2089,7 +2100,8 @@
   gap: 6px;
   margin-top: 9px;
   font-size: 12px;
-  color: var(--au-text);
+  /* 有效期日期/剩 N 天随名称行对比度变量（2026-09-06 用户裁定：同标题 白/黑） */
+  color: var(--bd-card-name-color, var(--au-text));
   opacity: 0.72;
   font-variant-numeric: tabular-nums;
 }
@@ -2118,6 +2130,20 @@
   font-weight: 400;
   color: var(--au-text-2);
   font-variant-numeric: tabular-nums;
+}
+
+/* 区块标题旁的小图标（自动续费标题 + money.svg，2026-09-06 用户裁定） */
+.cd-block-head-icon {
+  width: 13px;
+  height: 13px;
+  margin-left: 4px;
+  vertical-align: -2px;
+}
+
+/* 迷你按钮内的状态图标（静默按钮 + 静默三态素材） */
+.cd-mini-btn .cd-flag-img {
+  width: 12px;
+  height: 12px;
 }
 
 .cd-block-body {
@@ -2229,6 +2255,10 @@
 }
 
 .cd-mini-btn {
+  /* inline-flex：带图标的按钮（修改 + editor.svg）文字/图标对齐，纯文字按钮观感不变 */
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 8px 14px;
   border: 1px solid rgba(26, 26, 26, 0.25);
   border-radius: 999px;
@@ -2238,6 +2268,12 @@
   font-weight: 700;
   cursor: pointer;
   transition: background 0.15s ease, opacity 0.15s ease, color 0.15s ease;
+}
+
+.cd-btn-icon {
+  display: block;
+  width: 12px;
+  height: 12px;
 }
 
 .cd-mini-btn:hover:not(:disabled) {
@@ -2281,6 +2317,11 @@
 }
 
 .cd-silence-menu button {
+  /* 文字左、状态图标右（2026-09-06 用户裁定加图标） */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 10px 14px;
   border: none;
   background: none;
@@ -2292,6 +2333,12 @@
 
 .cd-silence-menu button:hover {
   background: var(--au-bg);
+}
+
+.cd-silence-menu .cd-flag-img {
+  width: 14px;
+  height: 14px;
+  opacity: 0.75;
 }
 
 /* 静默中的卡：正常色 + 静音标识（静默不是终结态，不用灰，5.4） */

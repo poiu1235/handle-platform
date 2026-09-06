@@ -15,9 +15,11 @@
   <div class="wrap" id="root"></div>
 </div>
 <script type="module">
-import { createElement as h } from 'react'
+import { createElement as h, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import DaysRing from '/src/components/DaysRing.jsx'
+import { IconPickerField, useCardIconState } from '/src/components/IconPicker.jsx'
+import { NO_ICON_KEY } from '/src/lib/iconMatch.js'
 
 // 与 CardsPanel RING_TONES 同步
 const TONES = {
@@ -74,6 +76,101 @@ function card({ name, bg, nameColor, flagFilter, slots, semi, ringProps }) {
   )
 }
 
+function toggle(on) {
+  return h('label', { className: 'bd-toggle cd-switch' },
+    h('input', { type: 'checkbox', className: 'bd-toggle-input', checked: on, readOnly: true }),
+    h('span', { className: 'bd-toggle-track' }))
+}
+
+function detailCard({ name, bg, nameColor, flagFilter, menuTone }) {
+  const field = (labelText, control, unit) =>
+    h('label', { className: 'cd-field-inline' },
+      labelText, control, unit && h('span', { className: 'cd-field-unit' }, unit))
+  return h('div', { className: 'bd-row bd-row-expanded cd-semi-row', style: { marginTop: '14px' } },
+    h('div', { className: 'bd-card bd-card-expanded',
+      style: { backgroundImage: `linear-gradient(90deg, ${bg}, #ffffff)`, '--bd-card-name-color': nameColor, '--cd-flag-filter': flagFilter } },
+      h('div', { className: 'cd-detail' },
+        h('div', { className: 'cd-detail-head' },
+          h('div', { className: 'bd-card-title-row' },
+            h('span', { className: 'bd-card-icon-box', style: { width: '22px', height: '22px' } },
+              h('img', { className: 'bd-card-icon', src: '/small_icon/AcFun.png', style: { width: '22px', height: '22px' } })),
+            h('p', { className: 'bd-card-name', style: { fontSize: '18px' } }, name),
+          ),
+          h('button', { type: 'button', className: 'cd-fold-btn' },
+            h('img', { className: 'cd-expand-icon', src: '/src/assets/icons/fold-up.svg', alt: '' })),
+        ),
+        h('div', { className: 'cd-meta' }, '有效期 2026.03.02 − 2026.09.10 · 剩 4 天'),
+        h('div', { className: 'cd-block' },
+          h('div', { className: 'cd-block-head' },
+            h('span', null, '次数', h('span', { className: 'cd-block-sub' }, '剩 2 / 共 10 次')),
+            toggle(true)),
+          h('div', { className: 'cd-block-body' },
+            field('剩余', h('input', { className: 'cd-num-input', value: '2', readOnly: true })))),
+        h('div', { className: 'cd-block' },
+          h('div', { className: 'cd-block-head' },
+            h('span', null, '自动续费',
+              h('img', { className: 'cd-block-head-icon', src: '/src/assets/icons/money.svg', alt: '' }),
+              h('span', { className: 'cd-block-sub' }, '每月 · 下次 09.10 扣款 · 配额 8 次')),
+            toggle(true)),
+          h('div', { className: 'cd-block-body' },
+            field('周期', h('select', { className: 'cd-select' }, h('option', null, '每月'))),
+            field('扣款日', h('input', { type: 'date', className: 'cd-date-input', value: '2026-09-10', readOnly: true })),
+            h('div', { className: 'cd-block-row' },
+              field('配额次数', h('select', { className: 'cd-select' }, h('option', null, '固定次数'))),
+              field('配额', h('input', { className: 'cd-num-input', value: '8', readOnly: true }), '次')))),
+        h('div', { className: 'cd-actions-row' },
+          h('span', { className: 'cd-silence-wrap' },
+            h('button', { type: 'button', className: 'cd-mini-btn' }, '静默',
+              h('img', { className: 'cd-flag-img', src: '/src/assets/icons/remind.svg', alt: '' })),
+            h('span', { className: 'cd-silence-menu' },
+              h('button', { type: 'button' }, '不静默',
+                h('img', { className: 'cd-flag-img', src: '/src/assets/icons/remind.svg', alt: '' })),
+              h('button', { type: 'button' }, '本周期静默',
+                h('img', { className: 'cd-flag-img', src: '/src/assets/icons/remind-disable.svg', alt: '' })),
+              h('button', { type: 'button' }, '静默',
+                h('img', { className: 'cd-flag-img', src: '/src/assets/icons/close-remind.svg', alt: '' })),
+            ),
+          ),
+          h('button', { type: 'button', className: 'cd-mini-btn' }, '修改',
+            h('img', { className: 'cd-btn-icon', src: '/src/assets/icons/editor.svg', alt: '' })),
+        ),
+      ),
+    ),
+  )
+}
+
+// 与建卡弹窗一致的图标字段交互复刻：自动匹配 → 移除 → 自由选择（含「无」）→ 恢复自动
+function IconFieldDemo() {
+  const [name, setName] = useState('山姆')
+  const icon = useCardIconState({ name, initialKey: null, resetToken: null })
+  return h('div', null,
+    h('div', { className: 'bd-field' },
+      h('label', null, '卡名'),
+      h('input', { value: name, onChange: (e) => setName(e.target.value), placeholder: '如：山姆' })),
+    h('div', { className: 'bd-field' },
+      h('label', null, '图标'),
+      h(IconPickerField, {
+        value: icon.iconKey === NO_ICON_KEY ? null : icon.iconKey,
+        noneOption: true,
+        showAutoTag: !icon.manual,
+        clearLabel: icon.manual ? (icon.iconKey ? '恢复自动' : null) : '移除',
+        onPick: (key) => icon.pick(key ?? NO_ICON_KEY),
+        onClear: icon.manual ? icon.restoreAuto : icon.clear,
+      })),
+    h('p', { style: { fontSize: '12px', color: '#646464' } },
+      `当前状态：manual=${icon.manual}，iconKey=${icon.iconKey ?? 'null（自动匹配）'}`),
+  )
+}
+
+// 悬浮 toast 复刻：.bd-list 是滚动容器，提示 sticky 吸附其可视区顶部
+function ToastDemo() {
+  const rows = Array.from({ length: 12 }, (_, i) => i)
+  return h('div', { className: 'bd-list bd-entered', id: 'toast-list', style: { height: '360px', border: '1px solid #e0e0e5', borderRadius: '16px', background: '#fafbfc' } },
+    h('div', { className: 'bd-notice bd-notice-toast' }, '已解除静默（悬浮 toast：滚动列表应始终吸在顶部）'),
+    rows.map((i) => h('div', { key: i, style: { height: '56px', margin: '10px 4px', borderRadius: '16px', background: '#ffffff', boxShadow: '0 2px 6px rgba(1,15,28,0.08)', display: 'flex', alignItems: 'center', paddingLeft: '16px', fontFamily: 'var(--bd-font)' } }, `卡片行 ${i + 1}`)),
+  )
+}
+
 function Demo() {
   return h('div', null,
     h('h3', null, '扣款提醒窗口 → 红环 30px（剩 4/30）+ 次数胶囊'),
@@ -100,6 +197,14 @@ function Demo() {
     h('h3', null, '半展开态：用完灰环 + 「已用完」胶囊'),
     card({ name: '游泳十次卡', bg: '#b6dbeb', nameColor: 'var(--au-text)', flagFilter: 'none', semi: true,
       ringProps: { days: 20, period: 45, count: '已用完', tone: 'usedup', usedUp: true, label: '天剩余' } }),
+    h('h3', null, '完全展开态 · 暗色卡（meta 日期/剩 N 天应为白，静默菜单与修改带图标）'),
+    detailCard({ name: '皓齿刷牙', bg: '#04263f', nameColor: '#ffffff', flagFilter: 'brightness(0) invert(1)' }),
+    h('h3', null, '完全展开态 · 亮色卡（meta 日期/剩 N 天应为黑）'),
+    detailCard({ name: '清晨瑜伽季卡', bg: '#e3f3fc', nameColor: 'var(--au-text)', flagFilter: 'none' }),
+    h('h3', null, '悬浮 toast：滚动下面的列表框，提示应吸附在列表框顶部'),
+    h(ToastDemo),
+    h('h3', null, '建卡图标字段：自动匹配 → 「移除」打开网格自由选择 → 「恢复自动」'),
+    h(IconFieldDemo),
   )
 }
 createRoot(document.getElementById('root')).render(h(Demo))
