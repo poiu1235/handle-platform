@@ -2199,11 +2199,15 @@ export default function CardsPanel({ active, onActivate }) {
       )}
 
       {active && viewMode === 'calendar' ? (
-        <CardsCalendar
-          views={sorted}
-          today={today}
-          selectedIds={calSelectedIds}
-          iconKeyById={iconKeyById}
+        /* 日历模式也要有自己的滚动容器（2026-09-06 修复移动端截断）：此前日历
+           直接挂在 .bd-board（100dvh + overflow:hidden）下，5 条日程撑高网格后
+           底部整块被裁掉；复用 .bd-list 的滚动/内边距（FAB 让位 120px） */
+        <div className="bd-list">
+          <CardsCalendar
+            views={sorted}
+            today={today}
+            selectedIds={calSelectedIds}
+            iconKeyById={iconKeyById}
           onToggleCard={(id) =>
             setCalSelected((prev) => {
               const base = new Set(prev ?? calDefaultSelected())
@@ -2220,6 +2224,7 @@ export default function CardsPanel({ active, onActivate }) {
           onOpenCard={(v) => setCalDetailId(v.row.id)}
           modeSeg={modeSeg}
         />
+      </div>
       ) : (
         <></>
       )}

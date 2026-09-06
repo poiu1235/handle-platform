@@ -325,12 +325,10 @@ export default function CardsCalendar({
         </div>
       </div>
 
+      {/* 未勾选任何卡也照常渲染格子（2026-09-06 用户裁定：不展示一片空白，
+          空网格 = 只有日期格没有日程条），勾选后日程条随选随显 */}
       {views.length === 0 ? (
-        <div className="bd-notice">还没有卡数据。点右下角「+」增加一条，或去批量增加页提交一批。</div>
-      ) : shownEvents.length === 0 ? (
-        <div className="bd-notice">
-          日历为空：在右上方「卡片筛选」中勾选要展示的卡（最多 {MAX_SELECTED} 张）。
-        </div>
+        <div className="bd-notice">还没有卡数据。点「+」增加一条，或去批量增加页提交一批。</div>
       ) : (
         <div className="cd-cal-grid">
           <div className="cd-cal-weekdays">
