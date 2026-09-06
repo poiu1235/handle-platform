@@ -21,6 +21,7 @@ import { useId } from 'react'
 //   from/to 进度弧渐变两端色（默认设计稿的浅橙→深橙）；track 轨道色
 //   glow    是否开启进度弧的暖色光晕（默认 true）
 //   glowColor 光晕颜色（随 to 色调配套传，默认橙色系）
+//   valueColor 中心数字颜色（默认墨色；次数用完/已过期等灰态传深灰）
 //
 // 用法：
 //   <DaysRing value={3} max={30} />
@@ -36,6 +37,7 @@ export default function DaysRing({
   track = '#FBEEDF',
   glow = true,
   glowColor = 'rgba(238, 123, 63, 0.35)',
+  valueColor = 'var(--au-text, #1a1a1a)',
   className = '',
 }) {
   const gid = useId()
@@ -102,7 +104,7 @@ export default function DaysRing({
             fontSize: numSize,
             fontWeight: 700,
             lineHeight: 1,
-            color: 'var(--au-text, #1a1a1a)',
+            color: valueColor,
             fontVariantNumeric: 'tabular-nums',
           }}
         >

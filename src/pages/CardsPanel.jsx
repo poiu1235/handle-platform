@@ -54,11 +54,13 @@ const CYCLE_LABEL = Object.fromEntries(BILLING_CYCLES.map((c) => [c.key, c.label
 
 // 圆环色调（2026-09-06 用户裁定，按提醒窗口判定、与静默解耦——静默只是不弹
 // 提醒，显示照常）：不在任何提醒窗口 → 绿；到期提醒窗口（DDL−15）内 → 橙；
-// 扣款提醒窗口（扣款日−7）内 → 红
+// 扣款提醒窗口（扣款日−7）内 → 红。特例灰态：次数用完（未到期）与已过期——
+// 环照常有数字，弧与数字换灰（深灰标识剩余），胶囊同步"已用完"
 const RING_TONES = {
   normal: { from: '#8AD8A2', to: '#27AE60', track: '#E2F4E9' },
   expiry: { from: '#F8B57C', to: '#EE7B3F', track: '#FBEEDF' },
   billing: { from: '#F89A9A', to: '#E23C3C', track: '#FBE3E3' },
+  usedup: { from: '#C4CBD3', to: '#6E7780', track: '#ECEFF2', valueColor: '#565d64' },
 }
 
 // 卡片背景：icon 主色 → 白色渐变 + 名称行对比度变量（对齐余额 cardStyle 体系）。
@@ -515,8 +517,17 @@ function CardRow({
   // 小尺寸下光晕会被滤镜矩形区域裁切成"方块底"（2026-09-06 用户反馈），一律关闭
   const billingWindow = view.daysToBilling !== null && view.daysToBilling <= BILLING_REMINDER_DAYS
   const expiryWindow = view.daysToDdl <= EXPIRY_REMINDER_DAYS
-  const ringTone = billingWindow ? 'billing' : expiryWindow ? 'expiry' : 'normal'
-  const renderRing = (size, stroke, label) =>
+  // 灰态优先（用户裁定的特例）：次数用完（未到期）或已过期，环照常、灰色展示
+  const ringTone =
+    view.status === 'expired' || view.usedUp
+      ? 'usedup'
+      : billingWindow
+        ? 'billing'
+        : expiryWindow
+          ? 'expiry'
+          : 'normal'
+  // animClass：挂载缩放动效（折叠→半展开长到 1，半展开→折叠缩回 1，见 board.css）
+  const renderRing = (size, stroke, label, animClass) =>
     sideInfo.days != null ? (
       <DaysRing
         value={sideInfo.days}
@@ -528,6 +539,8 @@ function CardRow({
         from={RING_TONES[ringTone].from}
         to={RING_TONES[ringTone].to}
         track={RING_TONES[ringTone].track}
+        valueColor={RING_TONES[ringTone].valueColor}
+        className={animClass}
       />
     ) : null
   const stackZIndex = expanded ? 1000 : (stackTotal ?? 0) - (stackIndex ?? 0)
@@ -659,26 +672,27 @@ function CardRow({
           <div className="cd-semi-side">
             {/* 展开/圆环融合（2026-09-06 裁定）：展开按钮缩成徽标贴在环右下角，
                 点击整环即展开；剩余次数/标签移到环下方 */}
-            <button
-              type="button"
-              className="cd-ring-expand"
-              aria-label="展开修改"
-              title="展开修改"
-              onClick={(e) => {
-                e.stopPropagation()
-                onFullyExpand(row.id)
-              }}
-            >
-            {/* 半展开环放大到 80（2026-09-06 裁定）：露出文字标签——扣款窗口内
-                "天后扣款"，其余"剩余天数" */}
-            {renderRing(80, 7, billingWindow ? '天后扣款' : '剩余天数') ?? (
-              <span className="cd-side-main">{sideInfo.main}</span>
-            )}
-            <span className="cd-ring-expand-badge" aria-hidden="true">
-                <img className="cd-ring-expand-icon" src={expandDownIcon} alt="" />
-              </span>
-            </button>
-            {sideInfo.count && <span className="cd-side-count">{sideInfo.count}</span>}
+            {/* 展开/圆环（2026-09-06 裁定修订）：圆环只是展示，只有右下角的
+                徽标按钮（与原折叠展开按钮同尺寸 28px）才进全量详情；
+                环挂载播长大学到 1（折叠 35 → 半展开 70） */}
+            <div className="cd-ring-wrap">
+              {renderRing(65, 6.5, billingWindow ? '天后扣款' : '天剩余', 'cd-ring-grow') ?? (
+                <span className="cd-side-main">{sideInfo.main}</span>
+              )}
+              <button
+                type="button"
+                className="cd-ring-expand"
+                aria-label="展开修改"
+                title="展开修改"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onFullyExpand(row.id)
+                }}
+              >
+                <img className="cd-ring-expand-icon" src={expandDownIcon} alt="" aria-hidden="true" />
+              </button>
+            </div>
+            {sideInfo.count && <span className={`cd-side-count${view.usedUp ? ' cd-side-count-done' : ''}`}>{sideInfo.count}</span>}
             {sideInfo.tags.length > 0 && (
               <span className="cd-side-tags">
                 {sideInfo.tags.map((t) => (
@@ -695,8 +709,10 @@ function CardRow({
         {!expanded && (
           <div className="cd-side-slots">
             <div className="cd-side-row">
-              {sideInfo.count && <span className="cd-side-count">{sideInfo.count}</span>}
-              {renderRing(40, 5, '') ?? <span className="cd-side-main">{sideInfo.main}</span>}
+              {sideInfo.count && <span className={`cd-side-count${view.usedUp ? ' cd-side-count-done' : ''}`}>{sideInfo.count}</span>}
+              {renderRing(30, 3.5, '', 'cd-ring-shrink') ?? (
+                <span className="cd-side-main">{sideInfo.main}</span>
+              )}
             </div>
             {sideInfo.tags.length > 0 && (
               <span className="cd-side-tags">

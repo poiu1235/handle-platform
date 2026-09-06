@@ -217,14 +217,17 @@ function billingCountdown(days) {
 
 export function collapsedInfo(view) {
   const tags = []
-  if (view.status === 'expired') return { main: '已过期', days: null, count: null, tags }
+  // 已过期也出圆环（2026-09-06 用户裁定）：数字为 0，灰态展示（tone 由调用方按
+  // status 定），main 文案保留作无环回退
+  if (view.status === 'expired') return { main: '已过期', days: 0, count: null, tags }
   const count = view.hasSessions ? `剩 ${view.row.remaining_sessions} 次` : null
-  // "已用完"独占主信息仅限未开续费的沉底卡（2026-09-02 裁定：用完 + 续费中
-  // 不沉底、不失效——下个周期结算会重置次数，照常显示天数/扣款倒计时）
+  // 次数用完（2026-09-06 用户裁定）：两种形态都用胶囊提醒——未开续费的沉底卡
+  // 主信息即"已用完"（days 同样出环显示剩余天数），续费中的卡把"剩 0 次"
+  // 换成"已用完"胶囊
   if (view.usedUp && !view.row.auto_renew) {
     // 命中扣款窗口 → 追加独立小标签（4-B12：沉底不等于对钱失明）
     if (view.reminders.billing) tags.push({ key: 'billing', text: billingTag(view) })
-    return { main: '已用完', days: null, count: null, tags }
+    return { main: '已用完', days: view.daysToDdl, count: '已用完', tags }
   }
   // 扣款倒计时直读 daysToBilling（2026-09-06 用户裁定：列表主信息不看静默——
   // 静默只免提醒弹窗/进站 alert，钱照扣，"X 天后扣款"恒可见）。
@@ -234,10 +237,20 @@ export function collapsedInfo(view) {
   const billingInWindow =
     view.daysToBilling !== null && view.daysToBilling <= BILLING_REMINDER_DAYS
   if (billingInWindow && (!expiring || view.daysToBilling <= view.daysToDdl)) {
-    return { main: billingCountdown(view.daysToBilling), days: view.daysToBilling, count, tags }
+    return {
+      main: billingCountdown(view.daysToBilling),
+      days: view.daysToBilling,
+      count: view.usedUp ? '已用完' : count,
+      tags,
+    }
   }
   // 到期提醒窗口与常态同文案（剩 N 天），不再单列分支
-  return { main: `剩 ${view.daysToDdl} 天`, days: view.daysToDdl, count, tags }
+  return {
+    main: `剩 ${view.daysToDdl} 天`,
+    days: view.daysToDdl,
+    count: view.usedUp ? '已用完' : count,
+    tags,
+  }
 }
 
 // ── 进站 alert 模型（3.3.4 结构化输出；会话去重在调用方用内存标志实现） ──────

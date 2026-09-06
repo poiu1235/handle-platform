@@ -1751,11 +1751,60 @@
   white-space: nowrap;
 }
 
+/* 次数胶囊（2026-09-06 用户裁定）：用进站弹窗里 .cd-tag 的样式——
+   品牌浅蓝底 + 深蓝字，无描边无投影；折叠行内贴在圆环左侧、
+   半展开态挂在圆环下方。折叠⇄半展开切换时胶囊重挂载，用同缓动的挂载
+   位移动画模拟"从原位置移过来"：半展开时从环侧（上方）落到位，
+   折叠时从环下方（原胶囊位置）移回 */
+.cd-semi-side .cd-side-count {
+  animation: cd-pill-drop 0.32s var(--bd-ease) both;
+}
+
+.cd-side-row .cd-side-count {
+  animation: cd-pill-lift 0.32s var(--bd-ease) both;
+}
+
+@keyframes cd-pill-drop {
+  from {
+    transform: translateY(-40px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes cd-pill-lift {
+  from {
+    transform: translateY(40px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cd-semi-side .cd-side-count,
+  .cd-side-row .cd-side-count {
+    animation: none;
+  }
+}
+
+/* 用完灰态胶囊：文案"已用完"配灰底灰字，与圆环灰态同语言 */
+.cd-side-count-done {
+  background: #eef1f4;
+  color: #6b727a;
+}
+
 .cd-side-count {
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--au-brand-soft);
+  color: var(--au-brand-text);
+  font-size: 11px;
   font-weight: 700;
-  color: var(--au-text);
-  opacity: 0.72;
+  line-height: 1.6;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1887,42 +1936,80 @@
   height: 16px;
 }
 
-/* 展开/圆环融合（2026-09-06 裁定）：半展开的展开入口 = 圆环本体 + 右下角小徽标，
-   提示"点圆环就是展开"；徽标延续圆形白底按钮的视觉语言、缩小贴角。
-   半展开态不再渲染独立的 .cd-expand-btn（本规则保留给 .cd-fold-btn 共用） */
-.cd-ring-expand {
+/* 展开/圆环（2026-09-06 裁定修订）：圆环只做展示；右下角 28px 徽标按钮
+   （与原 .cd-expand-btn 同尺寸同视觉）是唯一展开入口，点环不展开。
+   环挂载播缩放动效：折叠→半展开 cd-ring-grow（35/70 = 0.5 长到 1），
+   半展开→折叠 cd-ring-shrink（70/35 = 2 缩回 1），同卡片 0.32s 缓动；
+   折叠⇄半展开是不同子树、环会重挂载，过渡做不了就用同缓动的挂载动画 */
+.cd-ring-wrap {
   position: relative;
   flex: none;
-  padding: 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
 }
 
-.cd-ring-expand-badge {
+.cd-ring-grow,
+.cd-ring-shrink {
+  transform-origin: top right;
+}
+
+.cd-ring-grow {
+  animation: cd-ring-grow 0.32s var(--bd-ease) both;
+}
+
+.cd-ring-shrink {
+  animation: cd-ring-shrink 0.32s var(--bd-ease) both;
+}
+
+@keyframes cd-ring-grow {
+  from {
+    transform: scale(0.46); /* 30/65 */
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes cd-ring-shrink {
+  from {
+    transform: scale(2.17); /* 65/30 */
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cd-ring-grow,
+  .cd-ring-shrink {
+    animation: none;
+  }
+}
+
+.cd-ring-expand {
   position: absolute;
-  right: -3px;
-  bottom: -3px;
+  right: -7px;
+  bottom: -7px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 4px rgba(1, 15, 28, 0.25);
-  transition: transform 0.15s ease;
+  /* 与原 .cd-expand-btn / .cd-fold-btn 同底色（半透明白，2026-09-06 裁定回退） */
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition: background 0.15s ease;
 }
 
-.cd-ring-expand:hover .cd-ring-expand-badge {
-  transform: scale(1.12);
+.cd-ring-expand:hover {
+  background: rgba(255, 255, 255, 0.95);
 }
 
 .cd-ring-expand-icon {
   display: block;
-  width: 11px;
-  height: 11px;
+  width: 16px;
+  height: 16px;
 }
 
 /* 沉底卡的摘要行同步压灰（5.4：两种沉底必须文字可辨，不只靠颜色） */
