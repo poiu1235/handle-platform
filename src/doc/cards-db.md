@@ -1,4 +1,4 @@
-# 生活卡包 · 库表与接口设计（依据 PRD v2.4）· v3（2026-09-02：去 indefinite、name+merchant 合并）· v3.2（2026-09-05：icon_key 图标列）
+# 生活卡包 · 库表与接口设计 · v3.2（2026-09-05：icon_key 图标列）· 依据 PRD v3.2
 
 > 状态：v3（2026-09-02，产品裁定：**取消"永久卡"概念**——删除 `indefinite` 列
 > （"无限期卡"标注无消费方；DDL 留空的物化行为本身保留，仍落"今天 + 配置 B"
@@ -83,7 +83,7 @@ Supabase PostgREST / RPC（用户 token → RLS）
 | `auto_renew` | bool not null default false | 3.1 / 3.4 | **循环的唯一开关**；次数对循环零影响 |
 | `billing_cycle` | text null，CHECK 枚举 | 3.1 | `week/month/quarter/year`（日历语义——连续包月类）；**与 period_days 互斥：至多一个非空（CHECK `cards_cycle_exclusive`）** |
 | `period_days` | int null，CHECK `> 0` | 3.1 / 3.4.2 | **合同固定天数**（"30 天月卡""365 天年卡"写合同多少是多少）；非空 → 结算按固定天数推进；空 → 按 billing_cycle 日历推进；互斥同上 |
-| `next_billing_date` | date null | 3.1 | 只有开启自动续费的卡才有、才可改；与 DDL 相互独立（4-B18），顺延同推进 |
+| `next_billing_date` | date null | 3.1 | 只有开启自动续费的卡才有、才可改；**开启续费时与 DDL 恒同值**（DDL ≡ 扣款日，2026-09-02 裁定——POST/PATCH 写入侧同步、结算 RPC 成对推进、导入强制对齐三侧强制）；结算成对推进保持相对差（4-B18），异常倒挂由结算收尾对齐（4-B19） |
 | `muted` | text not null default `'none'`，CHECK 枚举 | 3.3.2 / 4-B22 | `none / cycle / forever`；`cycle` 的自动解除 = **凡 end_date 实际变化即解除**（单枚触发器承载全部渠道，第 4 节）；`forever` 只能手动解除 |
 | `icon_key` | text null | **v3.2（2026-09-05）** | 图标 = `public/small_icon/` 清单 key（不含 .png，资产体系对齐 `balances.icon_key`）。**null = 未指定 → 展示层按卡名自动匹配**（`src/lib/iconMatch.js suggestIconKey`，匹配不到回退菱形点）——与余额"null = 菱形点"的差异是有意为之：历史行/导入行不回填，靠展示层推导保证每张卡都有图标；手动指定落库 key，「恢复自动匹配」写 null。不参与唯一键与任何推导；卡背景渐变随 icon 主色（`src/lib/iconColor.js`） |
 | `created_at` / `updated_at` | timestamptz | — | `updated_at` 由 `moddatetime` 触发器维护 |
@@ -268,10 +268,15 @@ Supabase 透传错误（含 CHECK message）原样返回给前端展示。
 ### 7.1 `GET /api/cards` → 进站加载（S3/S4/S5/S7/S16）
 
 ```
-请求：无参数（全量返回；排序/筛选全部前端做，5.1）
+请求：查询参数 today（可选，客户端本地日期 YYYY-MM-DD；isISODate 严格校验，
+      非法/缺失回退服务器 UTC 日期——仅作结算"今天"口径，预留 #8；
+      该参数不进转发载荷之外的任何校验）
 转发：POST {SUPABASE_URL}/rest/v1/rpc/settle_my_cards        ← 1 次 Supabase 请求
-响应：200 [ { …卡行 snake_case… }, … ]（结算后的全量行）
-失败：502/400 透传；GET 层无自有错误（结算失败走会话级轻提示，3.3.3 / 5.8 非阻塞降级）
+      body { p_today: today }
+响应：200 [ { …卡行 snake_case… }, … ]（结算后的全量行，含 icon_key）
+失败：502 { error: '结算请求失败' }（RPC 响应非 JSON）；其余状态码原样透传。
+      GET 层无自有错误——"结算失败但已有数据"由前端走会话级轻提示的
+      非阻塞降级（3.3.3 / 5.8），无数据时置 error 态展示 message
 ```
 
 ### 7.2 `POST /api/cards` → 单条添加（S1；同名 = 覆盖，3.6.1）
@@ -294,7 +299,10 @@ Supabase 透传错误（含 CHECK message）原样返回给前端展示。
   · 校验：起始日 ∈ [今天−配置A, 今天]、DDL ∈ [起始日, 今天+配置B]（4-B2/B3）、
     扣款日 ∈ [今天, 今天+配置B]（5.7）、枚举（billing_cycle/muted）、
     次数开启必填 remaining > 0（5.5）、total 提供时 > 0、
-    auto_renew=true ⇒ 扣款日必填 + 周期二选一（4-B27，CHECK 兜底）
+    auto_renew=true ⇒ 扣款日必填 + 周期二选一（4-B27，CHECK 兜底）、
+    icon_key 空串 400「icon_key 不能为空字符串（清空请传 null）」、>64 字符 400
+    （key 是否真在清单内不校验——伪造仅自伤，展示层 onError 回退菱形点）；
+    请求另携带 today（客户端本地日期，白名单剥离，仅作窗口口径 #8）
   · B23（过期卡禁开续费）与 B21（续费卡禁手动顺延）由表单/交互层承载（置灰 +
     文案，5.5/5.7），服务端不强制——理由见第 9 节 3
 响应：201 [ { …落库后的行… } ]（PostgREST 201 Created 原样透传，前端按 2xx 处理）
@@ -340,11 +348,15 @@ Supabase 透传错误（含 CHECK message）原样返回给前端展示。
     （4-B22；PATCH 只改 next_billing_date 不解除）；同一请求显式设置 muted 优先
     于自动解除（第 4 节，评审 #1）
   · B21 / B23 由交互层置灰承载，服务端不强制（第 9 节 3）
-  · 【CF 预留，评审 #2】重开/开启闸门（4-B20）：PATCH 含 auto_renew=true ⇒ 必须
+  · 【CF 已实现，评审 #2】重开/开启闸门（4-B20）：PATCH 含 auto_renew=true ⇒ 必须
     同时携带 next_billing_date（≥ 今天且 ≤ 今天+配置B）与周期表示之一，任一缺失
     → 400「重开自动续费需重新填写扣款日与周期」。依赖"PATCH 只带要改的字段"
     契约（auto_renew 仅在开关变化时携带）；导入路径不适用（更新行缺失 → 保留
-    现值放行，手动严格 / 导入宽容）；直调绕过归入第 9 节 3 接受面
+    现值放行，手动严格 / 导入宽容）；直调绕过归入第 9 节 3 接受面。
+    2026-08-31 起已在 functions/api/cards/[id].js 落地并通过 E2E；
+    同文件另实现：改名唯一性预检（400「已有同名卡券，请换一个名字」）、
+    auto_renew=false 时服务端兜底 total_sessions=null（remaining 不动）、
+    白名单为空 → 400「没有可更新的字段」
 响应：200 [ { …更新后的行… } ]；404 = 不属于该用户或不存在（RLS 过滤后 0 行）
 ```
 
@@ -352,7 +364,7 @@ Supabase 透传错误（含 CHECK message）原样返回给前端展示。
 > 静默开关、续费开关只在状态变化时携带；顺延弹窗如带"本周期静默"勾选，仅当勾选
 > 结果与当前静默状态**不同**时才携带 muted（不回显当前态）。这条规范承重两处
 > 服务端行为：① `cards_muted_reset` 的"显式设置优先"（携带即意图，评审 #1）；
-> ② 上面【CF 预留】的重开闸门（携带 auto_renew=true 即开启动作，评审 #2）。
+> ② 上面已实现的重开闸门（携带 auto_renew=true 即开启动作，评审 #2）。
 > 违反它的两类后果——该解除的不解除（同值回显被当"未触碰"）、不该拦的被拦
 > （整表单重发 auto_renew 被当"重开"）——DB 与 CF 都兜不住：触发器无法区分
 > "未传"与"传同值"，CF 快照盲无法判等。联调用例见第 10 节 14。
@@ -631,7 +643,7 @@ classifyImport(rows, loadedCards, today) =>
 
 | # | 预留项 | 规则 | 出处 |
 | --- | --- | --- | --- |
-| 1 | **重开/开启续费闸门** | PATCH 含 `auto_renew: true` ⇒ 必须同时携带 `next_billing_date`（≥ 今天且 ≤ 今天+配置B）与 `billing_cycle`/`period_days` 之一；缺失 → 400「重开自动续费需重新填写扣款日与周期」。依赖"PATCH 只带要改的字段"契约；POST 的同则校验已在 7.2（auto_renew=true ⇒ 扣款日 + 周期） | 4-B20 / 评审 #2 |
+| 1 | **重开/开启续费闸门**（✅ 已实现，functions/api/cards/[id].js） | PATCH 含 `auto_renew: true` ⇒ 必须同时携带 `next_billing_date`（≥ 今天且 ≤ 今天+配置B）与 `billing_cycle`/`period_days` 之一；缺失 → 400「重开自动续费需重新填写扣款日与周期」。依赖"PATCH 只带要改的字段"契约；POST 的同则校验已在 7.2（auto_renew=true ⇒ 扣款日 + 周期） | 4-B20 / 评审 #2 |
 | 2 | 配置窗口与枚举校验 | 起始日/DDL/扣款日窗口（配置 A/B）、billing_cycle/muted 枚举、次数开启 remaining>0、total>0 | 2.1 / 7.2 / 7.3 |
 | 3 | 导入逐行校验 + null 值键剥离 | 7.5 清单中**行内规则**（两表示互斥、total ≤ 0、日期窗口等）在 CF 层；依赖"新增 vs 更新"与库内现值的规则——新增行 B27、只带 total 行报错、4-B27 合并态校验——由 JS 预览（classifyImport，黄金用例覆盖）+ SQL RPC 兜底承载：CF 不查库（1.2 请求预算），直调绕过前端时得到的是 RPC 整批回滚的可读报错而非 CF 行级报错（复核 2026-08-31 #4 确认为架构性折衷，非预留缺口） | 7.5 / 3.6.3 |
 | 4 | 黄金测试数据（双跑） | 批内合并 / 三分支在 JS（classifyImport）与 SQL（import_my_cards）双实现——预留 `shared/cardsImportFixtures.js`，两侧改动必须双跑通过，防"预览 A、落库 B"静默分叉 | 第 6 节 / 评审 part三-2 |

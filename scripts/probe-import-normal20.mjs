@@ -1,7 +1,8 @@
 // 会员页「批量新增」20 条正常数据 · 全管线实测探针（2026-09-06）
-// 对应数据文档：src/doc/cards-import-paste-normal-20.md
+// 对应数据文档：src/doc/cards-import-paste-normal-20.md（文本源：scripts/normal20-rows.mjs）
 // 覆盖：前端管线（parseCardsText → mergeImportRows → classifyImport → buildImportPayload）
-//       + 幂等回贴（更新分支）+ 表头别名变体 + CF 层校验兜底（functions/api/cards/import.js）。
+//       + 幂等回贴（更新分支）+ 表头别名变体 + 全分支补充断言
+//       + CF 层校验兜底（functions/api/cards/import.js）。
 // 运行：node scripts/probe-import-normal20.mjs
 // 注意：数据与运行日 2026-09-06 绑定（配置 A/B 端点行），换天运行请先调整文档中的边界行。
 
@@ -35,69 +36,7 @@ if (TODAY !== EXPECT_TODAY) {
 }
 console.log(`运行日 = ${TODAY}（配置 A 下限 ${startDateMin(TODAY)}，配置 B 上限 ${ddlMax(TODAY)}）`)
 
-// ── 20 条正常数据（文本源与 cards-import-paste-normal-20.md 一致） ─────────────
 const NORMAL20 = NORMAL20_TEXT
-」20 条正常数据 · 全管线实测探针（2026-09-06）
-// 对应数据文档：src/doc/cards-import-paste-normal-20.md
-// 覆盖：前端管线（parseCardsText → mergeImportRows → classifyImport → buildImportPayload）
-//       + 幂等回贴（更新分支）+ 表头别名变体 + CF 层校验兜底（functions/api/cards/import.js）。
-// 运行：node scripts/probe-import-normal20.mjs
-// 注意：数据与运行日 2026-09-06 绑定（配置 A/B 端点行），换天运行请先调整文档中的边界行。
-
-import {
-  addYearsClamped,
-  buildImportPayload,
-  classifyImport,
-  ddlMax,
-  mergeImportRows,
-  parseCardsText,
-  startDateMin,
-  todayISO,
-} from '../src/lib/cardsDomain.js'
-import { onRequestPost } from '../functions/api/cards/import.js'
-import { NORMAL20_TEXT } from './normal20-rows.mjs'
-
-const TODAY = todayISO()
-const EXPECT_TODAY = '2026-09-06'
-
-let failed = 0
-function check(name, cond, detail = '') {
-  if (!cond) {
-    failed++
-    console.log(`✗ ${name}${detail ? ` — ${detail}` : ''}`)
-  }
-}
-
-if (TODAY !== EXPECT_TODAY) {
-  console.log(`✗ 运行日不匹配：todayISO()=${TODAY}，本探针与数据文档按 ${EXPECT_TODAY} 设计（配置 A/B 端点行换天会失效）`)
-  process.exit(1)
-}
-console.log(`运行日 = ${TODAY}（配置 A 下限 ${startDateMin(TODAY)}，配置 B 上限 ${ddlMax(TODAY)}）`)
-
-// ── 20 条正常数据（与 cards-import-paste-normal-20.md 完全一致） ──────────────
-const NORMAL20 = [
-  '卡名,起始日,终止日期,剩余次数,每周期次数,自动续费,扣款周期,合同天数,扣款日',
-  '只有名字的默认卡',
-  '年费会员卡,2026-09-06,2027-09-05',
-  'Tab分隔月卡\t2026-09-01\t2026-09-30',
-  '单日体验卡 2026-09-06 2026-09-06',
-  '已结束历史留档卡,2026-06-01,2026-08-31',
-  '满次体验30次卡,2026-09-06,,30,30',
-  '半程7次卡,2026-08-01,,7,10',
-  '最后1次卡,2025-10-06,,1,10',
-  '已用完20次卡,2026-03-06,,0,20',
-  '双下界次卡,2026-09-06,,1,1',
-  '配置A下端点卡,2024-09-06,2026-09-30',
-  '配置B上端点卡,2026-09-06,2028-09-06',
-  '连续包周卡,2026-09-06,2026-09-13,,,是,周',
-  '连续包月卡,2026-09-06,2026-10-06,,,是,月',
-  '连续包季卡,2026-09-06,2026-12-06,,,是,季',
-  '连续包年卡,2026-09-06,2027-09-06,,,是,年',
-  '合同45天卡,2026-09-06,2026-10-20,,,是,,45',
-  '合同7天次卡,2026-09-06,2026-09-12,2,2,是,,7',
-  '月度团课30次续费卡,2026-09-01,2026-10-01,30,30,是,月',
-  '全字段演示卡,2026-09-06,2026-10-06,10,20,是,月,,2026-10-01',
-].join('\n')
 
 function runPipeline(text, loaded) {
   const parsed = parseCardsText(text)
@@ -314,7 +253,7 @@ console.log('\n[E] 全分支补充断言')
     JSON.stringify(e7.parsed.errors))
 
   // E8 超出列数的多余列静默忽略
-  const e8 = p(['A卡,2026-09-06,2027-09-06,1,2,是,月,,2026-10-06,这一列是多余的'], [])
+  const e8 = p('A卡,2026-09-06,2027-09-06,1,2,是,月,,2026-10-06,这一列是多余的', [])
   check('E8 第 10 列静默忽略，正常新增（扣款日仍强制=DDL）',
     e8.result.creates.length === 1 && e8.result.errors.length === 0 &&
     e8.result.creates[0].row.next_billing_date === '2027-09-06')
@@ -362,7 +301,7 @@ console.log('\n[E] 全分支补充断言')
     e13.result.errors[0].reason === '开启自动续费需选择扣款周期或填写合同天数')
 
   // E14 DDL = 今天：不判过期（行判定过期 = DDL < 今天），正常 insert
-  const e14 = p(['今天到期卡,2026-09-01,2026-09-06'], [])
+  const e14 = p('今天到期卡,2026-09-01,2026-09-06', [])
   check('E14 DDL=今天 → insert（非 insert_expired）',
     e14.result.creates.length === 1 && e14.result.creates[0].action === 'insert')
 
@@ -466,4 +405,4 @@ if (failed > 0) {
   console.log(`${failed} 个断言失败`)
   process.exit(1)
 }
-console.log('全部断言通过 ✓（A 正常新增跑 / B 别名变体 / C 幂等回贴 / D CF 兜底）')
+console.log('全部断言通过 ✓（A 正常新增跑 / B 别名变体 / C 幂等回贴 / E 全分支补充 / D CF 兜底）')
