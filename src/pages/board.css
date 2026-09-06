@@ -2573,10 +2573,50 @@
 
 .cd-cal-filter-ops {
   display: flex;
+  align-items: center;
   gap: 8px;
   padding: 2px 4px 8px;
   margin-bottom: 6px;
   border-bottom: 1px solid var(--au-border);
+}
+
+/* 「全选」按钮：只全选当前结果集（可以是搜索后的），与既有选中合并超过
+   上限（5 张）时禁用；清空保留 */
+/* 筛选列表项的裸 icon（2026-09-06 用户裁定：有 icon 不垫底色） */
+.cd-cal-filter-item-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+/* 图标芯片：记录色底 + 卡 icon（筛选列表 / 只读详情标题共用）；
+   无 icon 的卡芯片内渲染小菱形（.bd-card-mark 跟随 currentColor） */
+.cd-cal-filter-icon,
+.cd-icon-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  overflow: hidden;
+  color: #1a1a1a;
+}
+
+.cd-cal-filter-icon img,
+.cd-icon-chip img {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.cd-cal-filter-icon .bd-card-mark,
+.cd-icon-chip .bd-card-mark {
+  margin-right: 0;
 }
 
 .cd-cal-filter-search {
@@ -2771,6 +2811,15 @@
   text-overflow: ellipsis;
 }
 
+/* 日程条上的卡 icon（2026-09-06 用户裁定，跟随卡名只在头部段显示） */
+.cd-cal-bar-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  object-fit: cover;
+}
+
 .cd-cal-bar-clip {
   flex: none;
   opacity: 0.6;
@@ -2822,6 +2871,21 @@
 
 .cd-ro-value {
   text-align: right;
+}
+
+/* 只读详情值右侧的状态图标（自动续费 money / 静默三态，2026-09-06 用户裁定） */
+.cd-ro-value-icon {
+  width: 14px;
+  height: 14px;
+  margin-left: 5px;
+  vertical-align: -2px;
+}
+
+/* 只读详情标题的 icon 芯片间距 */
+.cd-ro-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 @media (max-width: 480px) {

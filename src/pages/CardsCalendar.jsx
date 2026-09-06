@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react'
 import { addDaysISO, colorForCard, diffDays } from '../lib/cardsDomain'
+import { iconPrimaryColor } from '../lib/iconColor'
 import { BILLING_CYCLES } from '../../shared/cardsConfig'
+import moneyIcon from '../assets/icons/money.svg'
+import remindDisableIcon from '../assets/icons/remind-disable.svg'
+import closeRemindIcon from '../assets/icons/close-remind.svg'
 
 // ============================================================
 // 会员页 · 日历展示模式（2026-09-03 与用户共同设计；同日六条修订）：
@@ -68,13 +72,18 @@ function shiftMonth(ym, delta) {
   return `${String(Math.floor(total / 12)).padStart(4, '0')}-${String((total % 12) + 1).padStart(2, '0')}`
 }
 
-function CalBar({ ev, week, today, showText, onOpenCard }) {
+function CalBar({ ev, week, today, showText, onOpenCard, iconKeyById }) {
   const { view, cs, ce, lane } = ev
   const row = view.row
   const expired = view.status === 'expired'
   const colStart = diffDays(week.start, cs)
   const colEnd = diffDays(week.start, ce)
-  const color = colorForCard(row.id)
+  const iconKey = iconKeyById[row.id]
+  // 日程条颜色（2026-09-06 用户裁定）：今天之后 = icon 第一主色（无 icon 回退
+  // 记录色），今天之前保持灰色——与卡片渐变左端同源
+  const color = iconKey
+    ? iconPrimaryColor(iconKey, colorForCard(row.id))
+    : colorForCard(row.id)
   // 今日之前的日程置灰（修订 5）：不拆段——单条日程条上用硬分界渐变实现双色，
   // 分界线精确落在"今天"列的边界（7 列等宽，比例 = 今天前的段内天数 / 段总天数）
   const todayCol = diffDays(week.start, today)
@@ -98,6 +107,14 @@ function CalBar({ ev, week, today, showText, onOpenCard }) {
       onClick={() => onOpenCard(view)}
     >
       {clippedLeft && <span className="cd-cal-bar-clip">‹ </span>}
+      {/* 日程条带卡图标（2026-09-06 用户裁定）：跟随卡名只在头部段显示 */}
+      {showText && iconKey && (
+        <img
+          className="cd-cal-bar-icon"
+          src={`/small_icon/${encodeURIComponent(iconKey)}.png`}
+          alt=""
+        />
+      )}
       {showText && <span className="cd-cal-bar-name">{row.name}</span>}
       {clippedRight && <span className="cd-cal-bar-clip"> ›</span>}
     </button>
@@ -105,12 +122,18 @@ function CalBar({ ev, week, today, showText, onOpenCard }) {
 }
 
 // 卡片多选筛选（选中集语义，最多 5 张，支持卡名关键词搜索）——3/4
-function FilterDropdown({ views, selectedIds, onToggle, onSetAll }) {
+// 2026-09-06 用户裁定：「全选」恢复但只全选**当前结果集**（可以是搜索后的），
+// 选中总数会超过 5 张则禁用；清空保留。列表项带 icon（有 icon 不垫底色，
+// 无 icon 用记录色芯片 + 小菱形）
+function FilterDropdown({ views, selectedIds, onToggle, onSetAll, iconKeyById }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const atCap = selectedIds.size >= MAX_SELECTED
   const kw = query.trim().toLowerCase()
   const shown = kw ? views.filter((v) => v.row.name.toLowerCase().includes(kw)) : views
+  // 全选当前结果集：与既有选中合并后不超过 5 张才允许
+  const shownIds = shown.map((v) => v.row.id)
+  const selectAllOverCap = new Set([...selectedIds, ...shownIds]).size > MAX_SELECTED
   return (
     <div className="cd-cal-filter">
       <button type="button" className="bd-sort-btn" onClick={() => setOpen((v) => !v)}>
@@ -130,19 +153,21 @@ function FilterDropdown({ views, selectedIds, onToggle, onSetAll }) {
             <div className="cd-cal-filter-ops">
               <button
                 type="button"
-                className="bd-sort-btn bd-sort-btn-active"
-                disabled={views.length > MAX_SELECTED}
-                onClick={() => onSetAll(true)}
+                className="bd-sort-btn"
+                disabled={selectAllOverCap}
+                title={selectAllOverCap ? `选中总数会超过 ${MAX_SELECTED} 张` : undefined}
+                onClick={() => onSetAll(new Set([...selectedIds, ...shownIds]))}
               >
-                全选{views.length > MAX_SELECTED ? `（超过 ${MAX_SELECTED} 张）` : ''}
+                全选当页（最多5张）
               </button>
-              <button type="button" className="bd-sort-btn" onClick={() => onSetAll(false)}>
+              <button type="button" className="bd-sort-btn" onClick={() => onSetAll(new Set())}>
                 清空
               </button>
             </div>
             {shown.length === 0 && <p className="cd-cal-filter-empty">没有匹配的卡</p>}
             {shown.map((v) => {
               const checked = selectedIds.has(v.row.id)
+              const iconKey = iconKeyById[v.row.id]
               return (
                 <label key={v.row.id} className={`cd-cal-filter-item${!checked && atCap ? ' cd-cal-filter-capped' : ''}`}>
                   <input
@@ -151,7 +176,18 @@ function FilterDropdown({ views, selectedIds, onToggle, onSetAll }) {
                     disabled={!checked && atCap}
                     onChange={() => onToggle(v.row.id)}
                   />
-                  <span className="cd-cal-filter-dot" style={{ background: colorForCard(v.row.id) }} />
+                  {/* 有 icon 裸放不加底色；无 icon 用记录色芯片 + 小菱形 */}
+                  {iconKey ? (
+                    <img
+                      className="cd-cal-filter-item-icon"
+                      src={`/small_icon/${encodeURIComponent(iconKey)}.png`}
+                      alt=""
+                    />
+                  ) : (
+                    <span className="cd-icon-chip" style={{ background: colorForCard(v.row.id) }}>
+                      <span className="bd-card-mark" />
+                    </span>
+                  )}
                   <span className="cd-cal-filter-name">{v.row.name}</span>
                   {v.status === 'expired' && <span className="cd-tag">已过期</span>}
                   {v.sunkReason === 'used_up' && <span className="cd-tag">已用完</span>}
@@ -167,7 +203,9 @@ function FilterDropdown({ views, selectedIds, onToggle, onSetAll }) {
 }
 
 // 日历模式详情弹窗内容（2：只展示、不允许修改——全字段修改走列表模式的详情态）
-export function CardReadonlyDetail({ view, today }) {
+// 2026-09-06 用户裁定：标题加 icon 芯片；「自动续费」标签旁配 money.svg；
+// 「静默」值配对应状态 svg——仅静默中才有（"无"不加），与列表旗标同一套素材
+export function CardReadonlyDetail({ view, today, iconKey }) {
   const { row } = view
   const daysLeft = diffDays(today, row.end_date)
   const expired = view.status === 'expired'
@@ -182,20 +220,41 @@ export function CardReadonlyDetail({ view, today }) {
       ? '未开启'
       : `剩 ${row.remaining_sessions}${row.total_sessions != null ? ` / ${row.total_sessions}` : ''} 次`
   const muted = row.muted === 'cycle' ? '本期静默' : row.muted === 'forever' ? '永久静默' : '无'
+  const muteIcon =
+    row.muted === 'cycle' ? remindDisableIcon : row.muted === 'forever' ? closeRemindIcon : null
   const rows = [
     ['状态', expired ? '已过期' : '进行中'],
     ['有效期', `${row.start_date} ~ ${row.end_date}（${expired ? `已过期 ${-daysLeft} 天` : `剩 ${daysLeft} 天`}）`],
     ['次数', sessions],
-    ['自动续费', renew],
-    ['静默', muted],
+    ['自动续费', renew, moneyIcon],
+    ['静默', muted, muteIcon],
   ]
   return (
     <div className="cd-ro">
-      <p className="cd-ro-title">{row.name}</p>
-      {rows.map(([label, value]) => (
+      <p className="cd-ro-title">
+        <span className="cd-icon-chip" style={{ background: colorForCard(row.id) }}>
+          {iconKey ? (
+            <img src={`/small_icon/${encodeURIComponent(iconKey)}.png`} alt="" />
+          ) : (
+            <span className="bd-card-mark" />
+          )}
+        </span>
+        {row.name}
+      </p>
+      {rows.map(([label, value, icon]) => (
         <p key={label} className="cd-ro-row">
-          <span className="cd-ro-label">{label}</span>
-          <span className="cd-ro-value">{value}</span>
+          <span className="cd-ro-label">
+            {label}
+            {label === '自动续费' && icon && (
+              <img className="cd-ro-value-icon" src={icon} alt="" aria-hidden="true" />
+            )}
+          </span>
+          <span className="cd-ro-value">
+            {value}
+            {label === '静默' && icon && (
+              <img className="cd-ro-value-icon" src={icon} alt="" aria-hidden="true" />
+            )}
+          </span>
         </p>
       ))}
     </div>
@@ -210,6 +269,7 @@ export default function CardsCalendar({
   onSetAll,
   onOpenCard,
   modeSeg,
+  iconKeyById,
 }) {
   const [ym, setYm] = useState(() => today.slice(0, 7))
   const isCurrentMonth = ym === today.slice(0, 7)
@@ -259,6 +319,7 @@ export default function CardsCalendar({
             selectedIds={selectedIds}
             onToggle={onToggleCard}
             onSetAll={onSetAll}
+            iconKeyById={iconKeyById}
           />
           {modeSeg}
         </div>
@@ -304,6 +365,7 @@ export default function CardsCalendar({
                       today={today}
                       showText={laidOut.headWeek.get(ev.view.row.id) === wi}
                       onOpenCard={onOpenCard}
+                      iconKeyById={iconKeyById}
                     />
                   ))
                 )}

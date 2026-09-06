@@ -81,7 +81,7 @@ function formatUpdated(dateStr) {
 let pinyinCollator = null
 try {
   pinyinCollator = new Intl.Collator('zh-Hans-CN-u-co-pinyin', { sensitivity: 'base' })
-} catch (e) {
+} catch {
   pinyinCollator = null
 }
 

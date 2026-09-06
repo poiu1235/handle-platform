@@ -2203,6 +2203,7 @@ export default function CardsPanel({ active, onActivate }) {
           views={sorted}
           today={today}
           selectedIds={calSelectedIds}
+          iconKeyById={iconKeyById}
           onToggleCard={(id) =>
             setCalSelected((prev) => {
               const base = new Set(prev ?? calDefaultSelected())
@@ -2215,11 +2216,7 @@ export default function CardsPanel({ active, onActivate }) {
               return base
             })
           }
-          onSetAll={(all) =>
-            setCalSelected(
-              all && sorted.length <= 5 ? new Set(sorted.map((v) => v.row.id)) : new Set()
-            )
-          }
+          onSetAll={(ids) => setCalSelected(ids)}
           onOpenCard={(v) => setCalDetailId(v.row.id)}
           modeSeg={modeSeg}
         />
@@ -2399,7 +2396,7 @@ export default function CardsPanel({ active, onActivate }) {
           return (
             <div className="bd-modal-backdrop" onClick={() => setCalDetailId(null)}>
               <div className="bd-modal-card cd-cal-detail" onClick={(e) => e.stopPropagation()}>
-                <CardReadonlyDetail view={v} today={today} />
+                <CardReadonlyDetail view={v} today={today} iconKey={iconKeyById[v.row.id]} />
               </div>
             </div>
           )

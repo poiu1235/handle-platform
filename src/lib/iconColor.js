@@ -35,6 +35,12 @@ function resolveSelectedColor(iconKey, defaultColor) {
   return colors[0]
 }
 
+// icon 的第一主色（无映射时回退默认色）：日历日程条"今天之后"段用它着色
+// （2026-09-06 用户裁定），与卡片渐变的左端同源
+export function iconPrimaryColor(iconKey, defaultColor) {
+  return resolveSelectedColor(iconKey, defaultColor)
+}
+
 export function cardBackground(iconKey, defaultColor) {
   const color = resolveSelectedColor(iconKey, defaultColor)
   return `linear-gradient(90deg, ${color}, #ffffff)`

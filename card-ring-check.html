@@ -171,22 +171,47 @@ function ToastDemo() {
   )
 }
 
-// 移动端筛选下拉复刻：面板应从触发按钮左缘向右展开，不超出屏幕
+// 移动端筛选下拉复刻：全选当前结果集（超 5 禁用）+ 裸 icon 列表
 function FilterDemo() {
   const [open, setOpen] = useState(true)
+  const [sel, setSel] = useState(new Set(['音乐合集App', '腾讯视频']))
+  const items = ['音乐合集App', '腾讯视频', '皓齿刷牙', '中健银座']
+  const overCap = new Set([...sel, ...items]).size > 5
   return h('div', { className: 'cd-cal-filter', style: { margin: '0 16px', display: 'inline-block' } },
-    h('button', { type: 'button', className: 'bd-sort-btn', onClick: () => setOpen(v => !v) }, '卡片筛选 0/23 ▾'),
+    h('button', { type: 'button', className: 'bd-sort-btn', onClick: () => setOpen(v => !v) }, `卡片筛选 ${sel.size}/23 ▾`),
     open && h('div', { className: 'cd-cal-filter-panel' },
       h('input', { className: 'cd-cal-filter-search', placeholder: '搜索卡名' }),
       h('div', { className: 'cd-cal-filter-ops' },
-        h('button', { type: 'button', className: 'bd-btn' }, '全选(23 张)'),
-        h('button', { type: 'button', className: 'bd-btn' }, '清空')),
-      ['音乐合集App', '腾讯视频', '皓齿刷牙', '中健银座'].map(n =>
+        h('button', { type: 'button', className: 'bd-sort-btn', disabled: overCap, title: overCap ? '选中总数会超过 5 张' : undefined, onClick: () => setSel(new Set(items)) }, '全选当页'),
+        h('button', { type: 'button', className: 'bd-sort-btn', onClick: () => setSel(new Set()) }, '清空')),
+      items.map(n =>
         h('label', { key: n, className: 'cd-cal-filter-item' },
-          h('input', { type: 'checkbox', readOnly: true }),
-          h('span', { className: 'cd-cal-filter-dot', style: { background: '#a9dace' } }),
+          h('input', { type: 'checkbox', checked: sel.has(n), readOnly: true }),
+          h('img', { className: 'cd-cal-filter-item-icon', src: '/small_icon/AcFun.png', alt: '' }),
           h('span', { className: 'cd-cal-filter-name' }, n))),
     ),
+  )
+}
+
+// 只读详情复刻：标题 icon 芯片 + 自动续费 money + 静默状态图标
+function RoDetailDemo() {
+  return h('div', { className: 'cd-ro', style: { maxWidth: '340px', margin: '0 16px', padding: '14px', background: '#fff', border: '1px solid #e0e0e5', borderRadius: '12px' } },
+    h('p', { className: 'cd-ro-title' },
+      h('span', { className: 'cd-icon-chip', style: { background: '#a9dace' } },
+        h('img', { src: '/small_icon/AcFun.png', alt: '' })),
+      '皓齿刷牙'),
+    [['状态', '进行中'], ['有效期', '2026-09-06 ~ 2026-10-06（剩 30 天）'], ['次数', '剩 2 / 10 次']].map(([l, v]) =>
+      h('p', { key: l, className: 'cd-ro-row' },
+        h('span', { className: 'cd-ro-label' }, l),
+        h('span', { className: 'cd-ro-value' }, v))),
+    h('p', { className: 'cd-ro-row' },
+      h('span', { className: 'cd-ro-label' }, '自动续费',
+        h('img', { className: 'cd-ro-value-icon', src: '/src/assets/icons/money.svg', alt: '' })),
+      h('span', { className: 'cd-ro-value' }, '开 · 每月 · 2026-09-10 扣款')),
+    h('p', { className: 'cd-ro-row' },
+      h('span', { className: 'cd-ro-label' }, '静默'),
+      h('span', { className: 'cd-ro-value' }, '本期静默',
+        h('img', { className: 'cd-ro-value-icon', src: '/src/assets/icons/remind-disable.svg', alt: '' }))),
   )
 }
 
@@ -222,8 +247,10 @@ function Demo() {
     detailCard({ name: '清晨瑜伽季卡', bg: '#e3f3fc', nameColor: 'var(--au-text)', flagFilter: 'none' }),
     h('h3', null, '悬浮 toast：滚动下面的列表框，提示应吸附在列表框顶部'),
     h(ToastDemo),
-    h('h3', null, '移动端筛选下拉：面板不应超出屏幕左缘（390px 视口）'),
+    h('h3', null, '移动端筛选下拉：统计文案 + icon 芯片（面板不超屏幕左缘）'),
     h(FilterDemo),
+    h('h3', null, '只读详情：标题 icon 芯片 + 自动续费 money + 静默状态图标'),
+    h(RoDetailDemo),
     h('h3', null, '建卡图标字段：自动匹配 → 「移除」打开网格自由选择 → 「恢复自动」'),
     h(IconFieldDemo),
   )
