@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>会员卡环形刻度预览</title>
+<link rel="stylesheet" href="/src/pages/board.css" />
+<style>
+  body { margin: 0; background: #f0f2f5; }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 24px 16px 60px; }
+  .wrap h3 { font-family: var(--bd-font); font-size: 14px; color: #646464; margin: 18px 0 2px; }
+</style>
+</head>
+<body>
+<div class="bd-board">
+  <div class="wrap" id="root"></div>
+</div>
+<script type="module">
+import { createElement as h } from 'react'
+import { createRoot } from 'react-dom/client'
+import DaysRing from '/src/components/DaysRing.jsx'
+
+// 与 CardsPanel RING_TONES 同步
+const TONES = {
+  normal: { from: '#8AD8A2', to: '#27AE60', track: '#E2F4E9' },
+  expiry: { from: '#F8B57C', to: '#EE7B3F', track: '#FBEEDF' },
+  billing: { from: '#F89A9A', to: '#E23C3C', track: '#FBE3E3' },
+}
+const moneyImg = h('span', { className: 'cd-renew-flag' }, h('img', { className: 'cd-flag-img', src: '/src/assets/icons/money.svg', alt: '' }))
+const muteImg = h('button', { type: 'button', className: 'cd-mute-btn cd-mute-inline' }, h('img', { className: 'cd-flag-img', src: '/src/assets/icons/close-remind.svg', alt: '' }))
+
+function ring({ days, period, tone, size = 40, stroke = 5, label = '' }) {
+  if (days == null) return null
+  const t = TONES[tone]
+  return h(DaysRing, { value: days, max: period, label, size, stroke, glow: false, from: t.from, to: t.to, track: t.track })
+}
+
+function sideSlots({ days, period, count, main, tone = 'normal', tags = [] }) {
+  return h('div', { className: 'cd-side-slots' },
+    h('div', { className: 'cd-side-row' },
+      count && h('span', { className: 'cd-side-count' }, count),
+      ring({ days, period, tone }) ?? h('span', { className: 'cd-side-main' }, main),
+    ),
+    tags.length > 0 && h('span', { className: 'cd-side-tags' },
+      tags.map((t) => h('span', { className: 'cd-tag', key: t }, t))),
+  )
+}
+
+function card({ name, bg, nameColor, flagFilter, slots, semi, ringProps }) {
+  const ringButton = semi && h('button', { type: 'button', className: 'cd-ring-expand', title: '展开修改' },
+    ring({ days: ringProps.days, period: ringProps.period, tone: ringProps.tone, size: 80, stroke: 7, label: ringProps.label }),
+    h('span', { className: 'cd-ring-expand-badge' },
+      h('img', { className: 'cd-ring-expand-icon', src: '/src/assets/icons/expand-down.svg', alt: '' })),
+  )
+  return h('div', { className: `bd-row ${semi ? 'bd-row-expanded cd-semi-row' : 'bd-row-collapsed'}`, style: { marginTop: '14px' } },
+    h('div', { className: `bd-card ${semi ? 'bd-card-expanded' : 'bd-card-collapsed'} cd-semi-card`,
+      style: { backgroundImage: `linear-gradient(90deg, ${bg}, #ffffff)`, '--bd-card-name-color': nameColor, '--cd-flag-filter': flagFilter } },
+      h('div', { className: 'cd-semi-main' },
+        h('div', { className: 'cd-name-line' },
+          h('div', { className: 'bd-card-title-row' },
+            h('span', { className: 'bd-card-mark' }),
+            h('p', { className: 'bd-card-name', style: { fontSize: semi ? '30px' : '15px', transform: semi ? 'scale(1)' : undefined, width: semi ? 'auto' : undefined } }, name),
+          ),
+          h('span', { className: 'cd-name-flags' }, moneyImg, muteImg),
+        ),
+      ),
+      semi
+        ? h('div', { className: 'cd-semi-side' },
+            ringButton,
+            ringProps.count && h('span', { className: 'cd-side-count' }, ringProps.count),
+            h('span', { className: 'cd-side-tags' }, h('span', { className: 'cd-tag' }, '剩 3 天')))
+        : slots,
+    ),
+  )
+}
+
+function Demo() {
+  return h('div', null,
+    h('h3', null, '扣款提醒窗口 → 红环（剩 4/30，13%）+ 次数'),
+    card({ name: '皓齿刷牙', bg: '#a2e4e2', nameColor: 'var(--au-text)', flagFilter: 'none',
+      slots: sideSlots({ days: 4, period: 30, count: '剩 2 次', tone: 'billing' }) }),
+    h('h3', null, '不在提醒窗口 → 绿环（剩 18/30，60%）'),
+    card({ name: '音乐合集App', bg: '#b3b0e4', nameColor: 'var(--au-text)', flagFilter: 'none',
+      slots: sideSlots({ days: 18, period: 30, tone: 'normal' }) }),
+    h('h3', null, '到期提醒窗口 → 橙环（非续费剩 3/8，38%）'),
+    card({ name: '腾讯视频', bg: '#bbe0e3', nameColor: 'var(--au-text)', flagFilter: 'none',
+      slots: sideSlots({ days: 3, period: 8, tone: 'expiry' }) }),
+    h('h3', null, '不在提醒窗口 → 绿环（暗色卡，剩 25/90，28%）'),
+    card({ name: '中健银座', bg: '#04263f', nameColor: '#ffffff', flagFilter: 'brightness(0) invert(1)',
+      slots: sideSlots({ days: 25, period: 90, tone: 'normal' }) }),
+    h('h3', null, '到期窗口内但续费信息不全 → 橙轨道（剩 10）'),
+    card({ name: '迷你仓', bg: '#a9dace', nameColor: 'var(--au-text)', flagFilter: 'none',
+      slots: sideSlots({ days: 10, period: null, tone: 'expiry' }) }),
+    h('h3', null, '已过期（回退文字）'),
+    card({ name: '乐刻', bg: '#cdd3d9', nameColor: '#6b727a', flagFilter: 'none',
+      slots: sideSlots({ days: null, main: '已过期' }) }),
+    h('h3', null, '半展开态：80×80 环 + 标签「天后扣款」+ 展开徽标'),
+    card({ name: '皓齿刷牙', bg: '#a2e4e2', nameColor: 'var(--au-text)', flagFilter: 'none', semi: true,
+      ringProps: { days: 4, period: 30, count: '剩 2 次', tone: 'billing', label: '天后扣款' } }),
+    h('h3', null, '半展开态：非扣款窗口标签「剩余天数」'),
+    card({ name: '音乐合集App', bg: '#b3b0e4', nameColor: 'var(--au-text)', flagFilter: 'none', semi: true,
+      ringProps: { days: 18, period: 30, count: null, tone: 'normal', label: '剩余天数' } }),
+  )
+}
+createRoot(document.getElementById('root')).render(h(Demo))
+</script>
+</body>
+</html>

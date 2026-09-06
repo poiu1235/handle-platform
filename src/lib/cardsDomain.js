@@ -126,6 +126,25 @@ export function colorForCard(id) {
   return CARD_PALETTE[hashString(String(id)) % CARD_PALETTE.length]
 }
 
+// ISO 日期减一个日历周期步长（环形刻度算"当前周期起点"用）：
+// 周 = −7 天；月/季/年按日历单位回退，月末锚点收缩（31 → 2/28），
+// 与结算 RPC 的"锚点收缩是显式接受的行为"（cards.sql 3.4.2）同一口径。
+// 仅作展示刻度，不参与结算。
+function endMinusCycleStep(endISO, cycle) {
+  const [y, m, d] = endISO.split('-').map(Number)
+  if (cycle === 'week') {
+    const t = Date.UTC(y, m - 1, d) - 7 * 86400000
+    const dt = new Date(t)
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
+  }
+  const months = cycle === 'quarter' ? 3 : cycle === 'month' ? 1 : 12
+  const total = y * 12 + (m - 1) - months
+  const ny = Math.floor(total / 12)
+  const nm = total - ny * 12 + 1
+  const lastDay = new Date(Date.UTC(ny, nm, 0)).getUTCDate()
+  return `${ny}-${String(nm).padStart(2, '0')}-${String(Math.min(d, lastDay)).padStart(2, '0')}`
+}
+
 // ── 单卡视图（PRD 3.2 状态与展示条件 + 3.3.1 窗口与排除 + 3.3.4 结构化输出） ──
 export function deriveCardView(row, today) {
   const expired = today > row.end_date
@@ -153,6 +172,21 @@ export function deriveCardView(row, today) {
   // 反而误导）；纯"次数用完 + 未续费"才是资格暂尽的弱化色沉底
   const sunkReason = expired ? 'expired' : usedUp && !row.auto_renew ? 'used_up' : null
 
+  // 环形剩余刻度的分母（2026-09-06 用户裁定：右侧槽位换圆环，剩余天数/有效期 =
+  // 填充比例，越用越短）。有效期长度：非续费卡 = 起止日期总长；续费卡 = 当前
+  // 周期真实长度 = end_date 回退一个周期步长（固定天数恰好回退 period_days，
+  // 日历周期含月末锚点收缩；手动多次顺延累积的 end_date 也按本周期算，不错把
+  // 累积窗口当周期）。取不到（续费信息不全等）→ null，调用方渲染纯轨道环
+  const periodDays = row.auto_renew
+    ? row.period_days != null
+      ? Math.max(1, row.period_days)
+      : row.billing_cycle && row.end_date
+        ? Math.max(1, diffDays(endMinusCycleStep(row.end_date, row.billing_cycle), row.end_date))
+        : null
+    : row.start_date && row.end_date
+      ? Math.max(1, diffDays(row.start_date, row.end_date))
+      : null
+
   return {
     row,
     status: expired ? 'expired' : 'active',
@@ -160,6 +194,7 @@ export function deriveCardView(row, today) {
     sunkReason,
     daysToDdl,
     daysToBilling,
+    periodDays,
     hasSessions,
     usedUp,
     muted,
@@ -173,6 +208,8 @@ export function deriveCardView(row, today) {
 
 // ── 折叠态/半展开右侧主信息（5.4：剩余天数恒为主信息〔右槽，列表按天对齐〕；
 // 次卡在左槽并排"剩 N 次"。扣款窗口内右槽换扣款倒计时——它也是天数语义）──
+// days = main 文案里的数值（圆环中心数，2026-09-06 用户裁定右槽换圆环后由
+// 调用方取用）；已过期/已用完无天数语义，days 为 null（回退文字）
 function billingCountdown(days) {
   if (days <= 0) return '今天扣款'
   return `${days} 天后扣款`
@@ -180,14 +217,14 @@ function billingCountdown(days) {
 
 export function collapsedInfo(view) {
   const tags = []
-  if (view.status === 'expired') return { main: '已过期', count: null, tags }
+  if (view.status === 'expired') return { main: '已过期', days: null, count: null, tags }
   const count = view.hasSessions ? `剩 ${view.row.remaining_sessions} 次` : null
   // "已用完"独占主信息仅限未开续费的沉底卡（2026-09-02 裁定：用完 + 续费中
   // 不沉底、不失效——下个周期结算会重置次数，照常显示天数/扣款倒计时）
   if (view.usedUp && !view.row.auto_renew) {
     // 命中扣款窗口 → 追加独立小标签（4-B12：沉底不等于对钱失明）
     if (view.reminders.billing) tags.push({ key: 'billing', text: billingTag(view) })
-    return { main: '已用完', count: null, tags }
+    return { main: '已用完', days: null, count: null, tags }
   }
   // 扣款倒计时直读 daysToBilling（2026-09-06 用户裁定：列表主信息不看静默——
   // 静默只免提醒弹窗/进站 alert，钱照扣，"X 天后扣款"恒可见）。
@@ -197,10 +234,10 @@ export function collapsedInfo(view) {
   const billingInWindow =
     view.daysToBilling !== null && view.daysToBilling <= BILLING_REMINDER_DAYS
   if (billingInWindow && (!expiring || view.daysToBilling <= view.daysToDdl)) {
-    return { main: billingCountdown(view.daysToBilling), count, tags }
+    return { main: billingCountdown(view.daysToBilling), days: view.daysToBilling, count, tags }
   }
   // 到期提醒窗口与常态同文案（剩 N 天），不再单列分支
-  return { main: `剩 ${view.daysToDdl} 天`, count, tags }
+  return { main: `剩 ${view.daysToDdl} 天`, days: view.daysToDdl, count, tags }
 }
 
 // ── 进站 alert 模型（3.3.4 结构化输出；会话去重在调用方用内存标志实现） ──────

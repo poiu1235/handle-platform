@@ -13,11 +13,14 @@ import { useId } from 'react'
 // props：
 //   value   当前数值（天数；带小数会四舍五入显示，弧长按 value/max 计算）
 //   max     满环对应的上限（默认 30；value 超界自动钳制到 [0, max]，
-//           max <= 0 视为满环——没有周期概念时宁多勿少）
-//   label   数字下方的小字（默认 "Days Left"）
+//           max <= 0 视为满环——没有周期概念时宁多勿少；传 null = 周期不可知，
+//           只画轨道不画进度弧，数字照常展示）
+//   label   数字下方的小字（默认 "Days Left"；传空串/不传 = 只显示数字，
+//           2026-09-06 用户裁定：卡内小尺寸环不带"天"字，数字即天数）
 //   size    外径 px（默认 96）；stroke 弧宽 px（默认 10）
 //   from/to 进度弧渐变两端色（默认设计稿的浅橙→深橙）；track 轨道色
 //   glow    是否开启进度弧的暖色光晕（默认 true）
+//   glowColor 光晕颜色（随 to 色调配套传，默认橙色系）
 //
 // 用法：
 //   <DaysRing value={3} max={30} />
@@ -32,6 +35,7 @@ export default function DaysRing({
   to = '#EE7B3F',
   track = '#FBEEDF',
   glow = true,
+  glowColor = 'rgba(238, 123, 63, 0.35)',
   className = '',
 }) {
   const gid = useId()
@@ -39,7 +43,7 @@ export default function DaysRing({
   const r = (size - stroke) / 2
   const circumference = 2 * Math.PI * r
   const shown = Math.max(0, Math.round(value))
-  const fraction = max > 0 ? Math.max(0, Math.min(1, value / max)) : 1
+  const fraction = max == null ? null : max > 0 ? Math.max(0, Math.min(1, value / max)) : 1
   // 数字随位数自动降档：1~2 位大字号，3 位起收一档，避免顶出环内空间
   const numSize = Math.round(size * (String(shown).length >= 3 ? 0.3 : 0.42))
   return (
@@ -61,22 +65,24 @@ export default function DaysRing({
           </linearGradient>
         </defs>
         <circle cx={center} cy={center} r={r} fill="none" stroke={track} strokeWidth={stroke} />
-        <circle
-          cx={center}
-          cy={center}
-          r={r}
-          fill="none"
-          stroke={`url(#${gid})`}
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference * (1 - fraction)}
-          transform={`rotate(-90 ${center} ${center})`}
-          style={{
-            transition: 'stroke-dashoffset 0.5s ease',
-            filter: glow ? 'drop-shadow(0 2px 6px rgba(238, 123, 63, 0.35))' : undefined,
-          }}
-        />
+        {fraction != null && (
+          <circle
+            cx={center}
+            cy={center}
+            r={r}
+            fill="none"
+            stroke={`url(#${gid})`}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={circumference * (1 - fraction)}
+            transform={`rotate(-90 ${center} ${center})`}
+            style={{
+              transition: 'stroke-dashoffset 0.5s ease',
+              filter: glow ? `drop-shadow(0 2px 6px ${glowColor})` : undefined,
+            }}
+          />
+        )}
       </svg>
       <div
         aria-hidden="true"
@@ -102,15 +108,17 @@ export default function DaysRing({
         >
           {shown}
         </span>
-        <span
-          style={{
-            fontSize: Math.max(10, Math.round(size * 0.125)),
-            fontWeight: 700,
-            color: 'var(--au-text-2, #646464)',
-          }}
-        >
-          {label}
-        </span>
+        {label ? (
+          <span
+            style={{
+              fontSize: Math.max(10, Math.round(size * 0.125)),
+              fontWeight: 700,
+              color: 'var(--au-text-2, #646464)',
+            }}
+          >
+            {label}
+          </span>
+        ) : null}
       </div>
     </div>
   )

@@ -1743,7 +1743,9 @@
 
 .cd-side-row {
   display: flex;
-  align-items: baseline;
+  /* center：主信息是环形刻度（DaysRing 40px）后按基线对齐会漂，次数与环垂直居中；
+     沉底卡回退纯文字主信息时同样居中（该分支 count 恒为 null，无并排对象） */
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
   white-space: nowrap;
@@ -1883,6 +1885,44 @@
   display: block;
   width: 16px;
   height: 16px;
+}
+
+/* 展开/圆环融合（2026-09-06 裁定）：半展开的展开入口 = 圆环本体 + 右下角小徽标，
+   提示"点圆环就是展开"；徽标延续圆形白底按钮的视觉语言、缩小贴角。
+   半展开态不再渲染独立的 .cd-expand-btn（本规则保留给 .cd-fold-btn 共用） */
+.cd-ring-expand {
+  position: relative;
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cd-ring-expand-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(1, 15, 28, 0.25);
+  transition: transform 0.15s ease;
+}
+
+.cd-ring-expand:hover .cd-ring-expand-badge {
+  transform: scale(1.12);
+}
+
+.cd-ring-expand-icon {
+  display: block;
+  width: 11px;
+  height: 11px;
 }
 
 /* 沉底卡的摘要行同步压灰（5.4：两种沉底必须文字可辨，不只靠颜色） */

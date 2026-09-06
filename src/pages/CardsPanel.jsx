@@ -16,10 +16,11 @@ import {
   startDateMin,
   todayISO,
 } from '../lib/cardsDomain'
-import { BILLING_CYCLES } from '../../shared/cardsConfig.js'
+import { BILLING_CYCLES, BILLING_REMINDER_DAYS, EXPIRY_REMINDER_DAYS } from '../../shared/cardsConfig.js'
 import { cardStyle } from '../lib/iconColor'
 import { suggestIconKey } from '../lib/iconMatch'
 import { useIconManifest } from '../lib/useIconManifest'
+import DaysRing from '../components/DaysRing'
 import CardMark from '../components/CardMark'
 import { IconPickerField, useCardIconState } from '../components/IconPicker'
 import moneyIcon from '../assets/icons/money.svg'
@@ -50,6 +51,15 @@ import './board.css'
 // ============================================================
 
 const CYCLE_LABEL = Object.fromEntries(BILLING_CYCLES.map((c) => [c.key, c.label]))
+
+// 圆环色调（2026-09-06 用户裁定，按提醒窗口判定、与静默解耦——静默只是不弹
+// 提醒，显示照常）：不在任何提醒窗口 → 绿；到期提醒窗口（DDL−15）内 → 橙；
+// 扣款提醒窗口（扣款日−7）内 → 红
+const RING_TONES = {
+  normal: { from: '#8AD8A2', to: '#27AE60', track: '#E2F4E9' },
+  expiry: { from: '#F8B57C', to: '#EE7B3F', track: '#FBEEDF' },
+  billing: { from: '#F89A9A', to: '#E23C3C', track: '#FBE3E3' },
+}
 
 // 卡片背景：icon 主色 → 白色渐变 + 名称行对比度变量（对齐余额 cardStyle 体系）。
 // iconKey 为 null（未指定且自动匹配未命中/清单未加载）时 cardStyle 回退传入的
@@ -499,6 +509,27 @@ function CardRow({
   }
 
   const sideInfo = collapsedInfo(view)
+  // 右槽圆环：分子 = 剩余天数/扣款倒计时，分母 = 有效期长度（view.periodDays，
+  // 续费信息不全时为 null → 纯轨道）；沉底卡无天数语义回退文字。
+  // 色调按提醒窗口（见 RING_TONES；直读天数判定，静默不改变颜色）。
+  // 小尺寸下光晕会被滤镜矩形区域裁切成"方块底"（2026-09-06 用户反馈），一律关闭
+  const billingWindow = view.daysToBilling !== null && view.daysToBilling <= BILLING_REMINDER_DAYS
+  const expiryWindow = view.daysToDdl <= EXPIRY_REMINDER_DAYS
+  const ringTone = billingWindow ? 'billing' : expiryWindow ? 'expiry' : 'normal'
+  const renderRing = (size, stroke, label) =>
+    sideInfo.days != null ? (
+      <DaysRing
+        value={sideInfo.days}
+        max={view.periodDays}
+        label={label}
+        size={size}
+        stroke={stroke}
+        glow={false}
+        from={RING_TONES[ringTone].from}
+        to={RING_TONES[ringTone].to}
+        track={RING_TONES[ringTone].track}
+      />
+    ) : null
   const stackZIndex = expanded ? 1000 : (stackTotal ?? 0) - (stackIndex ?? 0)
   const sunkClass =
     view.sunkReason === 'expired' ? 'cd-sunk-expired' : view.sunkReason === 'used_up' ? 'cd-sunk-usedup' : ''
@@ -626,9 +657,11 @@ function CardRow({
             槽位信息移到按钮下方，纵向排列不再并排 */}
         {expanded && dragX <= 0 && (
           <div className="cd-semi-side">
+            {/* 展开/圆环融合（2026-09-06 裁定）：展开按钮缩成徽标贴在环右下角，
+                点击整环即展开；剩余次数/标签移到环下方 */}
             <button
               type="button"
-              className="cd-expand-btn"
+              className="cd-ring-expand"
               aria-label="展开修改"
               title="展开修改"
               onClick={(e) => {
@@ -636,23 +669,25 @@ function CardRow({
                 onFullyExpand(row.id)
               }}
             >
-              <img className="cd-expand-icon" src={expandDownIcon} alt="" aria-hidden="true" />
+            {/* 半展开环放大到 80（2026-09-06 裁定）：露出文字标签——扣款窗口内
+                "天后扣款"，其余"剩余天数" */}
+            {renderRing(80, 7, billingWindow ? '天后扣款' : '剩余天数') ?? (
+              <span className="cd-side-main">{sideInfo.main}</span>
+            )}
+            <span className="cd-ring-expand-badge" aria-hidden="true">
+                <img className="cd-ring-expand-icon" src={expandDownIcon} alt="" />
+              </span>
             </button>
-            <div className="cd-side-slots">
-              <div className="cd-side-row">
-                {sideInfo.count && <span className="cd-side-count">{sideInfo.count}</span>}
-                <span className="cd-side-main">{sideInfo.main}</span>
-              </div>
-              {sideInfo.tags.length > 0 && (
-                <span className="cd-side-tags">
-                  {sideInfo.tags.map((t) => (
-                    <span className="cd-tag" key={t.key}>
-                      {t.text}
-                    </span>
-                  ))}
-                </span>
-              )}
-            </div>
+            {sideInfo.count && <span className="cd-side-count">{sideInfo.count}</span>}
+            {sideInfo.tags.length > 0 && (
+              <span className="cd-side-tags">
+                {sideInfo.tags.map((t) => (
+                  <span className="cd-tag" key={t.key}>
+                    {t.text}
+                  </span>
+                ))}
+              </span>
+            )}
           </div>
         )}
 
@@ -661,7 +696,7 @@ function CardRow({
           <div className="cd-side-slots">
             <div className="cd-side-row">
               {sideInfo.count && <span className="cd-side-count">{sideInfo.count}</span>}
-              <span className="cd-side-main">{sideInfo.main}</span>
+              {renderRing(40, 5, '') ?? <span className="cd-side-main">{sideInfo.main}</span>}
             </div>
             {sideInfo.tags.length > 0 && (
               <span className="cd-side-tags">
