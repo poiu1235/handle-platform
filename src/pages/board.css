@@ -2511,6 +2511,13 @@
   margin-inline: calc((100% - var(--cal-w)) / 2);
 }
 
+/* 日历挪进 .bd-list 滚动容器后（2026-09-06 移动端截断修复）：容器自带
+   gutter 内边距，日历宽度改为跟随容器，不再按 100vw 算（会横向溢出） */
+.bd-list .cd-cal {
+  --cal-w: min(1040px, 100%);
+  margin-inline: 0;
+}
+
 .cd-cal-toolbar {
   display: flex;
   align-items: center;
