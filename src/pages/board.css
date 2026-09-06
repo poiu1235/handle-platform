@@ -2598,6 +2598,20 @@
   object-fit: cover;
 }
 
+/* 折叠态圆环 + 右侧“天”字（2026-09-06 用户裁定）：10px、与环同对比度色，
+   紧邻但不贴着（gap 3px）；半展开/全展开不渲染此模块 */
+.cd-ring-with-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.cd-ring-unit {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--bd-card-name-color, var(--au-text));
+}
+
 /* 图标芯片：记录色底 + 卡 icon（筛选列表 / 只读详情标题共用）；
    无 icon 的卡芯片内渲染小菱形（.bd-card-mark 跟随 currentColor） */
 .cd-cal-filter-icon,

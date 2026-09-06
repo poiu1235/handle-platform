@@ -42,7 +42,11 @@ function sideSlots({ days, period, count, main, tone = 'normal', usedUp = false,
   return h('div', { className: 'cd-side-slots' },
     h('div', { className: 'cd-side-row' },
       count && h('span', { className: `cd-side-count${usedUp ? ' cd-side-count-done' : ''}` }, count),
-      ring({ days, period, tone }) ?? h('span', { className: 'cd-side-main' }, main),
+      days != null
+        ? h('span', { className: 'cd-ring-with-unit' },
+            ring({ days, period, tone }),
+            h('span', { className: 'cd-ring-unit' }, '天'))
+        : h('span', { className: 'cd-side-main' }, main),
     ),
     tags.length > 0 && h('span', { className: 'cd-side-tags' },
       tags.map((t) => h('span', { className: 'cd-tag', key: t }, t))),

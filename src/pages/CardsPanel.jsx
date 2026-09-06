@@ -730,7 +730,14 @@ function CardRow({
           <div className="cd-side-slots">
             <div className="cd-side-row">
               {sideInfo.count && <span className={`cd-side-count${view.usedUp ? ' cd-side-count-done' : ''}`}>{sideInfo.count}</span>}
-              {renderRing(30, 3.5, '', 'cd-ring-shrink') ?? (
+              {/* 折叠态圆环右侧的“天”字（2026-09-06 用户裁定）：仅折叠态渲染，
+                  半展开/全展开的环内已有 天剩余/天后扣款 标签 */}
+              {sideInfo.days != null ? (
+                <span className="cd-ring-with-unit">
+                  {renderRing(30, 3.5, '', 'cd-ring-shrink')}
+                  <span className="cd-ring-unit">天</span>
+                </span>
+              ) : (
                 <span className="cd-side-main">{sideInfo.main}</span>
               )}
             </div>

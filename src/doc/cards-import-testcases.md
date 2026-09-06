@@ -1,5 +1,9 @@
 # 卡包批量增加 · 测试用例（30 条）
 
+> 📍 2026-09-06 起全分支扩展版见 `cards-import-testcases-full.md`（L1–L9 全链路 90+ 分支用例
+> ＋ 20 条正常数据 `cards-import-paste-normal-20.md` ＋ 探针 `scripts/probe-import-normal20.mjs`）；
+> 本文档保留作 2026-09-03 轮历史基线。
+>
 > 依据：PRD v3.0（`lifestyle-cardpack-prd-v3.md`）+ `src/cards-db.md` 7.5 导入契约。
 > 覆盖链路：`parseCardsText` → `mergeImportRows` → `classifyImport`（`src/lib/cardsDomain.js`）
 > → `buildImportPayload` → `POST /api/cards/import`（`functions/api/cards/import.js`）
