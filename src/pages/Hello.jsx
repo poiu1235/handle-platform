@@ -11,6 +11,9 @@ import CardMark from '../components/CardMark'
 import { IconPickerField } from '../components/IconPicker'
 import CardsPanel from './CardsPanel'
 import wordmark from '../assets/font_daoliti.svg'
+import iconDelete from '../assets/icons/delete.svg'
+import iconEditor from '../assets/icons/editor.svg'
+import iconClear from '../assets/icons/clear.svg'
 import { cardStyle } from '../lib/iconColor'
 import './board.css'
 
@@ -422,7 +425,10 @@ function SwipeableBalanceCard({
           }}
         >
           {overCommit ? (
-            <div className="bd-action-btn bd-action-commit">清零</div>
+            <div className="bd-action-btn bd-action-commit">
+              <img className="bd-action-icon" src={iconClear} alt="" aria-hidden="true" />
+              清零
+            </div>
           ) : (
             <button
               className="bd-action-btn bd-action-clear"
@@ -431,6 +437,7 @@ function SwipeableBalanceCard({
                 closeSwipe()
               }}
             >
+              <img className="bd-action-icon" src={iconClear} alt="" aria-hidden="true" />
               清零
             </button>
           )}
@@ -528,6 +535,7 @@ function SwipeableBalanceCard({
               closeSwipe()
             }}
           >
+            <img className="bd-action-icon" src={iconEditor} alt="" aria-hidden="true" />
             修改
           </button>
           <button
@@ -537,6 +545,7 @@ function SwipeableBalanceCard({
               closeSwipe()
             }}
           >
+            <img className="bd-action-icon" src={iconDelete} alt="" aria-hidden="true" />
             删除
           </button>
         </div>

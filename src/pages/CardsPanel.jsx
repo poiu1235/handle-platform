@@ -22,10 +22,15 @@ import { suggestIconKey } from '../lib/iconMatch'
 import { useIconManifest } from '../lib/useIconManifest'
 import CardMark from '../components/CardMark'
 import { IconPickerField, useCardIconState } from '../components/IconPicker'
-import dollarIcon from '../assets/dollar.svg'
-import muteIcon from '../assets/mute.svg'
-import allMuteIcon from '../assets/all-mute.svg'
-import notificationIcon from '../assets/notification.svg'
+import moneyIcon from '../assets/icons/money.svg'
+import closeRemindIcon from '../assets/icons/close-remind.svg'
+import remindDisableIcon from '../assets/icons/remind-disable.svg'
+import remindIcon from '../assets/icons/remind.svg'
+import expandDownIcon from '../assets/icons/expand-down.svg'
+import foldUpIcon from '../assets/icons/fold-up.svg'
+import iconDelete from '../assets/icons/delete.svg'
+import iconMinus from '../assets/icons/minus.svg'
+import iconClear from '../assets/icons/clear.svg'
 import './board.css'
 
 // ============================================================
@@ -34,7 +39,9 @@ import './board.css'
 // 结算 + 全量拉取一次完成，alert 覆盖任意激活标签（z 1030，5.3）。
 // 清单三级交互：折叠卡 → 点击半展开（余额式宽样式：左滑拉删除、
 // 右滑次操作〔浅拉清零 · 到底减一〕、「展开修改」进全量详情）→
-// 全量详情（次数 / 续费区块 + 静默 / 修改）。FAB / 建卡 / 修改 /
+// 全量详情（次数 / 续费区块 + 静默 / 修改）。折叠⇄半展开是同一常驻实例上的
+// expanded 切换，带"从小变大"动效（照抄余额 SwipeableBalanceCard，见 CardRow）。
+// FAB / 建卡 / 修改 /
 // 删除弹窗仅在标签激活时渲染。样式见 ./board.css（cd- 前缀，复用 bd- 体系）。
 // v3.2（2026-09-05）图标体系：cards.icon_key 落库（null = 按卡名自动匹配），
 // 卡背景换 icon 主色渐变（cardBgStyle / iconColor.js，对齐余额），半展开卡
@@ -75,14 +82,15 @@ function Toggle({ checked, disabled, onChange, label }) {
   )
 }
 
-// 卡名旗标（2026-09-02 起改用 assets 设计稿 SVG）：
-// 自动续费 = dollar.svg；静默三态 = notification.svg（提醒中）/ mute.svg（周期）/ all-mute.svg（永久）
+// 卡名旗标（2026-09-06 起换用 assets/icons 设计稿 SVG）：
+// 自动续费 = money.svg；静默三态 = remind.svg（提醒中）/ remind-disable.svg（本周期）/ close-remind.svg（永久）
 function AutoRenewIcon() {
-  return <img className="cd-flag-img" src={dollarIcon} alt="" aria-hidden="true" />
+  return <img className="cd-flag-img" src={moneyIcon} alt="" aria-hidden="true" />
 }
 
 function MuteStateIcon({ muted }) {
-  const src = muted === 'cycle' ? muteIcon : muted === 'forever' ? allMuteIcon : notificationIcon
+  const src =
+    muted === 'cycle' ? remindDisableIcon : muted === 'forever' ? closeRemindIcon : remindIcon
   return <img className="cd-flag-img" src={src} alt="" aria-hidden="true" />
 }
 
@@ -183,10 +191,22 @@ const USED_UP_NOTICE =
   '次数已清零 · 卡将沉底不再提醒；若订阅仍在续，下个周期会自动恢复次数——想让卡停止续费，请关闭自动续费（续费区块开关）'
 const usedUpNotice = (row) => (row.auto_renew ? USED_UP_NOTICE : null)
 
-function SemiExpandedCardRow({
+// ---------- 会员卡行（折叠 ⇄ 半展开同一实例：5.4 三级交互的前两级） ----------
+//
+// 与余额 SwipeableBalanceCard 同构：折叠/半展开不是两个重挂载的组件，而是同一
+// 常驻实例上的 expanded 状态（2026-09-06 裁定）——点击卡片时标题字号/图标尺寸/
+// 卡片内边距靠 CSS transition "从小变大"。两个状态的渲染结构：标题恒 22px
+// 字号 + transform: scale() + name-box 宽度占位（同余额）；图标用 CardMark 的
+// size 模式直接按目标 px 渲染（折叠 20 / 半展开 20~28，img 元素尺寸 = 目标
+// 尺寸，"从小变大"由内联宽高过渡承担——不动余额稳定版的 .bd-card-icon 裁切
+// 结构）。全量详情（第三级）仍是独立组件，切换即重挂载、无此动效。
+function CardRow({
   view,
+  expanded,
   stackIndex,
+  stackTotal,
   iconKey,
+  onToggleExpand,
   onDelete,
   onClear,
   onDecrement,
@@ -263,6 +283,7 @@ function SemiExpandedCardRow({
   }, [row.name])
 
   useLayoutEffect(() => {
+    if (!expanded) return // 只在展开态测可用宽度/算比例；收起时保留上次结果（照抄余额）
     const mainEl = semiMainRef.current
     const measureEl = semiMeasureRef.current
     const flagsEl = nameFlagsRef.current
@@ -296,24 +317,43 @@ function SemiExpandedCardRow({
     return () => observer.disconnect()
     // 旗标的出现/消失（静默循环、续费开关）改变"固定占用"宽度，也要触发重算；
     // ref 随条件渲染 detach/attach，重跑 effect 才能重新 observe
-  }, [hasIconImage, row.name, view.muted, row.auto_renew])
+  }, [expanded, hasIconImage, row.name, view.muted, row.auto_renew])
 
-  // 把 titleScale 换算成渲染要用的四个数字（公式与余额一致，档位不同）。
-  // 注意 scale 的基准是 .bd-card-icon 的 CSS 尺寸（恒 40px），不是会员档位的
-  // 最大值 28——否则缩放后的图比外框大，会从左上角开始被裁掉
-  const nameFontTarget = 17 + 5 * titleScale
+  // 把 titleScale 换算成渲染要用的数字（公式与余额一致，档位不同）。
+  // 标题用 transform: scale（文字重排滞后问题，同余额稳定版）；图标是图片，
+  // 用 CardMark 的 size 模式直接按目标 px 渲染 img——元素尺寸 = 目标尺寸
+  // （2026-09-06 裁定：会员侧 img 元素不允许恒 40×40），"从小变大"由 CardMark
+  // 内联的 width/height 过渡承担，不影响余额依赖的 .bd-card-icon CSS 结构。
+  // 折叠态给固定小档（字号 15 / 图标 20），观感与旧折叠卡一致。
+  const nameFontTarget = expanded ? 17 + 5 * titleScale : 15
   const nameScale = nameFontTarget / 22
-  const iconSizeTarget = hasIconImage ? 20 + 8 * titleScale : 20
-  const iconScale = hasIconImage ? iconSizeTarget / 40 : 1
-  const iconOuterWidth = hasIconImage ? 40 * iconScale : 8
+  const iconSizeTarget = expanded && hasIconImage ? 20 + 8 * titleScale : 20
+  const iconOuterWidth = hasIconImage ? iconSizeTarget : 8
   const iconMarginRight = hasIconImage ? 8 : 9
   // 正常情况外层宽度 = 自然宽度 × 比例；titleScale 钳到 0 还放不下时夹到剩余
-  // 可用宽度，把多出来的部分交给 .bd-card-name 自带的 ellipsis 截断（同余额兜底）
+  // 可用宽度，把多出来的部分交给 .bd-card-name 自带的 ellipsis 截断（同余额兜底）。
+  // 折叠态无挤压需求，直接用理想宽度（超长由 flex 收缩 + ellipsis 兜底）
   const nameIdealWidth = nameNaturalWidth * nameScale
-  const nameOuterWidth = Math.min(
-    nameIdealWidth,
-    Math.max(0, mainAvailableWidth - iconOuterWidth - iconMarginRight)
-  )
+  const nameOuterWidth = expanded
+    ? Math.min(nameIdealWidth, Math.max(0, mainAvailableWidth - iconOuterWidth - iconMarginRight))
+    : nameIdealWidth
+
+  // 展开滚动定位 + 收起时复位拖动状态（照抄余额 SwipeableBalanceCard）
+  useEffect(() => {
+    if (expanded) {
+      rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } else {
+      if (momentumFrame.current) {
+        cancelAnimationFrame(momentumFrame.current)
+        momentumFrame.current = null
+      }
+      drag.current.animating = false
+      setOpenDir(null)
+      dragXRef.current = 0
+      setDragX(0)
+      drag.current.moved = false
+    }
+  }, [expanded])
 
   function animateMomentum(fromX, toX, velocity) {
     if (momentumFrame.current) cancelAnimationFrame(momentumFrame.current)
@@ -360,7 +400,7 @@ function SemiExpandedCardRow({
   }
 
   function handlePointerDown(e) {
-    if (drag.current.committing) return
+    if (!expanded || drag.current.committing) return
     // 卡内按钮（展开修改 / 静音）放行点击，不启动拖动
     if (e.target.closest('button')) return
     if (momentumFrame.current) {
@@ -447,18 +487,23 @@ function SemiExpandedCardRow({
       closeSwipe()
       return
     }
-    onCollapse(row.id) // 再点一下收回折叠态（三级：折叠 → 半展开 → 全量详情）
+    // 展开态再点收回折叠；折叠态点开半展开（toggleSemiExpand 同时承担开/关）
+    if (expanded) onCollapse(row.id)
+    else onToggleExpand(row.id)
   }
 
   const sideInfo = collapsedInfo(view)
+  const stackZIndex = expanded ? 1000 : (stackTotal ?? 0) - (stackIndex ?? 0)
+  const sunkClass =
+    view.sunkReason === 'expired' ? 'cd-sunk-expired' : view.sunkReason === 'used_up' ? 'cd-sunk-usedup' : ''
 
   return (
     <div
       ref={rowRef}
-      className="bd-row bd-row-expanded cd-semi-row"
-      style={{ zIndex: 1000, '--stagger': stackIndex }}
+      className={`bd-row ${expanded ? 'bd-row-expanded cd-semi-row' : 'bd-row-collapsed'}`}
+      style={{ zIndex: stackZIndex, '--stagger': stackIndex }}
     >
-      {canSwipeSessions && (
+      {expanded && canSwipeSessions && (
         <div
           className="bd-actions bd-actions-left"
           style={{
@@ -467,7 +512,10 @@ function SemiExpandedCardRow({
           }}
         >
           {overCommit ? (
-            <div className="bd-action-btn bd-action-commit">清零</div>
+            <div className="bd-action-btn bd-action-commit">
+              <img className="bd-action-icon" src={iconClear} alt="" aria-hidden="true" />
+              清零
+            </div>
           ) : (
             <button
               type="button"
@@ -477,6 +525,7 @@ function SemiExpandedCardRow({
                 closeSwipe()
               }}
             >
+              <img className="bd-action-icon" src={iconMinus} alt="" aria-hidden="true" />
               减一
             </button>
           )}
@@ -484,7 +533,7 @@ function SemiExpandedCardRow({
       )}
 
       <div
-        className={`bd-card bd-card-expanded cd-semi-card${view.sunkReason ? (view.sunkReason === 'expired' ? ' cd-sunk-expired' : ' cd-sunk-usedup') : ''}${
+        className={`bd-card ${expanded ? 'bd-card-expanded' : 'bd-card-collapsed'} cd-semi-card ${sunkClass}${
           rightPanelWidth > 0 ? ' bd-card-seam-right' : leftPanelWidth > 0 ? ' bd-card-seam-left' : ''
         }`}
         style={view.sunkReason ? undefined : cardBgStyle(iconKey, colorForCard(row.id))}
@@ -497,11 +546,9 @@ function SemiExpandedCardRow({
         <div className="cd-semi-main" ref={semiMainRef} style={{ opacity: valueOpacity }}>
           <div className="cd-name-line">
             <div className="bd-card-title-row">
-              <CardMark
-                iconKey={iconKey}
-                boxSize={hasIconImage ? iconOuterWidth : undefined}
-                scale={hasIconImage ? iconScale : undefined}
-              />
+              {/* size 模式：img 元素尺寸 = 目标尺寸（折叠 20 / 半展开 20~28），
+                  宽高过渡承担折叠⇄半展开的"从小变大"动效 */}
+              <CardMark iconKey={iconKey} size={hasIconImage ? iconOuterWidth : undefined} />
               <span className="bd-card-name-box" style={{ width: nameOuterWidth }}>
                 <p
                   className="bd-card-name"
@@ -518,24 +565,29 @@ function SemiExpandedCardRow({
             </div>
             <CardNameFlags view={view} onCycleMute={onCycleMute} ref={nameFlagsRef} />
           </div>
-          <p className="cd-semi-meta">{dotDate(row.start_date)} − {dotDate(row.end_date)}</p>
-          <p className="cd-semi-renew">
-            {row.auto_renew ? (
-              <>
-                <span className="cd-tag">续费中</span>
-                <span>
-                  {row.period_days != null
-                    ? `每 ${row.period_days} 天`
-                    : CYCLE_LABEL[row.billing_cycle] || ''}
-                  {row.next_billing_date ? ` · ${shortDate(row.next_billing_date)} 扣款` : ''}
-                </span>
-              </>
-            ) : (
-              <span>未开自动续费</span>
-            )}
-          </p>
+          {expanded && (
+            <p className="cd-semi-meta">{dotDate(row.start_date)} − {dotDate(row.end_date)}</p>
+          )}
+          {expanded && (
+            <p className="cd-semi-renew">
+              {row.auto_renew ? (
+                <>
+                  <span className="cd-tag">续费中</span>
+                  <span>
+                    {row.period_days != null
+                      ? `每 ${row.period_days} 天`
+                      : CYCLE_LABEL[row.billing_cycle] || ''}
+                    {row.next_billing_date ? ` · ${shortDate(row.next_billing_date)} 扣款` : ''}
+                  </span>
+                </>
+              ) : (
+                <span>未开自动续费</span>
+              )}
+            </p>
+          )}
           {/* 视觉上完全隐藏、脱离文档流：量"卡名在最大字号（22px）下本来需要多宽"，
-              不影响布局（同余额 SwipeableBalanceCard 的测量节点） */}
+              不影响布局（同余额 SwipeableBalanceCard 的测量节点）。折叠态也要用
+              （折叠标题宽 = 自然宽度 × 15/22），所以两个状态常驻渲染 */}
           <span
             ref={semiMeasureRef}
             aria-hidden="true"
@@ -555,7 +607,7 @@ function SemiExpandedCardRow({
           </span>
         </div>
 
-        {canSwipeSessions && hintOpacity > 0 && (
+        {expanded && canSwipeSessions && hintOpacity > 0 && (
           <div className="cd-dec-hint" style={{ opacity: hintOpacity }} aria-hidden="true">
             <span className="cd-dec-hint-fill" style={{ width: `${hintFill * 100}%` }} />
             <span className="cd-dec-hint-text">拉到底 · 清空次数</span>
@@ -563,9 +615,23 @@ function SemiExpandedCardRow({
         )}
 
         {/* 右滑（dragX > 0）时整块隐藏：槽位与「展开修改」按钮不再与提示蒙层
-            重叠、也不随卡滑出可视区；左滑/静止时照常显示 */}
-        {dragX <= 0 && (
+            重叠、也不随卡滑出可视区；左滑/静止时照常显示。
+            布局（2026-09-06 裁定）：展开按钮换成图标放右上角，剩余次数/天数等
+            槽位信息移到按钮下方，纵向排列不再并排 */}
+        {expanded && dragX <= 0 && (
           <div className="cd-semi-side">
+            <button
+              type="button"
+              className="cd-expand-btn"
+              aria-label="展开修改"
+              title="展开修改"
+              onClick={(e) => {
+                e.stopPropagation()
+                onFullyExpand(row.id)
+              }}
+            >
+              <img className="cd-expand-icon" src={expandDownIcon} alt="" aria-hidden="true" />
+            </button>
             <div className="cd-side-slots">
               <div className="cd-side-row">
                 {sideInfo.count && <span className="cd-side-count">{sideInfo.count}</span>}
@@ -581,20 +647,30 @@ function SemiExpandedCardRow({
                 </span>
               )}
             </div>
-            <button
-              type="button"
-              className="cd-expand-btn"
-              onClick={(e) => {
-                e.stopPropagation()
-                onFullyExpand(row.id)
-              }}
-            >
-              展开修改
-            </button>
+          </div>
+        )}
+
+        {/* 折叠态：仅双槽侧栏（半展开态的槽位移入 cd-semi-side，跟随展开按钮） */}
+        {!expanded && (
+          <div className="cd-side-slots">
+            <div className="cd-side-row">
+              {sideInfo.count && <span className="cd-side-count">{sideInfo.count}</span>}
+              <span className="cd-side-main">{sideInfo.main}</span>
+            </div>
+            {sideInfo.tags.length > 0 && (
+              <span className="cd-side-tags">
+                {sideInfo.tags.map((t) => (
+                  <span className="cd-tag" key={t.key}>
+                    {t.text}
+                  </span>
+                ))}
+              </span>
+            )}
           </div>
         )}
       </div>
 
+      {expanded && (
       <div
         className="bd-actions bd-actions-right"
         style={{
@@ -610,61 +686,11 @@ function SemiExpandedCardRow({
             closeSwipe()
           }}
         >
+          <img className="bd-action-icon" src={iconDelete} alt="" aria-hidden="true" />
           删除
         </button>
       </div>
-    </div>
-  )
-}
-
-// ---------- 折叠卡（5.4） ----------
-
-function CardRow({ view, iconKey, stackIndex, stackTotal, onToggleExpand, onCycleMute }) {
-  const { row } = view
-  const info = collapsedInfo(view)
-  const zIndex = (stackTotal ?? 0) - (stackIndex ?? 0)
-  const sunkClass =
-    view.sunkReason === 'expired' ? 'cd-sunk-expired' : view.sunkReason === 'used_up' ? 'cd-sunk-usedup' : ''
-
-  return (
-    <div className="bd-row bd-row-collapsed" style={{ zIndex, '--stagger': stackIndex }}>
-      <div
-        className={`bd-card bd-card-collapsed ${sunkClass}`}
-        style={view.sunkReason ? undefined : cardBgStyle(iconKey, colorForCard(row.id))}
-        onClick={() => onToggleExpand(row.id)}
-      >
-        <div className="bd-card-main">
-          <div className="cd-name-line">
-            {/* 折叠态无缩放：图标固定 20px（bd-card-icon 恒 40px，scale 相对 40
-                缩到位，框 = 40 × scale），卡名走 15px 基础字号 + flex 收缩省略 */}
-            <div className="bd-card-title-row">
-              <CardMark
-                iconKey={iconKey}
-                boxSize={iconKey ? 20 : undefined}
-                scale={iconKey ? 20 / 40 : undefined}
-              />
-              <p className="bd-card-name">{view.row.name}</p>
-            </div>
-            <CardNameFlags view={view} onCycleMute={onCycleMute} />
-          </div>
-        </div>
-        {/* 双槽侧栏：左 = 剩余次数（仅次卡），右 = 剩余天数——列表按天数右对齐 */}
-        <div className="cd-side-slots">
-          <div className="cd-side-row">
-            {info.count && <span className="cd-side-count">{info.count}</span>}
-            <span className="cd-side-main">{info.main}</span>
-          </div>
-          {info.tags.length > 0 && (
-            <span className="cd-side-tags">
-              {info.tags.map((t) => (
-                <span className="cd-tag" key={t.key}>
-                  {t.text}
-                </span>
-              ))}
-            </span>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   )
 }
@@ -909,16 +935,26 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
     >
       <div className="cd-detail">
         <div className="cd-detail-head" onClick={onCollapse}>
-          {/* 详情是终点层级：图标固定 22px（scale 相对 40 的 CSS 尺寸缩到位）、
-              卡名固定 18px，不参与缩放（CSS 见 .cd-detail-head 段） */}
+          {/* 详情是终点层级：图标固定 22px（size 模式直接渲染）、卡名固定 18px，
+              不参与缩放（CSS 见 .cd-detail-head 段） */}
           <div className="bd-card-title-row">
-            <CardMark
-              iconKey={iconKey}
-              boxSize={iconKey ? 22 : undefined}
-              scale={iconKey ? 22 / 40 : undefined}
-            />
+            <CardMark iconKey={iconKey} size={iconKey ? 22 : undefined} />
             <p className="bd-card-name">{view.row.name}</p>
           </div>
+          {/* 完全展开态的收缩按钮（2026-09-06 裁定）：与半展开的展开按钮同一
+              位置同一视觉语言，图标换成 fold-up，点击回落半展开（与点头部同义） */}
+          <button
+            type="button"
+            className="cd-fold-btn"
+            aria-label="收起"
+            title="收起"
+            onClick={(e) => {
+              e.stopPropagation()
+              onCollapse()
+            }}
+          >
+            <img className="cd-expand-icon" src={foldUpIcon} alt="" aria-hidden="true" />
+          </button>
         </div>
 
         <div className="cd-meta">
@@ -1996,7 +2032,7 @@ export default function CardsPanel({ active, onActivate }) {
   // 先收回半展开再发 PATCH：清零后卡变"已用完"会沉底挪到列表尾部——若组件
   // 仍以半展开态挂载着飞出动画的残留 dragX（主内容/槽位 opacity=0、沉底无记录色），
   // 会在列表底部渲染出一张只剩「展开修改」按钮的白卡（2026-09-02 实测）。
-  // 收回时机在右滑飞出动画结束之后（由 SemiExpandedCardRow 的提交超时调进来），
+  // 收回时机在右滑飞出动画结束之后（由 CardRow 展开态的提交超时调进来），
   // 动画完整、鬼影无从出现
   function clearSessionsFromSemi(row) {
     setOpenId(null)
@@ -2210,30 +2246,22 @@ export default function CardsPanel({ active, onActivate }) {
                   </ExpandedCardRow>
                 )
               }
-              if (openId === v.row.id) {
-                return (
-                  <SemiExpandedCardRow
-                    key={v.row.id}
-                    view={v}
-                    iconKey={iconKeyById[v.row.id]}
-                    stackIndex={idx}
-                    onDelete={(row) => setDeleteTarget(row)}
-                    onClear={clearSessionsFromSemi}
-                    onDecrement={decrementSessionsFromSemi}
-                    onFullyExpand={openFullDetail}
-                    onCollapse={toggleSemiExpand}
-                    onCycleMute={cycleCardMute}
-                  />
-                )
-              }
+              // 折叠 ⇄ 半展开 = 同一常驻实例上的 expanded 切换（"从小变大"动效，
+              // 见 CardRow 注释）；仅全量详情（上方分支）是独立组件重挂载
               return (
                 <CardRow
                   key={v.row.id}
                   view={v}
+                  expanded={openId === v.row.id}
                   iconKey={iconKeyById[v.row.id]}
                   stackIndex={idx}
                   stackTotal={visible.length}
                   onToggleExpand={toggleSemiExpand}
+                  onDelete={(row) => setDeleteTarget(row)}
+                  onClear={clearSessionsFromSemi}
+                  onDecrement={decrementSessionsFromSemi}
+                  onFullyExpand={openFullDetail}
+                  onCollapse={toggleSemiExpand}
                   onCycleMute={cycleCardMute}
                 />
               )

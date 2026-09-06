@@ -564,11 +564,12 @@
   flex: 1 1 0%;
 }
 
-/* 标题一行：图标盒子 + 标题盒子横排。图标盒子/标题盒子是"占位 + 裁切"用的
-   外层容器，尺寸走普通数字 width/height 过渡；真正的图标 <img> 和标题 <p>
-   永远按各自的最大号（40px / 30px）排版，"从小变大"改用 transform: scale()，
-   不再对 font-size / width / height 本身做过渡——WebKit 就没有"字号在动、
-   排版结果没跟上"这类滞后可言了，具体诊断过程见改造前的排查记录。 */
+/* 标题一行：图标盒子 + 标题盒子横排（余额稳定版结构）。图标盒子/标题盒子是
+   "占位 + 裁切"用的外层容器，尺寸走普通数字 width/height 过渡；真正的图标
+   <img> 和标题 <p> 永远按各自的最大号排版，"从小变大"用 transform: scale()。
+   会员侧例外见 CardMark 的 size 模式：会员不用图标盒子，img 直接按目标 px
+   渲染、内联宽高过渡（2026-09-06 裁定：会员 img 元素不允许恒 40×40），
+   标题部分两页一致。 */
 .bd-card-title-row {
   display: flex;
   align-items: center;
@@ -576,11 +577,41 @@
 }
 
 .bd-card-icon-box {
+  position: relative;
   display: inline-block;
   flex: none;
   overflow: hidden;
+  /* 与 .bd-card-icon 的圆角比例保持一致，这样下面 ::after 高光层才能被
+     正确裁成同样的圆角形状（overflow: hidden 按自身 border-radius 裁切）。 */
+  border-radius: 25%;
   margin-right: 8px;
-  transition: width 0.32s var(--bd-ease), height 0.32s var(--bd-ease);
+  transition: width 0.32s var(--bd-ease), height 0.32s var(--bd-ease), box-shadow 0.32s var(--bd-ease);
+  /* 图标与卡片背景经常撞色（比如绿色图标配绿色渐变卡），单靠色相区分不出来。
+     这里给图标本身叠一层柔和的投影，让它像"浮"在卡片表面上一样——
+     区分靠的是明暗（图标下方压暗一圈），不是靠一圈实色边框。 */
+  box-shadow:
+    0 3px 8px rgba(1, 15, 28, 0.22),
+    0 1px 2px rgba(1, 15, 28, 0.16);
+}
+
+/* 左上→右下的斜向明暗层：左上打亮、中段回落、右下微微压暗，
+   让图标本身也有一点"体积感"——跟上面的外部投影一起，
+   用明暗对比而不是描边，把图标从任何底色的卡片背景里"托"出来。
+   跟随 icon-box 一起缩放/裁切，展开折叠状态观感一致。 */
+.bd-card-icon-box::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.8) 0%,
+    rgba(255, 255, 255, 0.35) 28%,
+    rgba(255, 255, 255, 0) 50%,
+    rgba(1, 15, 28, 0.05) 72%,
+    rgba(1, 15, 28, 0.15) 100%
+  );
+  pointer-events: none;
 }
 
 .bd-card-name-box {
@@ -633,14 +664,10 @@
   background: rgba(255, 255, 255, 0.4);
   transform-origin: top left;
   transition: transform 0.32s var(--bd-ease);
-  /* 苹果风格的"高光边"：不是描一圈实色边框，而是左上一道亮、右下一道更淡的亮，
-     像有一束光从左上打过来，图标边缘被照出一层釉面质感——比纯黑框更"高级"，
-     也不会跟卡片渐变背景的颜色打架。中间再叠一圈极淡的白边兜底，
-     保证图标在任何色系背景上都有清晰的轮廓分界。 */
-  box-shadow:
-    -0.5px -0.5px 1.5px rgba(255, 255, 255, 0.95),
-    0.5px 0.5px 1.5px rgba(255, 255, 255, 0.45),
-    0 0 0 1px rgba(255, 255, 255, 0.3);
+  /* 主高光已经改由 .bd-card-icon-box::after 的斜向渐变负责（见上方），
+     这里只保留一圈极淡的内嵌白边收尾，保证图标在任何色系背景上都有
+     清晰但不突兀的轮廓分界，不再单独描边式地"高级感"。 */
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 
 .bd-card-meta {
@@ -709,14 +736,24 @@
   flex: 1;
   min-width: 66px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   border: none;
   color: #ffffff;
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
   transition: filter 0.15s ease;
+}
+
+.bd-action-icon {
+  width: 20px;
+  height: 20px;
+  /* 图标素材是深色/单色 svg，用滤镜统一转成白色，跟按钮背景色配合 */
+  filter: brightness(0) invert(1);
+  pointer-events: none;
 }
 
 .bd-action-btn:hover {
@@ -1793,26 +1830,43 @@
 .cd-semi-side {
   flex: none;
   display: flex;
-  align-items: center;
+  /* 纵向排列（2026-09-06 裁定）：展开按钮贴右上角，剩余次数/天数等槽位
+     信息紧跟在按钮正下方（flex-start，不沉底）——不再与按钮并排。
+     align-self: stretch 让本列撑满卡片内容高度供按钮对齐上缘 */
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-start;
+  align-self: stretch;
   gap: 8px;
 }
 
-.cd-expand-btn {
+/* 展开 / 收起图标按钮（半展开右上角 expand-down；全量详情 fold-up 负责收缩）：
+   圆形白底，与静默按钮同一视觉语言 */
+.cd-expand-btn,
+.cd-fold-btn {
   flex: none;
-  padding: 8px 14px;
-  border: 1px solid rgba(26, 26, 26, 0.25);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.6);
-  color: var(--au-text);
-  font-size: 12px;
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
   cursor: pointer;
-  white-space: nowrap;
   transition: background 0.15s ease;
 }
 
-.cd-expand-btn:hover {
+.cd-expand-btn:hover,
+.cd-fold-btn:hover {
   background: rgba(255, 255, 255, 0.95);
+}
+
+.cd-expand-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 /* 沉底卡的摘要行同步压灰（5.4：两种沉底必须文字可辨，不只靠颜色） */
@@ -1868,7 +1922,9 @@
 
 .cd-detail-head {
   display: flex;
-  align-items: baseline;
+  /* center：右侧是收起图标按钮（.cd-fold-btn），与标题行垂直居中对齐
+     （原先 baseline 只对着纯文字标题） */
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   cursor: pointer;
