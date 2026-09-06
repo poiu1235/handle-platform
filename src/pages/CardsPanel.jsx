@@ -299,7 +299,7 @@ function CardRow({
     // +2px 缓冲：offsetWidth 会把亚像素宽度取整/截断，哪怕只差 0.x px，
     // text-overflow: ellipsis 也会触发截断（把最后一个字换成省略号），
     // 这个缓冲用来吸收这种取整误差，不是为了留视觉空白（同余额修复）
-    setNameNaturalWidth(measureEl.offsetWidth + 2)
+    setNameNaturalWidth(measureEl.offsetWidth + 3)
 
     // 挂载这一刻的布局/字体应用有时还没完全稳定，测出来的宽度会偏小；
     // 在下一帧补测一次覆盖掉首次结果——不管卡在字体、布局还是别的环节，
@@ -330,7 +330,7 @@ function CardRow({
       const available = mainEl.clientWidth - reservedWidth
       // 同样 +2px 缓冲，理由跟折叠态那处一致——两处必须保持同一套缓冲量，
       // 否则展开/折叠之间对"标题需要多宽"的判断会不一致（同余额修复）
-      const naturalTextWidth = measureEl.offsetWidth + 2
+      const naturalTextWidth = measureEl.offsetWidth + 3
       // 没有图标图片、退化成菱形标记的卡：菱形固定 8px 不参与缩放，可变范围为 0
       const iconMin = hasIconImage ? 20 : 8
       const iconMax = hasIconImage ? 40 : 8
