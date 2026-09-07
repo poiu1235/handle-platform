@@ -1657,7 +1657,7 @@ function CardAddModal({ today, onClose, onCreated }) {
             />
           </div>
           <div className="bd-field">
-            <label>{renewOn ? '终止日（= 扣款日）' : '终止日（不填 = 最长2年）'}</label>
+            <label>{renewOn ? '终止日（= 扣款日）' : '终止日（空 = 最长2年）'}</label>
             <input
               type="date"
               value={renewOn ? billingDate : endDate}
