@@ -1329,7 +1329,7 @@ function CardsEntryAlert({ views, iconKeyById, onMute, onOpenCard, onClose }) {
     <div className="bd-modal-backdrop cd-alert-backdrop" onClick={onClose}>
       <div className="bd-modal-card cd-alert-card" onClick={(e) => e.stopPropagation()}>
         <div className="bd-modal-head">
-          <h2 className="cd-alert-title">有 {ordered.length} 张卡需要注意</h2>
+          <h2 className="cd-alert-title">有 {ordered.length} 张会员权益需要留意</h2>
         </div>
         <div className="bd-modal-scroll">
           <div className="cd-alert-list">
