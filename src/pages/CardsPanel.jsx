@@ -79,6 +79,9 @@ function cardBgStyle(iconKey, fallbackColor) {
     // 用滤镜跟随标题的对比度裁定（同标题：背景暗 → 翻白，背景亮 → 保持深色）。
     // chooseTextColor 的返回口径：翻白时 nameColor 恒为字面量 '#ffffff'
     '--cd-flag-filter': nameColor === '#ffffff' ? 'brightness(0) invert(1)' : 'none',
+    // 无 icon 兜底小圆点（.bd-card-mark）的圈内颜色——用这张卡自己的哈希强调色
+    // （colorForCard 传进来的 fallbackColor），跟卡片背景同一个色源，不是文字色
+    '--bd-mark-color': fallbackColor,
   }
 }
 
@@ -299,7 +302,7 @@ function CardRow({
     // +2px 缓冲：offsetWidth 会把亚像素宽度取整/截断，哪怕只差 0.x px，
     // text-overflow: ellipsis 也会触发截断（把最后一个字换成省略号），
     // 这个缓冲用来吸收这种取整误差，不是为了留视觉空白（同余额修复）
-    setNameNaturalWidth(measureEl.offsetWidth + 3)
+    setNameNaturalWidth(measureEl.offsetWidth + 0)
 
     // 挂载这一刻的布局/字体应用有时还没完全稳定，测出来的宽度会偏小；
     // 在下一帧补测一次覆盖掉首次结果——不管卡在字体、布局还是别的环节，
@@ -330,7 +333,7 @@ function CardRow({
       const available = mainEl.clientWidth - reservedWidth
       // 同样 +2px 缓冲，理由跟折叠态那处一致——两处必须保持同一套缓冲量，
       // 否则展开/折叠之间对"标题需要多宽"的判断会不一致（同余额修复）
-      const naturalTextWidth = measureEl.offsetWidth + 3
+      const naturalTextWidth = measureEl.offsetWidth + 0
       // 没有图标图片、退化成菱形标记的卡：菱形固定 8px 不参与缩放，可变范围为 0
       const iconMin = hasIconImage ? 20 : 8
       const iconMax = hasIconImage ? 40 : 8
@@ -1317,7 +1320,7 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
 // 提醒；非续费卡两态），且点击**不关闭弹窗**——原地循环可逆，直到用户点条目
 // 或「知道了」。静默后的卡保留在列表中（带静默标注），可再点回来。
 
-function CardsEntryAlert({ views, onMute, onOpenCard, onClose }) {
+function CardsEntryAlert({ views, iconKeyById, onMute, onOpenCard, onClose }) {
   // 条目顺序在弹窗打开时冻结（修订 2026-09-03）：静默/恢复只变状态与标注，
   // 不重排、不沉底——排序键（剩余天数）在静默后会失效，不能跟随实时视图重算
   const [orderIds] = useState(() => views.map((v) => v.row.id))
@@ -1330,9 +1333,27 @@ function CardsEntryAlert({ views, onMute, onOpenCard, onClose }) {
         </div>
         <div className="bd-modal-scroll">
           <div className="cd-alert-list">
-            {ordered.map((v) => (
-              <div key={v.row.id} className="cd-alert-item" onClick={() => onOpenCard(v.row.id)}>
-                <span className="cd-alert-dot" style={{ background: colorForCard(v.row.id) }} />
+            {ordered.map((v) => {
+              // 卡名前的标记恒用 CardMark 渲染（有图标 → 28px 图标框；没有/未
+              // 匹配 → 组件内部自动回退成小圆点，见 CardMark.jsx）——统一走
+              // 同一个固定宽度的外层容器（.cd-alert-icon），保证有无图标的两
+              // 行名称/标签文字左边对齐，不会一行缩进一行不缩进
+              const iconKey = iconKeyById?.[v.row.id]
+              // 条目背景同卡片列表一套规则（cardBgStyle）：有 icon → 按 icon
+              // 主色配渐变；没有 → 退回该卡的哈希色（colorForCard）。连带算出
+              // 的 --bd-card-name-color / --bd-mark-color 一起用在下面，标题
+              // 字色、圆点圈色都跟着这个背景的明暗走，不用再单独判断
+              const itemStyle = cardBgStyle(iconKey, colorForCard(v.row.id))
+              return (
+              <div
+                key={v.row.id}
+                className="cd-alert-item"
+                style={itemStyle}
+                onClick={() => onOpenCard(v.row.id)}
+              >
+                <span className="cd-alert-icon">
+                  <CardMark iconKey={iconKey} size={28} />
+                </span>
                 <div className="cd-alert-main">
                   <p className="cd-alert-name">{v.row.name}</p>
                   <div className="cd-alert-tags">
@@ -1354,7 +1375,8 @@ function CardsEntryAlert({ views, onMute, onOpenCard, onClose }) {
                   <MuteCycleButton view={v} onCycle={onMute} className="cd-alert-mute-icon" />
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
         <div className="bd-modal-foot">
@@ -2218,6 +2240,7 @@ export default function CardsPanel({ active, onActivate }) {
       {showAlert && (
         <CardsEntryAlert
           views={candidateViews}
+          iconKeyById={iconKeyById}
           onMute={cycleCardMute}
           onOpenCard={openCardFromAlert}
           onClose={dismissAlert}

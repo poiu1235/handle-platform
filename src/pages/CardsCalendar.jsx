@@ -176,7 +176,9 @@ function FilterDropdown({ views, selectedIds, onToggle, onSetAll, iconKeyById })
                     disabled={!checked && atCap}
                     onChange={() => onToggle(v.row.id)}
                   />
-                  {/* 有 icon 裸放不加底色；无 icon 用记录色芯片 + 小菱形 */}
+                  {/* 有 icon 裸放不加底色；无 icon 用记录色芯片 + 小圆点——圆点圈内
+                      颜色（--bd-mark-color）跟芯片背景同一个色源（colorForCard），
+                      不再让 currentColor 顶上 .cd-icon-chip 写死的 #1a1a1a */}
                   {iconKey ? (
                     <img
                       className="cd-cal-filter-item-icon"
@@ -184,7 +186,13 @@ function FilterDropdown({ views, selectedIds, onToggle, onSetAll, iconKeyById })
                       alt=""
                     />
                   ) : (
-                    <span className="cd-icon-chip" style={{ background: colorForCard(v.row.id) }}>
+                    <span
+                      className="cd-icon-chip"
+                      style={{
+                        background: colorForCard(v.row.id),
+                        '--bd-mark-color': colorForCard(v.row.id),
+                      }}
+                    >
                       <span className="bd-card-mark" />
                     </span>
                   )}

@@ -13,8 +13,7 @@
   --rust: #a3402a;
   --rust-soft: #f1ddd6;
 
-  --font-body: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-
+  --bd-font: 'PT Sans', 'LXGW WenKai', -apple-system, 'PingFang SC', 'Microsoft YaHei', 'HarmonyOS Sans SC', sans-serif;
   color-scheme: light;
 }
 
@@ -32,7 +31,7 @@ body {
   margin: 0;
   background-size: 100% 2.4rem;
   color: var(--ink);
-  font-family: var(--font-body);
+  font-family: var(--bd-font);
   -webkit-font-smoothing: antialiased;
 }
 

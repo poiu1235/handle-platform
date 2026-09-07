@@ -654,14 +654,22 @@
   font-size: 15px;
 }
 
+/* 无 icon 时的兜底小圆点（原来是菱形，2026-09-07 改成圆点：跟提醒弹窗里
+   验证过的样式统一——白色内圈 + 细描边光晕，任何底色的卡片背景上都能看清，
+   同一个类，余额页/会员列表/会员详情/日历筛选 chip 全部共用一份产出，
+   改这一处即可全站生效） */
 .bd-card-mark {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   margin-right: 9px;
-  background: currentColor;
+  border-radius: 50%;
+  /* 圈中间的颜色跟随该行卡片自己的强调色（--bd-mark-color，由各调用处用
+     colorForCard/colorFor 算出、跟卡片背景同一个色源）——没有这个变量的
+     场景（比如零余额态，直接整卡换灰底）才退回 currentColor 兜底 */
+  background: var(--bd-mark-color, currentColor);
   opacity: 0.75;
-  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85), 0 0 0 3px var(--au-border);
 }
 
 .bd-card-icon {
@@ -1535,32 +1543,47 @@
 .cd-alert-list {
   display: flex;
   flex-direction: column;
+  gap: 8px;
 }
 
+/* 条目现在各自带背景色（itemStyle，同卡片列表的 cardBgStyle：有 icon 按
+   icon 主色配渐变，没有退回该卡的哈希色），改走"一张张小卡片"的间距
+   （上面 .cd-alert-list 的 gap），不再用 border-top 当分隔线 */
 .cd-alert-item {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 12px 8px;
+  padding: 12px;
   border-radius: 12px;
   cursor: pointer;
+  box-shadow: 0 2px 6px rgba(1, 15, 28, 0.08);
+  transition: filter 0.15s ease, box-shadow 0.15s ease;
 }
 
 .cd-alert-item:hover {
-  background: var(--au-bg);
+  filter: brightness(0.97);
+  box-shadow: 0 3px 9px rgba(1, 15, 28, 0.14);
 }
 
-.cd-alert-item + .cd-alert-item {
-  border-top: 1px solid var(--au-border);
-}
-
-.cd-alert-dot {
+/* 恒定宽高的图标列（有图标是 28px 图标框，没有是内部回退的小菱形）——
+   两种内容都在这同一个盒子里居中，保证右侧名称/标签文字的左边缘对齐，
+   不会因为有无图标而错位 */
+.cd-alert-icon {
   flex: none;
-  width: 9px;
-  height: 9px;
-  margin-top: 5px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85), 0 0 0 3px var(--au-border);
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+}
+
+/* CardMark 内部两种产出都带各自模块（余额列表）用的外边距（图标框
+   margin-right:8px / 菱形 margin-right:9px）——这里都清零，让两种产出
+   都精确填满/居中在上面这个 28px 的固定列里，而不是把列往右撑宽 */
+.cd-alert-icon .bd-card-icon-box,
+.cd-alert-icon .bd-card-mark {
+  margin-right: 0;
 }
 
 .cd-alert-main {
@@ -1572,7 +1595,10 @@
   margin: 0;
   font-size: 14px;
   font-weight: 700;
-  color: var(--au-text);
+  /* 跟条目背景的明暗走：cardBgStyle 算出的 --bd-card-name-color（亮底配深字/
+     暗底配白字），没有背景色的极少数场景（理论上不会发生，兜底而已）退回
+     常规文字色 */
+  color: var(--bd-card-name-color, var(--au-text));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
