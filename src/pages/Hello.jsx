@@ -738,7 +738,7 @@ export default function Hello() {
   const [apiState, setApiState] = useState({ status: 'pending', message: '' })
 
   const [activeTab, setActiveTab] = useState('balance')
-  const [sortKey, setSortKey] = useState('time')
+  const [sortKey, setSortKey] = useState('amount')
   const [sortDir, setSortDir] = useState('desc')
 
   const [balanceItems, setBalanceItems] = useState([])
@@ -1003,16 +1003,16 @@ export default function Hello() {
         <>
           <div className="bd-sort-row">
             <button
-              className={`bd-sort-btn ${sortKey === 'time' ? 'bd-sort-btn-active' : ''}`}
-              onClick={() => toggleSort('time')}
-            >
-              按更新时间 {sortKey === 'time' && (sortDir === 'desc' ? '↓' : '↑')}
-            </button>
-            <button
               className={`bd-sort-btn ${sortKey === 'amount' ? 'bd-sort-btn-active' : ''}`}
               onClick={() => toggleSort('amount')}
             >
               按金额 {sortKey === 'amount' && (sortDir === 'desc' ? '↓' : '↑')}
+            </button>
+            <button
+              className={`bd-sort-btn ${sortKey === 'time' ? 'bd-sort-btn-active' : ''}`}
+              onClick={() => toggleSort('time')}
+            >
+              按更新时间 {sortKey === 'time' && (sortDir === 'desc' ? '↓' : '↑')}
             </button>
             <button
               className={`bd-sort-btn ${sortKey === 'name' ? 'bd-sort-btn-active' : ''}`}

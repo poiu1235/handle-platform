@@ -1322,8 +1322,11 @@ function CardDetail({ view, iconKey, today, onPatch, onNotice, onEdit, onCollaps
 
 function CardsEntryAlert({ views, iconKeyById, onMute, onOpenCard, onClose }) {
   // 条目顺序在弹窗打开时冻结（修订 2026-09-03）：静默/恢复只变状态与标注，
-  // 不重排、不沉底——排序键（剩余天数）在静默后会失效，不能跟随实时视图重算
-  const [orderIds] = useState(() => views.map((v) => v.row.id))
+  // 不重排、不沉底——排序键（剩余天数）在静默后会失效，不能跟随实时视图重算。
+  // 冻结前的初始顺序按截止日期短→长（daysToDdl 升序，最快到期的排最前）
+  const [orderIds] = useState(() =>
+    [...views].sort((a, b) => a.daysToDdl - b.daysToDdl).map((v) => v.row.id)
+  )
   const ordered = orderIds.map((id) => views.find((v) => v.row.id === id)).filter(Boolean)
   return (
     <div className="bd-modal-backdrop cd-alert-backdrop" onClick={onClose}>
