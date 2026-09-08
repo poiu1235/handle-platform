@@ -1358,7 +1358,14 @@ function CardsEntryAlert({ views, iconKeyById, onMute, onOpenCard, onClose }) {
                   <CardMark iconKey={iconKey} size={28} />
                 </span>
                 <div className="cd-alert-main">
-                  <p className="cd-alert-name">{v.row.name}</p>
+                  <div className="cd-alert-name-line">
+                    <p className="cd-alert-name">{v.row.name}</p>
+                    {v.row.auto_renew && (
+                      <span className="cd-renew-flag" title="自动续费中">
+                        <AutoRenewIcon />
+                      </span>
+                    )}
+                  </div>
                   <div className="cd-alert-tags">
                     {v.usedUp && <span className="cd-tag">已用完</span>}
                     {v.reminders.expiring && (

@@ -1603,6 +1603,30 @@
   text-overflow: ellipsis;
 }
 
+/* 标题 + 自动续费旗标同行：旗标常驻不参与截断（flex:none），标题独占
+   ellipsis 截断（flex:0 1 auto + min-width:0），跟 .cd-name-line 同一套模型 */
+.cd-alert-name-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.cd-alert-name-line .cd-alert-name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.cd-alert-name-line .cd-renew-flag {
+  flex: none;
+}
+
+/* 续费旗标跟随条目背景对比度着色（同 .cd-name-flags .cd-flag-img 逻辑）：
+   itemStyle 已经把 --cd-flag-filter 挂在 .cd-alert-item 上，这里顺着继承 */
+.cd-alert-name-line .cd-flag-img {
+  filter: var(--cd-flag-filter, none);
+}
+
 
 .cd-alert-tags {
   display: flex;
