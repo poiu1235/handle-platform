@@ -103,11 +103,16 @@ export function setEntryHandled() {
 // 进站会话（4-B37）：根组件挂载 / 同会话跨天回焦（focus）/ 可见态每 30 分钟
 // 轮询检测跨天（不可见不轮询）。由 App 根在登录态就绪后调用一次；
 // 多标签页各自独立维持（不做跨 tab 同步）；内存标志不落地存储。
+// 退出登录 = 会话结束（非"路由跳转"，见 App.jsx logout 调用 resetCardsSession）：
+// 下次登录哪怕是同一账号，也要走"首次进站"分支重新弹 alert（2026-09-08 定案）。
 // ---------------------------------------------------------------------------
 
 let sessionStarted = false
 let sessionUserId = null
 let lastSeenDate = null
+let sessionFocusHandler = null
+let sessionVisibilityHandler = null
+let sessionIntervalId = null
 
 export function initCardsSession(userId) {
   if (sessionUserId !== userId) {
@@ -126,7 +131,7 @@ export function initCardsSession(userId) {
   }
 
   if (sessionStarted) {
-    // 会话已存活（重登录）：重新拉取即可；不重置会话标志
+    // 会话已存活（同账号在本标签页内的路由级重进）：重新拉取即可；不重置会话标志
     loadCards()
     return
   }
@@ -141,14 +146,41 @@ export function initCardsSession(userId) {
     set({ today: now, entryHandled: false })
     loadCards()
   }
-  const onVisibility = () => {
+  sessionFocusHandler = checkDay
+  sessionVisibilityHandler = () => {
     if (document.visibilityState === 'visible') checkDay()
   }
-  window.addEventListener('focus', checkDay)
-  document.addEventListener('visibilitychange', onVisibility)
-  window.setInterval(() => {
+  window.addEventListener('focus', sessionFocusHandler)
+  document.addEventListener('visibilitychange', sessionVisibilityHandler)
+  sessionIntervalId = window.setInterval(() => {
     if (document.visibilityState === 'visible') checkDay()
   }, 30 * 60 * 1000)
 
   loadCards()
+}
+
+// 退出登录调用：结束当前进站会话（4-B37 定案：退出登录不是路由跳转，是
+// 会话终点）——清掉监听器/定时器，把模块级标志归零，state 收回 idle。
+// 下次 initCardsSession（哪怕同一账号重新登录）会当作全新进站，重新结算 +
+// 重新弹 alert。不在这里做网络请求，纯本地状态收尾。
+export function resetCardsSession() {
+  if (sessionFocusHandler) window.removeEventListener('focus', sessionFocusHandler)
+  if (sessionVisibilityHandler) document.removeEventListener('visibilitychange', sessionVisibilityHandler)
+  if (sessionIntervalId) window.clearInterval(sessionIntervalId)
+  sessionFocusHandler = null
+  sessionVisibilityHandler = null
+  sessionIntervalId = null
+  sessionStarted = false
+  sessionUserId = null
+  lastSeenDate = null
+  state = {
+    rows: [],
+    status: 'idle',
+    message: '',
+    settleFailed: false,
+    today: todayISO(),
+    entryCandidateIds: [],
+    entryHandled: false,
+  }
+  emit()
 }

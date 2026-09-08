@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import * as api from './apiClient'
+import { resetCardsSession } from './cardsStore'
 
 const AuthContext = createContext(null)
 
@@ -59,6 +60,10 @@ export function AuthProvider({ children }) {
   )
 
   const logout = useCallback(async () => {
+    // 放在最前面：即使下面的网络请求或状态更新中途失败，会员卡会话也已经
+    // 收尾——避免"退出登录"半途卡住导致下次登录仍沿用旧会话标志（见
+    // cardsStore.js resetCardsSession 注释，2026-09-08 定案）
+    resetCardsSession()
     await api.logout()
     setUser(null)
     setResetTicket(null)
