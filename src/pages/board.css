@@ -2998,38 +2998,42 @@
   --nt-gone-text: #4e5a66;
   --nt-gone-text2: #7c8894;
   --nt-gone-meta: #8a95a1;
-  /* 面板宽度对齐导入页口径（2026-09-12 用户裁定）：max(100vw×2/3, 560px) */
+  /* 面板宽度对齐导入页口径（2026-09-12 用户裁定）：max(100vw×2/3, 560px)；
+     左右 16px 内边距对齐会员/余额页边距惯例（移动端不再贴边，2026-09-12 用户反馈） */
   width: min(var(--bd-import-col, max(calc(100vw * 2 / 3), 560px)), 100%);
   margin: 0 auto;
-  padding: 4px 0 120px;
+  padding: 4px 16px 120px;
   /* 主面板自滚动（2026-09-12 用户反馈）：.bd-board 是 100dvh + overflow:hidden
      的 flex 列，面板作为直接子级必须自己成为滚动容器（对照 .bd-list），
      否则超出视口的内容被裁切、日历同样滚不动 */
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior-y: contain;
   scrollbar-width: thin;
 }
 
-/* ---------- 分区：普通 grid 逐行从左到右填充，不做高度平衡瀑布流 ---------- */
+/* ---------- 分区：普通 grid 逐行从左到右填充，不做高度平衡瀑布流 ----------
+   minmax(0,1fr)：1fr 的 min-content 会被卡片长文撑宽 → 整行错位 + 横向滚动条
+   （2026-09-12 用户反馈），强制等宽列，长文在卡内换行/省略 */
 
 .nt-zone {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
 
 @media (max-width: 1079px) {
   .nt-zone {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 759px) {
   .nt-zone {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -3400,6 +3404,7 @@
 .nt-note {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   border-radius: 14px;
   padding: 12px 13px 10px;
   cursor: pointer;
@@ -3445,6 +3450,7 @@
   line-height: 1.5;
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .nt-idea-badge {
@@ -3458,6 +3464,7 @@
   line-height: 1.65;
   color: var(--au-text);
   margin-top: 5px;
+  overflow-wrap: anywhere;
 }
 
 .nt-body.nt-clamp {
