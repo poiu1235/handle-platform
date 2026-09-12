@@ -3076,6 +3076,52 @@
   margin-left: auto;
 }
 
+/* ---------- 搜索（列表视图 · 2026-09-13）：纯前端过滤，PRD 4.6 ---------- */
+
+/* 固定宽度 = 筛选段无箭头默认态总宽：三按钮（全部 2×13 + 仅备忘/仅灵感各 3×13
+   内容 104px）+ 按钮 padding 32×3 + 容器 padding 3×2 + 边框 1×2 = 208px。
+   ⚠ 与 .nt-seg 的字号 / padding 耦合——改筛选段尺寸时同步调这里 */
+.nt-search {
+  display: block;
+  width: 208px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--au-text);
+  background: var(--au-card);
+  border: 1px solid var(--au-border);
+  border-radius: 999px;
+  padding: 8px 16px;
+  margin-bottom: 14px;
+  outline: none;
+}
+
+.nt-search:focus {
+  border-color: rgba(91, 187, 238, 0.6);
+  box-shadow: 0 0 0 3px rgba(91, 187, 238, 0.16);
+}
+
+.nt-search::placeholder {
+  color: var(--au-text-3);
+}
+
+.nt-search-count {
+  font-size: 12px;
+  color: var(--au-text-3);
+  margin: 0 2px 12px;
+}
+
+/* 命中高亮：黄备忘 / 白灵感 / 灰失效三种卡底都压得住的中性品牌底；
+   text-decoration: inherit 保住已完成卡片的划线 */
+.nt-mark {
+  background: rgba(91, 187, 238, 0.4);
+  color: inherit;
+  text-decoration: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
 /* ---------- 日历视图（对照会员页 cd-cal 形态，2026-09-12 新增） ---------- */
 
 .nt-cal {

@@ -36,12 +36,14 @@ import {
   hashTilt,
   isCleared,
   localDayOf,
+  matchesQuery,
   shortDate,
   sortCreatedDesc,
   sortForDone,
   sortForExpired,
   sortForIdeaFilter,
   sortForMemoFilter,
+  splitHighlight,
   todayISO,
 } from '../../shared/notesDomain.js'
 
@@ -72,6 +74,7 @@ export default function NotesPanel({ active }) {
   const [memoDir, setMemoDir] = useState('near') // 仅备忘排序方向：near（截止日由近到远，默认）| far（由远到近）
   const [ideaDir, setIdeaDir] = useState('new') // 仅灵感排序方向：new（创建从新到旧，默认）| old（从旧到新）
   const [view, setView] = useState('list') // list（默认）/ cal（日历，对照会员页展示模式）
+  const [query, setQuery] = useState('') // 列表视图搜索词（纯前端过滤，切换零请求）
   const [calMonth, setCalMonth] = useState(() => todayISO().slice(0, 7)) // 日历当前月 YYYY-MM
   const [calPeek, setCalPeek] = useState(null) // 日历条目只读弹层（2026-09-12：不再跳回列表）
   const [calDayPeek, setCalDayPeek] = useState(null) // 日历格折叠剩余条目的悬浮列表
@@ -134,6 +137,20 @@ export default function NotesPanel({ active }) {
       done: sortForDone(views.filter((v) => v.state === 'done-manual' || v.state === 'done-auto')),
     }
   }, [rows, today, nowMs, kindFilter, memoDir, ideaDir])
+
+  // 搜索结果（2026-09-13，PRD 4.6）：类型筛选之后做 content 大小写不敏感子串
+  // 匹配，四域统一平铺、创建时间倒序——分区是浏览结构，搜索是查找结构。
+  // 已过期 / 已完成一并搜索（找回旧东西是主场景）；query 为空返回 null = 走四分区
+  const searchResults = useMemo(() => {
+    const q = query.trim()
+    if (!q) return null
+    const views = rows
+      .filter((row) => !isCleared(row, today, nowMs))
+      .filter((row) => kindFilter === 'all' || row.kind === kindFilter)
+      .filter((row) => matchesQuery(row.content, q))
+      .map((row) => ({ row, state: deriveState(row, today) }))
+    return sortCreatedDesc(views)
+  }, [rows, today, nowMs, kindFilter, query])
 
   // 日历数据（2026-09-12 用户裁定：灵感也进日历）：备忘按截止日落位（仅正常态），
   // 灵感按创建日落位（无过期概念，全部展示）；灵感白条、备忘黄条样式区分
@@ -298,12 +315,13 @@ export default function NotesPanel({ active }) {
 
   if (!active) return null
 
-  const renderZone = (views) =>
+  const renderZone = (views, q = '') =>
     views.map((v) => (
       <NoteCard
         key={v.row.id}
         v={v}
         today={today}
+        query={q}
         expanded={expandedId === v.row.id}
         onToggle={() => setExpandedId((id) => (id === v.row.id ? null : v.row.id))}
         onAct={handleAct}
@@ -354,6 +372,19 @@ export default function NotesPanel({ active }) {
           </button>
         </div>
       </div>
+
+      {/* 搜索（仅列表视图，PRD 4.6）：固定宽度 = 筛选段无箭头默认态的宽度
+          （208px，见 .nt-search 注释），不随激活箭头变宽；日历视图不显示——
+          搜索是列表的查找能力，不影响日历落位；查询词切走再切回仍保留 */}
+      {view === 'list' && (
+        <input
+          type="search"
+          className="nt-search"
+          value={query}
+          placeholder="🔍 搜索便利贴内容…"
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      )}
 
       {view === 'cal' ? (
         <div className="nt-cal">
@@ -425,6 +456,23 @@ export default function NotesPanel({ active }) {
             <p className="nt-cal-none">本月没有可展示的条目</p>
           )}
         </div>
+      ) : searchResults ? (
+        <>
+          {searchResults.length > 0 ? (
+            <>
+              <p className="nt-search-count">找到 {searchResults.length} 条含「{query.trim()}」</p>
+              <div className="nt-zone">{renderZone(searchResults, query.trim())}</div>
+            </>
+          ) : (
+            status === 'ok' && (
+              <div className="nt-empty">
+                没有含「{query.trim()}」的便利贴
+                <br />
+                换个关键词试试
+              </div>
+            )
+          )}
+        </>
       ) : (
         <>
       {/* 置顶分区：独立分区默认展开、可手动折叠；到期照常流转不豁免（D11） */}
@@ -658,7 +706,7 @@ export default function NotesPanel({ active }) {
 
 // ---------- 卡片（状态 × 类型 → 样式与动作，对照样式稿 notes-v3-mockup.html） ----------
 
-function NoteCard({ v, today, expanded, onToggle, onAct }) {
+function NoteCard({ v, today, expanded, onToggle, onAct, query = '' }) {
   const { row, state } = v
   const isIdea = row.kind === 'idea'
   const done = state === 'done-manual' || state === 'done-auto'
@@ -755,10 +803,16 @@ function NoteCard({ v, today, expanded, onToggle, onAct }) {
     >
       <div className="nt-head">
         {isIdea && <span className="nt-idea-badge">💡</span>}
-        <span className="nt-title">{lines[0]}</span>
+        <span className="nt-title">
+          <Highlight text={lines[0]} query={query} />
+        </span>
         {badge}
       </div>
-      {rest && <div className={`nt-body${expanded ? '' : ' nt-clamp'}`}>{rest}</div>}
+      {rest && (
+        <div className={`nt-body${expanded ? '' : ' nt-clamp'}`}>
+          <Highlight text={rest} query={query} />
+        </div>
+      )}
       <div className="nt-meta">{meta}</div>
       {expanded && (
         <>
@@ -767,6 +821,21 @@ function NoteCard({ v, today, expanded, onToggle, onAct }) {
         </>
       )}
     </div>
+  )
+}
+
+// ---------- 命中高亮（搜索态专用；切分口径同 shared/notesDomain.js splitHighlight） ----------
+
+function Highlight({ text, query }) {
+  if (!query) return text
+  return splitHighlight(text, query).map((seg, i) =>
+    seg.hit ? (
+      <mark key={i} className="nt-mark">
+        {seg.text}
+      </mark>
+    ) : (
+      seg.text
+    ),
   )
 }
 

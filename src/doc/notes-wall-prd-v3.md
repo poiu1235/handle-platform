@@ -156,6 +156,7 @@
 分区之上有一条**工具行**：左侧类型筛选分段「全部 / 仅备忘 / 仅灵感」（纯前端
 过滤、切换零请求）——「仅灵感」时已过期 / 已完成域（纯备忘域）自然清空、整区
 隐藏；右侧「列表 / 日历」展示切换（对照会员页展示模式，默认列表，见 4.5）。
+工具行下方另有**搜索框**（仅列表视图，纯前端过滤，见 4.6；2026-09-13 新增）。
 **段按钮兼作排序开关**（2026-09-12 用户裁定）：第一下进入筛选并即按字段排序，
 再点一下反向——**仅备忘**：四个备忘模块（Pin / 正常 / 已过期 / 已完成）各自按
 截止日排序（今天到期 → 明天 → 还剩 N 天……），方向由近到远（↑）⇄ 由远到近（↓）
@@ -218,6 +219,29 @@
 - **切换月即重新拉取**：全量口径下月份过滤在前端派生，翻月 / 回今天触发一次
   loadNotes（顺带吸收他端变更）。类型筛选与日历叠加生效（「仅备忘」日历只剩
   黄条、「仅灵感」只剩白条）。
+
+### 4.6 搜索（2026-09-13 新增）
+
+- 入口：**列表视图工具行下方的搜索框，固定宽度与类型筛选段无箭头默认态同宽
+  （208px，不随激活排序箭头变宽；2026-09-13 用户裁定）**；日历视图不显示——
+  搜索是列表的查找能力，不影响日历落位；查询词在切走再切回后保留。
+  `type="search"`，原生清除。
+- **纯前端过滤，切换零请求**：全量拉取（≤500 行）架构下「即搜」——查询词与
+  content 双侧先**归一化**（去全部空白，含全角空格 / NBSP / 换行）再比大小写
+  不敏感子串——中文按子串命中不分词；混排英文时大小写差异、手滑多打的空格都
+  不会漏；API 契约（8.3）与数据库**零改动**，无需全文检索。
+- **叠加生效**：搜索在类型筛选（全部 / 仅备忘 / 仅灵感）之后过滤。
+- **平铺结果**：分区是浏览结构、搜索是查找结构——有查询词时不渲染四分区，
+  渲染一个平铺结果列表（置顶 / 主时间线 / 已过期 / 已完成**四域统一搜索**，
+  找回旧东西是主场景），创建时间倒序，上方计数行「找到 N 条含…」，命中片段
+  品牌蓝 `<mark>` 高亮（黄备忘 / 白灵感 / 灰失效三种卡底通吃；命中可跨越原文
+  中的空格 / 换行，高亮段按原文原样渲染）；清空查询词
+  即回四分区。空结果独立空态文案。
+- 量级边界：500 条上限（9.2-6）内为亚毫秒过滤、毫秒渲染。若未来大幅上调
+  上限至数千条，瓶颈先出现在**全量拉取体积与全量渲染**（非搜索本身）——届时
+  一并做 分页拉取 + 渲染虚拟化 + 搜索下推（PostgREST `content=ilike.*q*`，
+  中文子串 `ilike` 足够，无需分词/全文索引），本节的「纯前端」契约随之作废
+  重写。
 
 ---
 
@@ -447,14 +471,14 @@
 | 文件 | 职责 |
 | --- | --- |
 | `shared/notesConfig.js` | 常量：500 上限、+7 日期窗口、无日期兜底 TTL 7 天、过期滞留 7 天、已完成保留 30 天、完成时刻 5 分钟时钟容忍——CF 层与前端 import 同一份 |
-| `shared/notesDomain.js` | 纯函数（无请求）：日期工具（UTC 毫秒差）、`deadlineOf / archiveDayOf / deriveState / doneMomentMs / isCleared / countdownOf / expiredDays / zoneOf`、三区排序与筛选排序（`sortForMemoFilter / sortForIdeaFilter / sortCreatedAsc`）、`agoText / hashTilt`、`contentError / dueDateError`（CF 校验与前端表单同源）。灵感恒 normal（D4 不流转）由此模块保证 |
+| `shared/notesDomain.js` | 纯函数（无请求）：日期工具（UTC 毫秒差）、`deadlineOf / archiveDayOf / deriveState / doneMomentMs / isCleared / countdownOf / expiredDays / zoneOf`、三区排序与筛选排序（`sortForMemoFilter / sortForIdeaFilter / sortCreatedAsc`）、`agoText / hashTilt`、搜索 `matchesQuery / splitHighlight`（2026-09-13）、`contentError / dueDateError`（CF 校验与前端表单同源）。灵感恒 normal（D4 不流转）由此模块保证 |
 | `functions/api/notes.js` | GET 全量 / POST 新建（容量闸门 409）/ DELETE `id=in.(...)` 批量清除 |
 | `functions/api/notes/[id].js` | PATCH diff-only（白名单 + 派生态收紧：过期仅可转完成、已完成拒绝一切）/ DELETE 单条 |
 | `src/lib/notesStore.js` | 模块级 store（useSyncExternalStore）：全量拉取 + 清除扫描（批量 DELETE）+ 乐观 upsert/remove + `tickDate()`（跨零点换天 + nowMs ≥60s 刷新）；会话由面板激活期驱动，不挂 App 全局 |
-| `src/pages/NotesPanel.jsx` | 面板：工具行（类型筛选 全部/仅备忘/仅灵感 + 列表/日历切换）、四分区渲染（空分区整区隐藏）、折叠记忆（localStorage）、展开卡动作行（完成独占一行、同时只一张）、日历视图（当月生效备忘按截止日落位、切月重拉、点条回列表展开）、新建/修改弹窗（类型锁定 + 日期段）、删除确认、FAB；常驻挂载进站即拉取 |
+| `src/pages/NotesPanel.jsx` | 面板：工具行（类型筛选 全部/仅备忘/仅灵感 + 列表/日历切换）、搜索（仅列表视图：搜索框 + 四域平铺结果 + 计数行 + 命中高亮 `<mark class="nt-mark">`，PRD 4.6）、四分区渲染（空分区整区隐藏）、折叠记忆（localStorage）、展开卡动作行（完成独占一行、同时只一张）、日历视图（当月生效备忘按截止日落位、切月重拉、点条回列表展开）、新建/修改弹窗（类型锁定 + 日期段）、删除确认、FAB；常驻挂载进站即拉取 |
 | `src/pages/Hello.jsx` | TABS 以「便利贴」**替换**「优惠券」标签（余额 / 会员 / 便利贴，优惠券页移除——2026-09-12 用户裁定）+ 计数徽章 + NotesPanel 挂载；余额内联内容门控收紧为 `activeTab === 'balance'` |
 | `board.css` 末尾 `nt-` 段 | 面板全部样式（新色 token 挂 `.nt-panel` 作用域；复用 bd-modal / bd-btn / bd-notice / bd-fab） |
-| `scripts/test-notes-domain.mjs` | `npm run test:notes`——派生函数 37 断言（用例内联；无 SQL RPC 故不设独立 fixtures；夹具 created_at 取 12:00Z 保证全时区成立） |
+| `scripts/test-notes-domain.mjs` | `npm run test:notes`——派生函数 54 断言（含搜索 11 项，2026-09-13；用例内联；无 SQL RPC 故不设独立 fixtures；夹具 created_at 取 12:00Z 保证全时区成立） |
 
 ---
 
@@ -531,3 +555,65 @@
 - 多端同步基调：快照秒开 + 可见时轮询 + 乐观更新 + LWW。
 - 派生哲学：时间能算出来的绝不落库。
 - 删除二次确认、内容 1–500 字等平台惯例。
+
+---
+
+## 十一、后续任务：配图（最多一张）——方案已定，未排期
+
+> 2026-09-13 与用户确认的方向性结论：**可以做**；存储**选 Supabase Storage，
+> 明确不用 Cloudflare D1**；检测分两层——技术校验必做，内容审核 V1 不做。
+> 本节为实现蓝图（工作量感 3–4 天：迁移 + 上传 UI + 压缩 + 展示 + 清理），
+> 排期时按此执行，不重新论证。
+
+### 11.1 数据与约束
+
+- `supabase/notes.sql` 增量段：`alter table public.notes add column image_path text;`
+  ——**「最多一张」由单列结构天然保证，零检测代码**；
+- CF 层 POST / PATCH 白名单增加该字段（显式传 null = 换图 / 清图，沿用 diff-only
+  契约）；灵感 / 备忘都允许带图（`notes_idea_plain` 只管日期与完成，不动）；
+- `notes_finish_lock` 触发器冻结清单加 `image_path`——已完成条目连图一起冻结
+  （与 content / pinned 同款逻辑）。
+
+### 11.2 存储选型（已裁定）
+
+- **Supabase Storage 私有桶** `note-images`，对象路径 `notes/{user_id}/{uuid}.webp`；
+  RLS 策略 `(storage.foldername(name))[1] = auth.uid()::text`——与表 RLS 完全
+  同构，权限模型零新增概念；
+- 桶配置即第一道检测：allowed MIME = jpeg / png / webp / gif，max file size
+  ≈ 5MB——在存储层挡掉越界文件，不依赖业务代码；
+- **不用 D1**：D1 是 SQLite 关系库不是对象存储（行大小 / 单语句限制小、二进制
+  拖垮备份与导出、无 CDN 缓存与图片处理）；图片元数据就是 notes 表的一列，
+  不引入第二个真相源；D1 在本 feature 中没有合理位置；
+- Cloudflare 侧的正确替代是 R2（零出口流量费 + 更大免费容量），但需手写
+  「验 Supabase JWT → 签 R2 预签名 URL」胶水 + CORS + 独立清理路径——**现在
+  不为一张图引入第二套平台**；人均图片量真涨起来后，把存储后端换成 R2 是一次
+  性搬运，表结构与 API 形态不变，届时不预付。
+
+### 11.3 上传链路与展示
+
+- 客户端校验（第二道）：MIME 白名单 + 大小上限 + `createImageBitmap` 真解码
+  （挡改后缀的伪装文件）；
+- **客户端 canvas 重编码**：长边 ≤ 1280px → webp（约 100–300KB）——一石三鸟：
+  控制存储成本、卡片渲染快、**剥 EXIF（含 GPS 定位）**（用户拍照直传是隐私
+  事故高发点，这道检测最值得做）；
+- 上传路径 V1 简单版：客户端把文件 POST 给 CF 函数，函数验签后以 service role
+  转传 Storage（链路最少）；量大后换 signed upload URL 直传（省 Workers 带宽），
+  函数只负责签发；
+- 展示：CF 代理端点 `GET /api/notes/:id/image`（验 token → 302 短时效签名读
+  URL，或流式转发 + `Cache-Control: private`）；卡片 `loading="lazy"` + 图片
+  **固定 aspect-ratio 框**——grid 行内等高拉伸，图片不定尺寸会把整个网格撑跳；
+- 每行多一个 URL 字符串对全量拉取（8.3 GET）体积影响可忽略；真实风险是渲染
+  500 个 `<img>`，lazy loading 解决。
+
+### 11.4 检测边界（已裁定）
+
+- **技术校验必做**（11.2 桶配置 + 11.3 客户端校验 / 重编码）；
+- **V1 不做 NSFW / 违规内容自动审核**：数据 RLS 严格私有、无分享 / 公开展示面，
+  不存在传播，不上审核站得住；**触发条件 = 任何分享 / 公开能力上线前，必须接入
+  第三方内容安全 API**——所有上传收口在同一个 CF 函数，届时加一道审核调用即
+  改一处，架构上已留好口子。
+
+### 11.5 运维义务
+
+- **孤儿对象**：删 note / 换图时尽力删一次旧 Storage 对象（best-effort）；
+  真正的孤儿扫尾与 8.5 的 V2 cron-worker 收编到一起做，不单独排期。

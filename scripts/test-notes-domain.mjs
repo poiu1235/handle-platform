@@ -15,9 +15,11 @@ import {
   expiredDays,
   isCleared,
   isISODate,
+  matchesQuery,
   sortForExpired,
   sortForIdeaFilter,
   sortForMemoFilter,
+  splitHighlight,
   zoneOf,
 } from '../shared/notesDomain.js'
 
@@ -133,6 +135,39 @@ check('置顶正常态 → pin 区', zoneOf(row({ pinned: true, due_date: '2026-
 check('置顶过期照常流转（D11）', zoneOf(row({ pinned: true, due_date: '2026-09-11' }), T), 'expired')
 check('未置顶正常态 → 时间线', zoneOf(row(), T), 'timeline')
 check('手动完成 → 已完成域', zoneOf(row({ finished_at: '2026-09-12T01:00:00Z' }), T), 'done')
+
+// ── 搜索（2026-09-13 · PRD 4.6 列表视图纯前端过滤）：双侧归一化（去全部空白 +
+//    大小写不敏感）子串匹配 + 命中切分 ──
+check('搜索命中子串', matchesQuery('冰箱鸡蛋没了，买鸡蛋', '鸡蛋'), true)
+check('搜索大小写不敏感', matchesQuery('Try React19', 'react'), true)
+check('搜索跨行命中', matchesQuery('第一行\n第二行有关键词', '关键词'), true)
+check('搜索忽略内容侧空格', matchesQuery('买 鸡蛋', '鸡蛋'), true)
+check('搜索忽略 query 侧空格', matchesQuery('买鸡蛋', '鸡 蛋 '), true)
+check('搜索忽略全角空格 / NBSP', matchesQuery('买\u3000鸡\u00a0蛋', '鸡蛋'), true)
+check('搜索换行视为空白：跨行连写命中', matchesQuery('买\n鸡\n蛋', '买鸡蛋'), true)
+check('搜索不命中', matchesQuery('买鸡蛋', '牛奶'), false)
+check('搜索空白 query 不过滤（恒真）', matchesQuery('任意内容', '   '), true)
+check('搜索非字符串 content 不命中', matchesQuery(null, '鸡蛋'), false)
+check('高亮切分：命中前后分段', splitHighlight('abc鸡蛋abc', '鸡蛋'), [
+  { text: 'abc', hit: false },
+  { text: '鸡蛋', hit: true },
+  { text: 'abc', hit: false },
+])
+check('高亮切分：多次命中', splitHighlight('鸡蛋a鸡蛋', '鸡蛋'), [
+  { text: '鸡蛋', hit: true },
+  { text: 'a', hit: false },
+  { text: '鸡蛋', hit: true },
+])
+check('高亮切分：大小写归一同口径且保留原文大小写', splitHighlight('Try React', 'react'), [
+  { text: 'Try ', hit: false },
+  { text: 'React', hit: true },
+])
+check('高亮切分：命中区间跳过原文空格、按原文渲染', splitHighlight('鸡 蛋 在这里', '鸡蛋'), [
+  { text: '鸡 蛋', hit: true },
+  { text: ' 在这里', hit: false },
+])
+check('高亮切分：无命中整段返回', splitHighlight('买牛奶', '鸡蛋'), [{ text: '买牛奶', hit: false }])
+check('高亮切分：空 query 不切分', splitHighlight('买牛奶', ''), [{ text: '买牛奶', hit: false }])
 
 // ── 校验（8.4，CF 层与前端表单同源） ──
 check('内容空白拒绝', contentError('   '), '内容不能为空')

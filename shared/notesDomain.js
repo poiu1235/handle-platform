@@ -209,6 +209,63 @@ export function hashTilt(id) {
   return TILTS[h % TILTS.length]
 }
 
+// ---------- 搜索（2026-09-13 · 列表视图纯前端过滤，PRD 4.6） ----------
+// 全量拉取（≤500 行）架构下「即搜」：前端子串过滤，API 契约 / 数据库零改动。
+// 匹配前双侧归一化——去全部空白（\s 覆盖全角空格 / NBSP / 换行）+ 大小写
+// 不敏感：中文按子串命中不分词；混排英文时大小写差异、手滑多打的空格都不会漏。
+// 已过期 / 已完成域一并参与（找回旧东西是搜索的主场景）
+
+// 归一化：逐字符小写化 + 跳过空白字符。不用整串 toLowerCase——个别字符小写会
+// 展开成多字符（如 U+0130），逐字符才能与 splitHighlight 的 indexMap 逐位对齐
+function normalizeLower(text) {
+  let out = ''
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (/\s/.test(ch)) continue
+    out += ch.toLowerCase()
+  }
+  return out
+}
+
+// content 与 query 双侧归一化后子串匹配；query 归一化后为空 = 不过滤（恒真）
+export function matchesQuery(content, query) {
+  const q = typeof query === 'string' ? normalizeLower(query) : ''
+  if (!q) return true
+  return typeof content === 'string' && normalizeLower(content).includes(q)
+}
+
+// 命中切分（高亮渲染用）：[{ text, hit }]，hit 段由调用方包 <mark>，按原文
+// 原样渲染（保留原文的空格、换行与大小写）。归一化删了空白 → 归一串下标与
+// 原文下标不对齐，用 indexMap 折回：map[k] = 归一串第 k 个字符来自原文哪个下标
+export function splitHighlight(text, query) {
+  const source = typeof text === 'string' ? text : ''
+  const q = typeof query === 'string' ? normalizeLower(query) : ''
+  if (!q) return source ? [{ text: source, hit: false }] : []
+  let norm = ''
+  const map = []
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i]
+    if (/\s/.test(ch)) continue
+    const lc = ch.toLowerCase()
+    norm += lc
+    for (let k = 0; k < lc.length; k++) map.push(i)
+  }
+  const segs = []
+  let cursor = 0
+  for (let i = 0; i < norm.length; ) {
+    const hit = norm.indexOf(q, i)
+    if (hit === -1) break
+    const end = map[hit + q.length - 1] + 1
+    const from = Math.max(map[hit], cursor)
+    if (from > cursor) segs.push({ text: source.slice(cursor, from), hit: false })
+    if (end > from) segs.push({ text: source.slice(from, end), hit: true })
+    cursor = Math.max(cursor, end)
+    i = hit + q.length
+  }
+  if (cursor < source.length) segs.push({ text: source.slice(cursor), hit: false })
+  return segs
+}
+
 // ---------- 校验（CF 层与前端表单同源；DB CHECK 兜底不变式见 supabase/notes.sql） ----------
 
 // content：trim 后 1–CONTENT_MAX 字；返回 null = 合法，否则错误文案
