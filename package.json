@@ -9,7 +9,8 @@
     "build": "node scripts/gen-icon-manifest.js && vite build",
     "lint": "oxlint",
     "test:cards": "node scripts/test-cards-domain.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:notes": "node scripts/test-notes-domain.mjs"
   },
   "dependencies": {
     "@marsidev/react-turnstile": "^1.6.0",

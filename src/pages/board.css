@@ -2981,3 +2981,779 @@
     width: 220px;
   }
 }
+
+/* ============================================================
+   便利贴（nt- 前缀 · PRD notes-wall-prd-v3 · 2026-09-12）
+   四分区：置顶（品牌蓝浅底容器，唯一带色块分区）/ 主时间线（创建倒序混排）/
+   已过期 / 已完成折叠域。普通 grid 逐行填充（D13），同行等高、meta 沉底
+   （2026-09-12 用户裁定）。视觉对照 notes-v3-mockup.html；新色 token 挂
+   .nt-panel 本地作用域（备忘黄卡 / 今天到期深黄 / 失效灰——对齐
+   --bd-zero-card「真失效」语义），其余复用 --au-* token 与 bd- 基础件。
+   ============================================================ */
+
+.nt-panel {
+  --nt-memo: #fff6a3;
+  --nt-memo-due: #ffe388;
+  --nt-gone: #cdd3d9;
+  --nt-gone-text: #4e5a66;
+  --nt-gone-text2: #7c8894;
+  --nt-gone-meta: #8a95a1;
+  /* 面板宽度对齐导入页口径（2026-09-12 用户裁定）：max(100vw×2/3, 560px) */
+  width: min(var(--bd-import-col, max(calc(100vw * 2 / 3), 560px)), 100%);
+  margin: 0 auto;
+  padding: 4px 0 120px;
+  /* 主面板自滚动（2026-09-12 用户反馈）：.bd-board 是 100dvh + overflow:hidden
+     的 flex 列，面板作为直接子级必须自己成为滚动容器（对照 .bd-list），
+     否则超出视口的内容被裁切、日历同样滚不动 */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+}
+
+/* ---------- 分区：普通 grid 逐行从左到右填充，不做高度平衡瀑布流 ---------- */
+
+.nt-zone {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 1079px) {
+  .nt-zone {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 759px) {
+  .nt-zone {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ---------- 工具行：类型筛选（全部 / 只显示备忘 / 只显示灵感） ---------- */
+
+.nt-toolbar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.nt-seg {
+  display: inline-flex;
+  background: var(--au-card);
+  border: 1px solid var(--au-border);
+  border-radius: 999px;
+  padding: 3px;
+}
+
+.nt-seg button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--au-text-2);
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.nt-seg button.on {
+  background: var(--au-brand);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(91, 187, 238, 0.4);
+}
+
+.nt-seg-right {
+  margin-left: auto;
+}
+
+/* ---------- 日历视图（对照会员页 cd-cal 形态，2026-09-12 新增） ---------- */
+
+.nt-cal {
+  background: var(--au-card);
+  border: 1px solid var(--au-border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.nt-cal-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.nt-cal-month {
+  font-size: 15px;
+  font-weight: 700;
+  min-width: 88px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-cal-nav {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid var(--au-border);
+  background: var(--au-card);
+  color: var(--au-text-2);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.nt-cal-nav:hover {
+  background: var(--au-bg);
+}
+
+.nt-cal-now {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(91, 187, 238, 0.6);
+  background: var(--au-brand-soft);
+  color: var(--au-brand-text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nt-cal-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-bottom: 1px solid var(--au-border);
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--au-text-3);
+}
+
+.nt-cal-week span {
+  text-align: center;
+}
+
+.nt-cal-grid {
+  display: grid;
+  /* minmax(0,1fr)：1fr 的 min-content 会被长文字撑宽导致整列错位（2026-09-12 用户反馈），
+     强制七列等宽，条目文字在条内走省略号 */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.nt-cal-cell {
+  min-width: 0;
+  min-height: 88px;
+  border-right: 1px solid var(--au-border);
+  border-bottom: 1px solid var(--au-border);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nt-cal-grid .nt-cal-cell:nth-child(7n) {
+  border-right: none;
+}
+
+.nt-cal-grid .nt-cal-cell:nth-last-child(-n + 7) {
+  border-bottom: none;
+}
+
+.nt-cal-cell-today {
+  background: rgba(91, 187, 238, 0.1);
+}
+
+.nt-cal-day {
+  font-size: 12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--au-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-cal-day-on {
+  background: var(--au-brand);
+  color: #fff;
+  font-weight: 700;
+}
+
+.nt-cal-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nt-cal-item {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  text-align: left;
+  border: none;
+  background: var(--nt-memo);
+  color: rgba(13, 38, 59, 0.85);
+  font: inherit;
+  font-size: 11px;
+  line-height: 20px;
+  border-radius: 6px;
+  padding: 0 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nt-cal-item:hover {
+  filter: brightness(0.94);
+}
+
+/* 灵感白条（备忘黄条同款尺寸，白卡描边区分类型） */
+.nt-cal-item-idea {
+  background: var(--au-card);
+  border: 1px solid var(--au-border);
+  color: var(--au-text);
+}
+
+/* 格内 >5 条的折叠入口（2026-09-12 用户裁定） */
+.nt-cal-more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px dashed var(--au-border);
+  background: var(--au-bg);
+  color: var(--au-text-2);
+  font: inherit;
+  font-size: 11px;
+  line-height: 20px;
+  border-radius: 6px;
+  padding: 0 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nt-cal-more:hover {
+  color: var(--au-text);
+  border-color: var(--au-text-3);
+}
+
+/* ---------- 日历只读弹层 + 格折叠悬浮列表 ---------- */
+
+.nt-peek-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--au-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.nt-peek-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--au-border);
+  font-size: 12px;
+  color: var(--au-text-3);
+}
+
+.nt-peek-meta-text {
+  min-width: 0;
+}
+
+.nt-peek-hint {
+  font-size: 11px;
+  color: var(--au-text-3);
+  margin-top: 10px;
+}
+
+.nt-peek-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.nt-peek-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: var(--au-text);
+  background: none;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 8px;
+  cursor: pointer;
+}
+
+.nt-peek-row:hover {
+  background: var(--au-bg);
+}
+
+.nt-peek-row-kind {
+  flex: none;
+}
+
+.nt-peek-row-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nt-cal-none {
+  text-align: center;
+  font-size: 12px;
+  color: var(--au-text-3);
+  padding: 16px 0 4px;
+  margin: 0;
+}
+
+/* ---------- 折叠栏（置顶 / 已过期 / 已完成） ---------- */
+
+.nt-foldbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--au-card);
+  border: 1px solid var(--au-border);
+  border-radius: 12px;
+  padding: 9px 14px;
+  margin-bottom: 12px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--au-text-2);
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 2px 6px rgba(1, 15, 28, 0.08);
+}
+
+.nt-fold-title {
+  font-weight: 700;
+  color: var(--au-text);
+}
+
+.nt-fold-cnt {
+  font-weight: 700;
+  color: var(--au-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-fold-hint {
+  font-size: 11px;
+  color: var(--au-text-3);
+}
+
+.nt-foldbar em {
+  font-style: normal;
+  margin-left: auto;
+  color: var(--au-text-3);
+}
+
+/* 置顶容器：品牌蓝浅底面板——四分区中唯一带色块容器（2026-09-12 用户裁定） */
+.nt-pinwrap {
+  background: rgba(91, 187, 238, 0.09);
+  border: 1px solid rgba(91, 187, 238, 0.32);
+  border-radius: 16px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.nt-pinwrap .nt-foldbar {
+  border-color: rgba(91, 187, 238, 0.55);
+  color: var(--au-brand-text);
+  box-shadow: 0 2px 6px rgba(1, 15, 28, 0.06);
+}
+
+.nt-pinwrap .nt-fold-title,
+.nt-pinwrap .nt-fold-cnt {
+  color: var(--au-brand-text);
+}
+
+.nt-pinwrap .nt-fold-hint,
+.nt-pinwrap .nt-foldbar em {
+  color: rgba(27, 116, 168, 0.65);
+}
+
+.nt-pinwrap .nt-zone {
+  margin-bottom: 0;
+}
+
+/* ---------- 卡片 ---------- */
+
+.nt-note {
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  padding: 12px 13px 10px;
+  cursor: pointer;
+  box-shadow: 0 3px 8px rgba(1, 15, 28, 0.1);
+  transform: rotate(var(--nt-tilt, 0deg));
+  transition: box-shadow 0.18s var(--bd-ease);
+}
+
+.nt-note.nt-open {
+  transform: none;
+  box-shadow: 0 10px 26px rgba(1, 15, 28, 0.16);
+  z-index: 1000;
+  position: relative;
+}
+
+.nt-memo {
+  background: var(--nt-memo);
+}
+
+/* 今天到期：截止日当天仍算正常（D7），深黄底 + 橙徽标强调（无闪烁动画） */
+.nt-memo.nt-due {
+  background: var(--nt-memo-due);
+}
+
+.nt-idea {
+  background: var(--au-card);
+  border: 1px solid var(--au-border);
+}
+
+.nt-gone {
+  background: var(--nt-gone);
+}
+
+.nt-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.nt-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  flex: 1;
+  min-width: 0;
+}
+
+.nt-idea-badge {
+  flex: none;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.nt-body {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--au-text);
+  margin-top: 5px;
+}
+
+.nt-body.nt-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.nt-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.nt-ago {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+
+.nt-nodate {
+  font-size: 10.5px;
+  color: rgba(0, 0, 0, 0.42);
+}
+
+/* ---------- 倒计时角标（D5/D6）与完成来源标识（D10） ---------- */
+
+.nt-chip {
+  flex: none;
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-chip-days {
+  background: rgba(255, 255, 255, 0.72);
+  color: #7a6212;
+}
+
+.nt-chip-tomorrow {
+  background: rgba(255, 255, 255, 0.92);
+  color: #7a5800;
+  font-weight: 700;
+}
+
+.nt-chip-today {
+  background: #ff8a5c;
+  color: #5b1e02;
+  font-weight: 700;
+}
+
+.nt-chip-exp {
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--nt-gone-text2);
+}
+
+.nt-tag {
+  flex: none;
+  font-size: 10.5px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.nt-tag-manual {
+  background: var(--au-brand-soft);
+  color: var(--au-brand-text);
+}
+
+.nt-tag-auto {
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--nt-gone-text2);
+}
+
+/* ---------- 失效态（已过期 / 已完成）：置灰；划线是「完成」的专属视觉 ---------- */
+
+.nt-gone .nt-title {
+  color: var(--nt-gone-text);
+}
+
+.nt-gone .nt-body {
+  color: var(--nt-gone-text);
+}
+
+.nt-gone .nt-ago {
+  color: var(--nt-gone-meta);
+}
+
+.nt-done .nt-title {
+  color: var(--nt-gone-text2);
+  text-decoration: line-through;
+  text-decoration-color: rgba(78, 90, 102, 0.55);
+}
+
+.nt-done .nt-body {
+  color: var(--nt-gone-text2);
+  text-decoration: line-through;
+  text-decoration-color: rgba(78, 90, 102, 0.4);
+}
+
+/* ---------- 展开态动作行 ---------- */
+
+.nt-acts {
+  display: flex;
+  gap: 5px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
+  flex-wrap: wrap;
+}
+
+.nt-acts span {
+  font-size: 11.5px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--au-border);
+  color: var(--au-text-2);
+  cursor: pointer;
+}
+
+.nt-acts span.pri {
+  color: var(--au-brand-text);
+  font-weight: 700;
+  border-color: rgba(91, 187, 238, 0.6);
+}
+
+.nt-acts span.del {
+  color: var(--au-danger);
+}
+
+/* 完成动作独占一行：第二行不重复分隔线 */
+.nt-acts + .nt-acts {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 6px;
+}
+
+.nt-gone .nt-acts span {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* 动作行图标：基类滤镜转白是给深色滑动面板的，浅色胶囊恢复深色描边 */
+.nt-acts .bd-action-icon {
+  width: 13px;
+  height: 13px;
+  margin-right: 3px;
+  vertical-align: -2px;
+  filter: none;
+}
+
+/* ---------- 空态 / 状态行 ---------- */
+
+.nt-empty {
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--au-text-3);
+  padding: 48px 8px;
+}
+
+.nt-status {
+  text-align: center;
+  font-size: 13px;
+  color: var(--au-text-2);
+  padding: 24px 8px;
+}
+
+/* ---------- 新建 / 编辑弹窗增量（复用 bd-modal / bd-btn 骨架） ---------- */
+
+.nt-typeseg {
+  display: inline-flex;
+  background: var(--au-bg);
+  border-radius: 999px;
+  padding: 3px;
+  margin-bottom: 6px;
+}
+
+.nt-typeseg button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--au-text-2);
+  padding: 6px 20px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.nt-typeseg button.on {
+  background: var(--au-brand);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(91, 187, 238, 0.4);
+}
+
+.nt-kindlock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.nt-kindlock span {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--au-text-3);
+}
+
+.nt-textarea {
+  width: 100%;
+  min-height: 88px;
+  border: 1px solid var(--au-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  color: var(--au-text);
+  background: var(--au-card);
+}
+
+.nt-counter {
+  text-align: right;
+  font-size: 11px;
+  color: var(--au-text-3);
+  margin: 4px 2px 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-sublabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--au-text-3);
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.nt-dueseg {
+  display: inline-flex;
+  background: var(--au-bg);
+  border-radius: 999px;
+  padding: 3px;
+  margin-bottom: 8px;
+}
+
+.nt-dueseg button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--au-text-2);
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.nt-dueseg button.on {
+  background: var(--au-card);
+  color: var(--au-brand-text);
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(1, 15, 28, 0.12);
+}
+
+.nt-date {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--au-border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--au-text);
+  background: var(--au-card);
+  margin-bottom: 6px;
+}
+
+.nt-duehint {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--au-text-3);
+}
+
+.nt-confirm-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--au-text);
+  word-break: break-all;
+}

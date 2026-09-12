@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>便签 · 界面样式草样（v2.4 · Hello 第四标签）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#010f1c; --navy2:#04263f; --brand:#5BBBEE; --brand-h:#3FA9E0;
+    --brand-soft:#E3F3FC; --brand-text:#1B74A8;
+    --text:#1A1A1A; --text2:#646464; --text3:#939393;
+    --bg:#F0F2F5; --card:#FFFFFF; --border:#E0E0E0; --danger:#EF4444;
+    --u-ok:#FFF6A3; --u-near:#FFE388; --u-over:#FFC9A3;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    font-family:'PT Sans','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;
+    background:#E4E8EC; color:var(--text); padding:28px 16px 80px;
+    font-variant-numeric:tabular-nums;
+  }
+  .spec-head{max-width:1240px; margin:0 auto 8px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;}
+  .spec-head .eyebrow{font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:var(--text3); font-weight:700;}
+  .spec-head .t{font-size:18px; font-weight:700;}
+  .spec-head .meta{font-size:12px; color:var(--text3);}
+  section.spec{max-width:1240px; margin:34px auto 0;}
+  section.spec > h2{font-size:15px; font-weight:700; margin:0 4px 12px; color:var(--text);}
+  section.spec > h2 small{font-weight:400; color:var(--text3); font-size:12px; margin-left:8px;}
+  .frame{background:var(--bg); border:1px solid var(--border); border-radius:16px; overflow:hidden; position:relative;}
+
+  /* ---------- Hello 骨架：hero + 分类标签 ---------- */
+  .hero{background:linear-gradient(160deg,#04263F 0%,#010F1C 72%); padding:18px 28px;
+        display:flex; align-items:center; gap:12px;}
+  .hero .logo{width:34px; height:34px; border-radius:10px; background:rgba(91,187,238,.2);
+        border:1px solid rgba(91,187,238,.5); display:flex; align-items:center; justify-content:center;
+        color:var(--brand); font-weight:700; font-size:16px;}
+  .hero .word{color:#fff; font-weight:700; font-size:17px;}
+  .hero .sub{font-size:11px; color:rgba(255,255,255,.45); letter-spacing:1.5px; text-transform:uppercase; margin-top:2px;}
+  .hero .sp{flex:1;}
+  .login{display:inline-flex; align-items:center; gap:7px; font-size:12px; color:rgba(255,255,255,.72);
+        border:1px solid rgba(255,255,255,.18); border-radius:999px; padding:5px 12px;}
+  .login i{width:7px; height:7px; border-radius:50%; background:var(--brand); display:inline-block;}
+  .tabs{display:flex; background:var(--card); border:1px solid var(--border); border-radius:999px;
+        padding:4px; width:max-content; margin:16px auto 0;}
+  .tabs span{padding:8px 20px; border-radius:999px; font-size:14px; color:var(--text2);
+        display:inline-flex; align-items:center; gap:7px; cursor:pointer;}
+  .tabs span.on{background:var(--brand); color:#fff; font-weight:700; box-shadow:0 2px 8px rgba(91,187,238,.4);}
+  .tabs em{font-style:normal; font-size:11px; background:rgba(0,0,0,.08); border-radius:999px; padding:1px 7px;}
+  .tabs span.on em{background:rgba(255,255,255,.25);}
+
+  /* ---------- 内容列 ---------- */
+  .col{width:560px; max-width:100%; margin:0 auto; padding:14px 0 96px;}
+
+  /* ---------- 筛选行 ---------- */
+  .toolbar{display:flex; align-items:center; gap:12px; margin-bottom:12px;}
+  .seg{background:var(--card); border:1px solid var(--border); border-radius:999px; padding:3px; display:inline-flex;}
+  .seg span{font-size:12px; color:var(--text2); border-radius:999px; padding:5px 12px; display:inline-flex; gap:5px; align-items:center;}
+  .seg span.on{background:var(--brand-soft); color:var(--brand-text); font-weight:700; border:1px solid var(--brand); padding:4px 11px;}
+  .seg em{font-style:normal; font-size:10px; background:rgba(0,0,0,.08); border-radius:999px; padding:1px 6px;}
+  .seg span.on em{background:rgba(91,187,238,.25);}
+  .clear-done{margin-left:auto; font-size:12px; color:var(--danger); font-weight:700;}
+
+  /* ---------- 错过提醒条 ---------- */
+  .missbar{background:var(--brand-soft); color:var(--brand-text); border-radius:10px;
+           padding:9px 13px; font-size:12px; display:flex; align-items:center; gap:8px; margin-bottom:12px;}
+  .missbar b{font-weight:700;}
+  .missbar .act{margin-left:auto; font-weight:700; cursor:pointer;}
+
+  /* ---------- 瀑布流 ---------- */
+  .masonry{columns:3; column-gap:12px;}
+  .note{break-inside:avoid; margin-bottom:12px; border-radius:14px; padding:12px 13px 10px; position:relative;
+        box-shadow:0 3px 8px rgba(1,15,28,0.10); transform:rotate(var(--tilt,0deg));}
+  .note.open{box-shadow:0 10px 26px rgba(1,15,28,0.16); transform:none; z-index:1000; position:relative;}
+  .u-ok{background:var(--u-ok);} .u-near{background:var(--u-near);} .u-over{background:var(--u-over);}
+  .idea{background:var(--card); border:1px solid var(--border);}
+  .note.done{opacity:.55;}
+  /* 距离衰减（D22）：|d| ≤1 / ≤3 / ≤7 / ≤14 / 更远 → 100/92/85/75/65% */
+  .f1{filter:none;}
+  .f2{filter:saturate(.92); opacity:.92;}
+  .f3{filter:saturate(.85); opacity:.85;}
+  .f4{filter:saturate(.72); opacity:.72;}
+  .f5{filter:saturate(.55); opacity:.6;}
+  .nhead{display:flex; align-items:flex-start; gap:7px; margin-bottom:7px;}
+  .ntitle{font-size:13.5px; font-weight:700; line-height:1.45; flex:1; min-width:0;
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .nbody{font-size:13px; line-height:1.65; color:var(--text);}
+  .nbody.clamp{display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden;}
+  .nmeta{display:flex; align-items:center; gap:5px; margin-top:8px;}
+  .ago{margin-left:auto; font-size:10.5px; color:rgba(0,0,0,.35); white-space:nowrap;}
+  .cap{font-size:11px; border-radius:999px; padding:2px 8px; display:inline-flex; align-items:center; gap:3px; white-space:nowrap;}
+  .cap-future{background:rgba(91,187,238,.18); color:#175A83;}
+  .cap-due{background:#FF8A5C; color:#5B1E02; font-weight:700; animation:blink 1.2s infinite;}
+  .cap-stale{background:#F3E4D8; color:#96683F;}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.45}}
+
+  .cbx{flex:none; width:17px; height:17px; border-radius:5px; border:1.5px solid #98A1A9; background:#fff;
+       margin-top:1px; cursor:pointer; position:relative;}
+  .cbx.on{background:var(--brand); border-color:var(--brand);}
+  .cbx.on::after{content:""; position:absolute; left:4px; top:1px; width:4px; height:8px;
+       border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg);}
+  .pintag{flex:none; width:13px; height:13px; margin-top:2px; color:#B91C1C;}
+  .idea-badge{flex:none; font-size:12px; margin-top:0px;}
+
+  .acts{display:flex; gap:5px; margin-top:10px; padding-top:9px; border-top:1px solid rgba(0,0,0,.07); flex-wrap:wrap;}
+  .acts span{font-size:11.5px; padding:4px 11px; border-radius:999px; background:rgba(255,255,255,.75);
+        border:1px solid var(--border); color:var(--text2); cursor:pointer;}
+  .acts span.pri{color:var(--brand-text); font-weight:700; border-color:rgba(91,187,238,.6);}
+  .acts span.del{color:var(--danger);}
+
+  /* ---------- 已完成折叠栏 ---------- */
+  .fold{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:9px 14px;
+        font-size:12.5px; color:var(--text2); display:flex; align-items:center; box-shadow:0 2px 6px rgba(1,15,28,.08);}
+  .fold em{font-style:normal; margin-left:auto; color:var(--text3);}
+  .fold .cnt{font-weight:700; color:var(--text); margin-left:6px;}
+
+  /* ---------- FAB 与菜单 ---------- */
+  .fab{position:absolute; right:26px; bottom:24px; width:52px; height:52px; border-radius:50%;
+       background:var(--brand); color:#fff; border:none; font-size:26px; cursor:pointer;
+       box-shadow:0 8px 20px rgba(63,169,224,.45); line-height:1; z-index:1010;}
+  .fabmenu{position:absolute; right:30px; bottom:86px; display:flex; flex-direction:column; gap:8px; z-index:1010;}
+  .fabmenu span{background:var(--card); border:1px solid var(--border); border-radius:999px; padding:9px 18px;
+       font-size:13px; font-weight:700; color:var(--text); box-shadow:0 4px 14px rgba(1,15,28,.14); cursor:pointer;}
+  .fabmenu span+hint{display:none;}
+
+  /* ---------- 图例 ---------- */
+  .legend{max-width:1240px; margin:14px auto 0; display:grid; grid-template-columns:repeat(2,1fr); gap:8px 24px; padding:0 4px;}
+  .legend li{list-style:none; font-size:13px; color:var(--text2); display:flex; gap:8px; align-items:baseline;}
+  .legend .n{flex:none; width:18px; height:18px; border-radius:50%; background:#D6DBE1; color:#3A3F45;
+             font-size:11px; display:inline-flex; align-items:center; justify-content:center; transform:translateY(3px);}
+
+  /* ---------- 编辑弹窗 ---------- */
+  .modalframe{height:600px; position:relative;}
+  .ghost-note{position:absolute; opacity:.35; filter:saturate(.7);}
+  .backdrop{position:absolute; inset:0; background:rgba(1,15,28,.42); backdrop-filter:blur(3px);
+            display:flex; align-items:center; justify-content:center;}
+  .modal{background:var(--card); border-radius:16px; width:400px; max-width:92%;
+         box-shadow:0 24px 60px rgba(1,15,28,.28); padding:22px;}
+  .modal h3{font-size:18px; font-weight:700; margin-bottom:14px;}
+  .typeseg{display:inline-flex; background:var(--bg); border-radius:999px; padding:3px; margin-bottom:14px;}
+  .typeseg span{font-size:13px; color:var(--text2); padding:6px 20px; border-radius:999px;}
+  .typeseg span.on{background:var(--brand); color:#fff; font-weight:700; box-shadow:0 2px 8px rgba(91,187,238,.4);}
+  .modal textarea{width:100%; min-height:88px; border:1px solid var(--border); border-radius:12px;
+        padding:10px 12px; font:inherit; font-size:14px; resize:vertical; color:var(--text); background:var(--card);}
+  .counter{text-align:right; font-size:11px; color:var(--text3); margin:4px 2px 10px;}
+  .row{display:flex; align-items:center; gap:10px; margin:10px 0;}
+  .flabel{font-size:13px; font-weight:700;}
+  .switch{margin-left:auto; width:42px; height:24px; border-radius:999px; background:var(--brand); position:relative; flex:none;}
+  .switch i{position:absolute; right:2px; top:2px; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.25);}
+  .sub{border-top:1px solid var(--border); padding-top:12px; margin-top:8px;}
+  .sublabel{font-size:12px; font-weight:700; color:var(--text3); letter-spacing:.5px; margin-bottom:8px;}
+  .dtrow{display:flex; gap:8px; margin-bottom:10px;}
+  .dt{flex:1; min-width:0; border:1px solid var(--border); border-radius:10px; padding:9px 12px;
+      font:inherit; font-size:14px; color:var(--text); background:var(--card);}
+  .seg2{display:inline-flex; background:var(--bg); border-radius:999px; padding:3px; flex-wrap:wrap;}
+  .seg2 span{font-size:12px; color:var(--text2); padding:5px 12px; border-radius:999px; white-space:nowrap;}
+  .seg2 span.on{background:#fff; color:var(--brand-text); font-weight:700; box-shadow:0 1px 4px rgba(1,15,28,.12);}
+  .reprow{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+  .meta{font-size:12px; color:var(--text3); margin:14px 2px;}
+  .mfoot{display:flex; align-items:center; gap:10px;}
+  .del-link{color:var(--danger); font-size:13px; font-weight:700; margin-right:auto; cursor:pointer;}
+  .btn{border:none; border-radius:999px; padding:9px 22px; font:inherit; font-size:14px; font-weight:700; cursor:pointer;}
+  .btn.ghost{background:var(--card); border:1px solid var(--border); color:var(--text2);}
+  .btn.main{background:var(--brand); color:#fff; box-shadow:0 4px 12px rgba(91,187,238,.45);}
+
+  @media (prefers-reduced-motion: reduce){ .cap-due{animation:none;} }
+  @media (max-width:1240px){ .masonry{columns:2;} .legend{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<div class="spec-head">
+  <span class="eyebrow">Handle · Notes Tab</span>
+  <span class="t">便签 · 界面样式草样</span>
+  <span class="meta">v2.5 · 2026-09-12 · Hello 第四标签 · 统一距离排序 abs(距今天) 升序 + 距离衰减视觉 · 「今天 = 9月12日 周六 16:05」</span>
+</div>
+
+<!-- ============ ① 便签标签页 ============ -->
+<section class="spec">
+  <h2>① 便签标签页 <small>与余额/会员同骨架：hero + 分类标签 + FAB + 弹窗；内容列 560px 内瀑布流混排</small></h2>
+  <div class="frame">
+    <div class="hero">
+      <div class="logo">⬡</div>
+      <div>
+        <div class="word">Handle</div>
+        <div class="sub">Data Console</div>
+      </div>
+      <div class="sp"></div>
+      <span class="login"><i></i>user@mail.com</span>
+    </div>
+
+    <div class="tabs">
+      <span>余额 <em>6</em></span>
+      <span>会员 <em>4</em></span>
+      <span>优惠券 <em>3</em></span>
+      <span class="on">便签 <em>13</em></span>
+    </div>
+
+    <div class="col">
+      <div class="toolbar">
+        <div class="seg"><span class="on">全部 <em>13</em></span><span>任务 <em>10</em></span><span>点子 <em>3</em></span></div>
+        <span class="clear-done">清除已完成</span>
+      </div>
+
+      <div class="missbar">
+        <b>有 1 条到点的提醒</b><span>「给海伦打电话」已超过 15:00</span>
+        <span class="act">全部知道了</span>
+      </div>
+
+      <div class="masonry">
+        <!-- 1 pinned 任务（钉住 = 唯一人工置顶，豁免距离排序） -->
+        <div class="note u-ok f4" style="--tilt:-1deg">
+          <div class="nhead">
+            <span class="cbx"></span>
+            <svg class="pintag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 7 3 3H7l3-3-1-7z"/></svg>
+            <span class="ntitle">买机票</span>
+          </div>
+          <div class="nmeta"><span class="cap cap-future">⏰ 9月20日 09:00</span><span class="ago">1 小时前</span></div>
+        </div>
+        <!-- 2 过期·未确认（橙红 + 闪烁徽标）|d|=0.05 -->
+        <div class="note u-over f1" style="--tilt:1deg">
+          <div class="nhead"><span class="cbx"></span><span class="ntitle">给海伦打电话</span></div>
+          <div class="nmeta"><span class="cap cap-due">🔔 已到点 · 15:00</span><span class="ago">1 小时前</span></div>
+        </div>
+        <!-- 3 过期·已确认 -->
+        <div class="note u-over f1" style="--tilt:-1deg">
+          <div class="nhead"><span class="cbx"></span><span class="ntitle">交物业费</span></div>
+          <div class="nmeta"><span class="cap cap-stale">已过期 · 9月10日</span><span class="ago">2 天前</span></div>
+        </div>
+        <!-- 4 临近(≤24h) 深黄 -->
+        <div class="note u-near f1" style="--tilt:1deg">
+          <div class="nhead"><span class="cbx"></span><span class="ntitle">健身 1 小时</span></div>
+          <div class="nmeta"><span class="cap cap-future">⏰ 今天 18:00</span><span class="ago">刚刚</span></div>
+        </div>
+        <!-- 5 重复 每天 -->
+        <div class="note u-near f1" style="--tilt:-1deg">
+          <div class="nhead"><span class="cbx"></span><span class="ntitle">背单词 30 分钟</span></div>
+          <div class="nmeta"><span class="cap cap-future">⏰ 每天 21:00 · 重复</span><span class="ago">5 分钟前</span></div>
+        </div>
+        <!-- 6 明天早上 → ≤24h 深黄 -->
+        <div class="note u-near f1" style="--tilt:0deg">
+          <div class="nhead"><span class="cbx"></span><span class="ntitle">买牛奶</span></div>
+          <div class="nmeta"><span class="cap cap-future">⏰ 明天 09:00</span><span class="ago">2 分钟前</span></div>
+        </div>
+        <!-- 11 点子（2 天前 → f2） -->
+        <div class="note idea f2" style="--tilt:-1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">做一个便利贴墙</span></div>
+          <div class="nbody clamp">我有一个好点子：做一个便利贴墙，可以贴任务和灵感，还能定提醒。</div>
+          <div class="nmeta"><span class="ago">2 天前</span></div>
+        </div>
+        <!-- 7 全天（3 天后 → f3） -->
+        <div class="note u-ok f3" style="--tilt:1deg">
+          <div class="nhead"><span class="cbx"></span><span class="ntitle">缴水费</span></div>
+          <div class="nmeta"><span class="cap cap-future">⏰ 全天 · 9月15日</span><span class="ago">刚刚</span></div>
+        </div>
+        <!-- 12 点子（3 天前 → f3） -->
+        <div class="note idea f3" style="--tilt:1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">给爸妈做一个电子相册</span></div>
+          <div class="nbody clamp">把每年拍的照片自动按月份整理，春节回家投屏给他们看。</div>
+          <div class="nmeta"><span class="ago">3 天前</span></div>
+        </div>
+        <!-- 8 纯备忘（昨天创建 → f1，无时间显示） -->
+        <div class="note u-ok f1" style="--tilt:-1deg">
+          <div class="nhead"><span class="cbx"></span><span class="ntitle">荔枝成熟了，给爸妈买一些</span></div>
+          <div class="nmeta"><span class="ago">昨天</span></div>
+        </div>
+        <!-- 9 展开态任务（同时只一张） -->
+        <div class="note u-ok f1 open" style="--tilt:0deg">
+          <div class="nhead"><span class="cbx"></span><span class="ntitle">周会纪要：Q4 排期</span></div>
+          <div class="nbody">Q4 排期周四与设计对齐，周五与后端过一遍接口字段；物料清单先出初稿。</div>
+          <div class="nmeta"><span class="ago">3 小时前</span></div>
+          <div class="acts">
+            <span class="pri">标记完成</span><span>钉住</span><span>编辑</span><span class="del">删除</span>
+          </div>
+        </div>
+        <!-- 13 远期任务（110 天 → f5，几乎褪色） -->
+        <div class="note u-ok f5" style="--tilt:1deg">
+          <div class="nhead"><span class="cbx"></span><span class="ntitle">年终总结</span></div>
+          <div class="nmeta"><span class="cap cap-future">⏰ 12月31日</span><span class="ago">上周</span></div>
+        </div>
+        <!-- 10 纯备忘 -->
+        <div class="note u-ok f1" style="--tilt:1deg">
+          <div class="nhead"><span class="cbx"></span><span class="ntitle">取快递</span></div>
+          <div class="nmeta"><span class="ago">刚刚</span></div>
+        </div>
+        <!-- 14 旧点子（28 天前 → f5 褪成灰白） -->
+        <div class="note idea f5" style="--tilt:-1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">社区团购小程序</span></div>
+          <div class="nbody clamp">小区团购接龙工具，先做个微信群接龙验证需求。</div>
+          <div class="nmeta"><span class="ago">28 天前</span></div>
+        </div>
+      </div>
+
+      <div class="fold">已完成<span class="cnt">2</span><em>展开 ▾</em></div>
+    </div>
+
+    <div class="fabmenu"><span>记任务</span><span>记点子</span></div>
+    <button class="fab">+</button>
+  </div>
+
+  <ul class="legend">
+    <li><span class="n">轴</span><b>统一距离排序</b>：abs(距今天) 升序——顶部 = 现在，越往下离当下越远（旧点子与远期任务同轴，D4/D22）</li>
+    <li><span class="n">1</span>pinned 置顶 + 图钉小图标：唯一的人工干预，豁免距离排序（D10）</li>
+    <li><span class="n">2</span>过期·未确认：底色变<b>浅橙红</b> + 徽标闪烁（D21 / D16）</li>
+    <li><span class="n">3</span>过期·已确认：橙红底 + 安静徽标，不划线不置灰（D16）</li>
+    <li><span class="n">4-6</span>临近（≤24h）<b>深黄</b>；更远 = 常规黄——紧迫度基色（D21）</li>
+    <li><span class="n">7</span>全天提醒：⏰ 全天 · 日期，3 天外已开始衰减（D17/D22）</li>
+    <li><span class="n">8/10</span>纯备忘任务：按创建时间计距离，无时间胶囊（D13）</li>
+    <li><span class="n">9</span>展开态：全文 + 动作行，同时只一张（D12）</li>
+    <li><span class="n">11-14</span>点子白卡随创建时间久远逐渐<b>褪成灰白</b>（f2→f5，D22）</li>
+    <li><span class="n">13/14</span>底部两张 = 远期任务与 28 天前旧点子：65% 饱和度，「翻到底自然知道不用马上看」</li>
+    <li><span class="n">—</span>顶部筛选「全部/任务/点子」默认全部；FAB =「记任务 / 记点子」（D20）</li>
+  </ul>
+</section>
+
+<!-- ============ ② 已完成区展开 ============ -->
+<section class="spec">
+  <h2>② 「已完成」折叠区展开 <small>完成后不消失：划线置灰保留可回看（D2，对齐历史保留调性）</small></h2>
+  <div class="frame">
+    <div class="col" style="padding-top:20px;">
+      <div class="fold">已完成<span class="cnt">2</span><em>收起 ▴</em></div>
+      <div class="masonry" style="margin-top:12px;">
+        <div class="note u-ok done" style="--tilt:-1deg">
+          <div class="nhead"><span class="cbx on"></span><span class="ntitle">预约体检</span></div>
+          <div class="nmeta"><span class="ago">昨天完成</span></div>
+        </div>
+        <div class="note idea done" style="--tilt:1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">手写便签字体方案</span></div>
+          <div class="nbody clamp">试过 PT Sans 手写变体和捺底字体，最终选定方案 B。</div>
+          <div class="nmeta"><span class="ago">3 天前完成</span></div>
+        </div>
+      </div>
+      <div style="text-align:right; margin-top:6px;"><span class="clear-done">清除已完成（跳过钉住）</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ③ 编辑弹窗 ============ -->
+<section class="spec">
+  <h2>③ 编辑弹窗 · 任务 <small>类型 任务/点子；提醒开关可选；无取色器（D21）、无快捷时间（D19）</small></h2>
+  <div class="frame modalframe">
+    <div class="note u-ok ghost-note" style="left:8%; top:16%; width:220px; --tilt:-1deg;">
+      <div class="nhead"><span class="cbx"></span><span class="ntitle">买牛奶</span></div>
+      <div class="nmeta"><span class="cap cap-future">⏰ 明天 09:00</span></div>
+    </div>
+    <div class="note idea ghost-note" style="right:9%; bottom:14%; width:220px; --tilt:1deg;">
+      <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">做一个便利贴墙</span></div>
+      <div class="nbody clamp">我有一个好点子：做一个便利贴墙。</div>
+    </div>
+    <div class="backdrop">
+      <div class="modal">
+        <h3>编辑便签</h3>
+        <div class="typeseg"><span class="on">任务</span><span>点子</span></div>
+        <textarea>今天 15:00 给海伦打电话</textarea>
+        <div class="counter">11 / 500</div>
+        <div class="row">
+          <span class="flabel">提醒</span>
+          <span style="font-size:12px; color:var(--text3);">到期前站内 + 系统通知</span>
+          <span class="switch"><i></i></span>
+        </div>
+        <div class="sub">
+          <div class="sublabel">提醒方式</div>
+          <div class="seg2" style="margin-bottom:10px;"><span class="on">指定时间</span><span>全天（只选日期）</span></div>
+          <div class="dtrow">
+            <input class="dt" value="2026-09-12">
+            <input class="dt" value="15:00" style="max-width:110px;">
+          </div>
+          <div class="sublabel">重复</div>
+          <div class="reprow">
+            <div class="seg2"><span class="on">不重复</span><span>每天</span><span>每周</span><span>每月</span><span>每年</span><span>每隔 N 天</span></div>
+          </div>
+        </div>
+        <div class="meta">开始 · 今天 15:00 · 1 小时前更新</div>
+        <div class="mfoot">
+          <span class="del-link">删除</span>
+          <button class="btn ghost">取消</button>
+          <button class="btn main">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

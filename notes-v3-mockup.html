@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>便利贴 · 界面样式草样（v3 · 四分区时间线）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#010f1c; --navy2:#04263f; --brand:#5BBBEE; --brand-h:#3FA9E0;
+    --brand-soft:#E3F3FC; --brand-text:#1B74A8;
+    --text:#1A1A1A; --text2:#646464; --text3:#939393;
+    --bg:#F0F2F5; --card:#FFFFFF; --border:#E0E0E0; --danger:#EF4444;
+    /* v3 便利贴专属 */
+    --memo:#FFF6A3;            /* 备忘卡静态底色（不随紧迫度变色，紧迫感由角标承担） */
+    --memo-due:#FFE388;        /* 「今天到期」强调底 */
+    --gone:#CDD3D9;            /* 已过期/已完成置灰（对齐零值/失效灰） */
+    --gone-text:#4E5A66; --gone-text2:#7C8894; --gone-meta:#8A95A1;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    font-family:'PT Sans','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;
+    background:#E4E8EC; color:var(--text); padding:28px 16px 80px;
+    font-variant-numeric:tabular-nums;
+  }
+  .spec-head{max-width:1240px; margin:0 auto 8px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;}
+  .spec-head .eyebrow{font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:var(--text3); font-weight:700;}
+  .spec-head .t{font-size:18px; font-weight:700;}
+  .spec-head .meta{font-size:12px; color:var(--text3);}
+  section.spec{max-width:1240px; margin:34px auto 0;}
+  section.spec > h2{font-size:15px; font-weight:700; margin:0 4px 12px; color:var(--text);}
+  section.spec > h2 small{font-weight:400; color:var(--text3); font-size:12px; margin-left:8px;}
+  .frame{background:var(--bg); border:1px solid var(--border); border-radius:16px; overflow:hidden; position:relative;}
+
+  /* ---------- Hello 骨架 ---------- */
+  .hero{background:linear-gradient(160deg,#04263F 0%,#010F1C 72%); padding:18px 28px;
+        display:flex; align-items:center; gap:12px;}
+  .hero .logo{width:34px; height:34px; border-radius:10px; background:rgba(91,187,238,.2);
+        border:1px solid rgba(91,187,238,.5); display:flex; align-items:center; justify-content:center;
+        color:var(--brand); font-weight:700; font-size:16px;}
+  .hero .word{color:#fff; font-weight:700; font-size:17px;}
+  .hero .sub{font-size:11px; color:rgba(255,255,255,.45); letter-spacing:1.5px; text-transform:uppercase; margin-top:2px;}
+  .hero .sp{flex:1;}
+  .login{display:inline-flex; align-items:center; gap:7px; font-size:12px; color:rgba(255,255,255,.72);
+        border:1px solid rgba(255,255,255,.18); border-radius:999px; padding:5px 12px;}
+  .login i{width:7px; height:7px; border-radius:50%; background:var(--brand); display:inline-block;}
+  .tabs{display:flex; background:var(--card); border:1px solid var(--border); border-radius:999px;
+        padding:4px; width:max-content; margin:16px auto 0;}
+  .tabs span{padding:8px 20px; border-radius:999px; font-size:14px; color:var(--text2);
+        display:inline-flex; align-items:center; gap:7px; cursor:pointer;}
+  .tabs span.on{background:var(--brand); color:#fff; font-weight:700; box-shadow:0 2px 8px rgba(91,187,238,.4);}
+  .tabs em{font-style:normal; font-size:11px; background:rgba(0,0,0,.08); border-radius:999px; padding:1px 7px;}
+  .tabs span.on em{background:rgba(255,255,255,.25);}
+
+  /* ---------- 内容列：PC 更宽（4 列），与平台 560px 惯例的偏差点已在 PRD 标注 ---------- */
+  .colw{max-width:920px; margin:0 auto; padding:14px 16px 96px;}
+
+  /* ---------- 普通双列/多列 grid：逐行从左到右填充，不做高度平衡瀑布流（D13） ---------- */
+  .zone{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:14px;}
+  @media (max-width:1079px){ .zone{grid-template-columns:repeat(3,1fr);} }
+  @media (max-width:759px){ .zone{grid-template-columns:repeat(2,1fr);} }
+  .mob .zone{grid-template-columns:repeat(2,1fr);}
+  .zone.hide{display:none;}
+
+  /* ---------- 分区折叠栏 ---------- */
+  .foldbar{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:9px 14px;
+        font-size:12.5px; color:var(--text2); display:flex; align-items:center; gap:8px; cursor:pointer;
+        box-shadow:0 2px 6px rgba(1,15,28,.08); user-select:none; margin-bottom:12px;}
+  .foldbar .cnt{font-weight:700; color:var(--text);}
+  .foldbar em{font-style:normal; margin-left:auto; color:var(--text3);}
+  .foldbar .hint{font-size:11px; color:var(--text3);}
+
+  /* ---------- 卡片 ---------- */
+  .note{border-radius:14px; padding:12px 13px 10px; position:relative; cursor:pointer;
+        box-shadow:0 3px 8px rgba(1,15,28,0.10); transform:rotate(var(--tilt,0deg));
+        display:flex; flex-direction:column;}
+  /* 置顶分区容器：品牌蓝浅底面板——四分区中唯一带色块容器（2026-09-12 用户反馈：要显眼） */
+  .pinwrap{background:rgba(91,187,238,.09); border:1px solid rgba(91,187,238,.32); border-radius:16px;
+           padding:12px; margin-bottom:14px;}
+  .pinwrap .foldbar{background:var(--card); border-color:rgba(91,187,238,.55); color:var(--brand-text);
+           box-shadow:0 2px 6px rgba(1,15,28,.06);}
+  .pinwrap .foldbar .cnt{color:var(--brand-text);}
+  .pinwrap .foldbar .hint{color:rgba(27,116,168,.65);}
+  .pinwrap .foldbar em{color:rgba(27,116,168,.6);}
+  .pinwrap .zone{margin-bottom:0;}
+  .note.open{box-shadow:0 10px 26px rgba(1,15,28,0.16); transform:none; z-index:1000;}
+  .memo{background:var(--memo);}
+  .memo.due{background:var(--memo-due);}
+  .idea{background:var(--card); border:1px solid var(--border);}
+  .gone{background:var(--gone);}
+
+  .nhead{display:flex; align-items:flex-start; gap:7px;}
+  .ntitle{font-size:13.5px; font-weight:700; line-height:1.5; flex:1; min-width:0;}
+  .nbody{font-size:13px; line-height:1.65; color:var(--text); margin-top:5px;}
+  .nbody.clamp{display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden;}
+  .nmeta{display:flex; align-items:center; gap:8px; margin-top:auto; padding-top:8px;}
+  .ago{margin-left:auto; font-size:10.5px; color:rgba(0,0,0,.35); white-space:nowrap;}
+  .nodate{font-size:10.5px; color:rgba(0,0,0,.42);}
+  .idea-badge{flex:none; font-size:12px; line-height:1.5;}
+
+  /* 倒计时角标（D5/D6）：只有用户设的日期才显示；无日期不显示任何倒计时 */
+  .cd{flex:none; font-size:11px; border-radius:999px; padding:2px 8px; white-space:nowrap;
+      font-variant-numeric:tabular-nums;}
+  .cd-days{background:rgba(255,255,255,.72); color:#7A6212;}
+  .cd-tmr{background:rgba(255,255,255,.92); color:#7A5800; font-weight:700;}
+  .cd-today{background:#FF8A5C; color:#5B1E02; font-weight:700;}
+  .cd-exp{background:rgba(255,255,255,.55); color:var(--gone-text2);}
+
+  /* 已完成来源标识（D10）：仅两种 */
+  .tag{flex:none; font-size:10.5px; border-radius:999px; padding:2px 8px; white-space:nowrap;}
+  .tag-manual{background:var(--brand-soft); color:var(--brand-text);}
+  .tag-auto{background:rgba(255,255,255,.62); color:var(--gone-text2);}
+
+  .gone .ntitle{color:var(--gone-text);}
+  .gone .nbody{color:var(--gone-text);}
+  .gone .ago{color:var(--gone-meta);}
+  .done .ntitle{text-decoration:line-through; text-decoration-color:rgba(78,90,102,.55); color:var(--gone-text2);}
+  .done .nbody{color:var(--gone-text2); text-decoration:line-through; text-decoration-color:rgba(78,90,102,.4);}
+
+  .acts{display:flex; gap:5px; margin-top:10px; padding-top:9px; border-top:1px solid rgba(0,0,0,.07); flex-wrap:wrap;}
+  .acts span{font-size:11.5px; padding:4px 11px; border-radius:999px; background:rgba(255,255,255,.75);
+        border:1px solid var(--border); color:var(--text2); cursor:pointer;}
+  .acts span.pri{color:var(--brand-text); font-weight:700; border-color:rgba(91,187,238,.6);}
+  .acts span.del{color:var(--danger);}
+  .gone .acts span{background:rgba(255,255,255,.55);}
+
+  /* ---------- FAB ---------- */
+  .fab{position:absolute; right:26px; bottom:24px; width:52px; height:52px; border-radius:50%;
+       background:var(--brand); color:#fff; border:none; font-size:26px; cursor:pointer;
+       box-shadow:0 8px 20px rgba(63,169,224,.45); line-height:1; z-index:1010;}
+
+  /* ---------- 图鉴 ---------- */
+  .gallery{display:flex; flex-wrap:wrap; gap:18px 16px; align-items:flex-start;}
+  .spec-card{width:242px;}
+  .spec-card .cap{font-size:12px; color:var(--text2); margin-top:8px; line-height:1.55; text-align:center;}
+  .spec-card .cap b{color:var(--text);}
+  .spec-card .note{cursor:default;}
+
+  /* ---------- 编辑弹窗 ---------- */
+  .modalframe{height:600px; position:relative;}
+  .ghost-note{position:absolute; opacity:.35; filter:saturate(.7);}
+  .backdrop{position:absolute; inset:0; background:rgba(1,15,28,.42); backdrop-filter:blur(3px);
+            display:flex; align-items:center; justify-content:center;}
+  .modal{background:var(--card); border-radius:16px; width:400px; max-width:92%;
+         box-shadow:0 24px 60px rgba(1,15,28,.28); padding:22px;}
+  .modal h3{font-size:18px; font-weight:700; margin-bottom:14px;}
+  .typeseg{display:inline-flex; background:var(--bg); border-radius:999px; padding:3px; margin-bottom:6px;}
+  .typeseg span{font-size:13px; color:var(--text2); padding:6px 20px; border-radius:999px; cursor:pointer;}
+  .typeseg span.on{background:var(--brand); color:#fff; font-weight:700; box-shadow:0 2px 8px rgba(91,187,238,.4);}
+  .typehint{font-size:11px; color:var(--text3); margin:0 2px 14px;}
+  .modal textarea{width:100%; min-height:88px; border:1px solid var(--border); border-radius:12px;
+        padding:10px 12px; font:inherit; font-size:14px; resize:vertical; color:var(--text); background:var(--card);}
+  .counter{text-align:right; font-size:11px; color:var(--text3); margin:4px 2px 10px;}
+  .sub{border-top:1px solid var(--border); padding-top:12px; margin-top:8px;}
+  .sublabel{font-size:12px; font-weight:700; color:var(--text3); letter-spacing:.5px; margin-bottom:8px;}
+  .seg2{display:inline-flex; background:var(--bg); border-radius:999px; padding:3px; flex-wrap:wrap;}
+  .seg2 span{font-size:12px; color:var(--text2); padding:5px 12px; border-radius:999px; white-space:nowrap;}
+  .seg2 span.on{background:#fff; color:var(--brand-text); font-weight:700; box-shadow:0 1px 4px rgba(1,15,28,.12);}
+  .dtrow{display:flex; gap:8px; margin:10px 0 6px; align-items:center;}
+  .dt{flex:1; min-width:0; border:1px solid var(--border); border-radius:10px; padding:9px 12px;
+      font:inherit; font-size:14px; color:var(--text); background:var(--card);}
+  .dthint{font-size:11px; color:var(--text3); line-height:1.6;}
+  .meta{font-size:12px; color:var(--text3); margin:14px 2px;}
+  .mfoot{display:flex; align-items:center; gap:10px;}
+  .del-link{color:var(--danger); font-size:13px; font-weight:700; margin-right:auto; cursor:pointer;}
+  .btn{border:none; border-radius:999px; padding:9px 22px; font:inherit; font-size:14px; font-weight:700; cursor:pointer;}
+  .btn.ghost{background:var(--card); border:1px solid var(--border); color:var(--text2);}
+  .btn.main{background:var(--brand); color:#fff; box-shadow:0 4px 12px rgba(91,187,238,.45);}
+
+  /* ---------- 图例 ---------- */
+  .legend{max-width:1240px; margin:14px auto 0; display:grid; grid-template-columns:repeat(2,1fr); gap:8px 24px; padding:0 4px;}
+  .legend li{list-style:none; font-size:13px; color:var(--text2); display:flex; gap:8px; align-items:baseline;}
+  .legend .n{flex:none; width:18px; height:18px; border-radius:50%; background:#D6DBE1; color:#3A3F45;
+             font-size:11px; display:inline-flex; align-items:center; justify-content:center; transform:translateY(3px);}
+
+  /* ---------- 移动端框 ---------- */
+  .frame.mob{width:392px; margin:0 auto;}
+  .mob .hero{padding:14px 18px;}
+  .mob .tabs span{padding:7px 13px; font-size:13px;}
+  .mob .colw{padding:12px 12px 90px;}
+</style>
+</head>
+<body>
+
+<div class="spec-head">
+  <span class="eyebrow">Handle · Notes Tab v3</span>
+  <span class="t">便利贴 · 界面样式草样</span>
+  <span class="meta">v3 · 2026-09-12 · 四分区（置顶 / 时间线 / 已过期 / 已完成）· 普通 grid 双列起 · 无任何推送打扰 · 「今天 = 2026-09-12 周六」</span>
+</div>
+
+<!-- ============ ① 主页面（桌面 · 四分区） ============ -->
+<section class="spec">
+  <h2>① 便利贴标签页 <small>置顶区（默认展开）→ 主时间线（创建倒序混排）→ 已过期折叠域 → 已完成折叠域；PC 4 列，窗口变窄自动 3 列 / 2 列</small></h2>
+  <div class="frame">
+    <div class="hero">
+      <div class="logo">⬡</div>
+      <div>
+        <div class="word">Handle</div>
+        <div class="sub">Data Console</div>
+      </div>
+      <div class="sp"></div>
+      <span class="login"><i></i>user@mail.com</span>
+    </div>
+
+    <div class="tabs">
+      <span>余额 <em>6</em></span>
+      <span>会员 <em>4</em></span>
+      <span class="on">便利贴 <em>16</em></span>
+    </div>
+
+    <div class="colw">
+
+      <!-- 置顶分区：独立分区，默认展开，可手动折叠（D11）；备忘到期照样离开本区走流转；蓝色容器强调 -->
+      <div class="pinwrap">
+      <div class="foldbar" data-fold="zone-pin">📌 置顶<span class="cnt">2</span><span class="hint">到期照常流转，不豁免</span><em>收起 ▴</em></div>
+      <div class="zone show" id="zone-pin">
+        <div class="note idea" style="--tilt:-1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">周末去东山口扫街拍照</span></div>
+          <div class="nmeta"><span class="ago">4 小时前</span></div>
+        </div>
+        <div class="note memo" style="--tilt:1deg">
+          <div class="nhead"><span class="ntitle">周三前回复房东</span><span class="cd cd-days">还剩 3 天</span></div>
+          <div class="nmeta"><span class="ago">昨天</span></div>
+        </div>
+      </div>
+      </div>
+
+      <!-- 主时间线：创建时间倒序，灵感+备忘混排（D12）；位置与紧急程度解耦 -->
+      <div class="zone">
+        <div class="note memo" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">缴物业费</span><span class="cd cd-days">还剩 5 天</span></div>
+          <div class="nmeta"><span class="ago">2 小时前</span></div>
+        </div>
+        <div class="note idea" style="--tilt:1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">做一个便利贴页面</span></div>
+          <div class="nbody clamp">像贴便利贴一样随手记：上面是灵感，中间混着带倒计时的备忘，过期的自动归档、30 天后消失。</div>
+          <div class="nmeta"><span class="ago">3 小时前</span></div>
+        </div>
+        <div class="note memo due" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">给王星发广州攻略</span><span class="cd cd-today">今天到期</span></div>
+          <div class="nmeta"><span class="ago">5 小时前</span></div>
+        </div>
+        <div class="note idea" style="--tilt:1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">相册自动按月份整理</span></div>
+          <div class="nbody clamp">把每年拍的照片自动按月份归组，春节回家投屏给爸妈看。</div>
+          <div class="nmeta"><span class="ago">昨天</span></div>
+        </div>
+        <div class="note memo" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">周日和王星聚餐</span><span class="cd cd-tmr">明天到期</span></div>
+          <div class="nbody">老友王星突然来广州，定在体育东的粤菜馆碰头。</div>
+          <div class="nmeta"><span class="ago">昨天</span></div>
+        </div>
+        <div class="note memo" style="--tilt:1deg">
+          <div class="nhead"><span class="ntitle">冰箱鸡蛋没了，买鸡蛋</span></div>
+          <div class="nmeta"><span class="nodate">未设日期</span><span class="ago">昨天</span></div>
+        </div>
+        <div class="note memo" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">图书馆还书</span><span class="cd cd-days">还剩 2 天</span></div>
+          <div class="nmeta"><span class="ago">2 天前</span></div>
+        </div>
+        <div class="note memo open" style="--tilt:0deg">
+          <div class="nhead"><span class="ntitle">还给同事充电宝</span><span class="cd cd-tmr">明天到期</span></div>
+          <div class="nmeta"><span class="ago">3 天前</span></div>
+          <div class="acts">
+            <span class="pri">标记完成</span><span>钉住</span><span>编辑</span><span class="del">删除</span>
+          </div>
+        </div>
+        <div class="note idea" style="--tilt:1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">社区团购小程序</span></div>
+          <div class="nbody clamp">小区团购接龙工具，先做个微信群接龙验证需求，别急着写代码。</div>
+          <div class="nmeta"><span class="ago">6 天前</span></div>
+        </div>
+        <div class="note idea" style="--tilt:-1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">给爸妈做一个电子相册</span></div>
+          <div class="nmeta"><span class="ago">2 周前</span></div>
+        </div>
+        <div class="note idea" style="--tilt:1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">入冬前给爸妈买护膝</span></div>
+          <div class="nmeta"><span class="ago">1 个月前</span></div>
+        </div>
+      </div>
+
+      <!-- 已过期折叠域（D8）：默认收起；排序 = 距自动归档最近的最前 -->
+      <div class="foldbar" data-fold="zone-exp">已过期<span class="cnt">3</span><span class="hint">快被收走的排最前</span><em>展开 ▾</em></div>
+      <div class="zone hide" id="zone-exp">
+        <div class="note gone" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">回访客户老陈</span><span class="cd cd-exp">已过期 7 天</span></div>
+          <div class="nmeta"><span class="ago">截止 9月5日 · 明天自动归档</span></div>
+        </div>
+        <div class="note gone" style="--tilt:1deg">
+          <div class="nhead"><span class="ntitle">取修改好的眼镜</span><span class="cd cd-exp">已过期 4 天</span></div>
+          <div class="nmeta"><span class="ago">截止 9月8日</span></div>
+        </div>
+        <div class="note gone" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">判断健身房年卡要不要续</span><span class="cd cd-exp">已过期 2 天</span></div>
+          <div class="nmeta"><span class="ago">截止 9月10日</span></div>
+        </div>
+      </div>
+
+      <!-- 已完成折叠域（D10）：默认折叠；两种来源标识；30 天静默清除 -->
+      <div class="foldbar" data-fold="zone-done">已完成<span class="cnt">4</span><span class="hint">30 天后自动清除</span><em>展开 ▾</em></div>
+      <div class="zone hide" id="zone-done">
+        <div class="note gone done" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">交水费</span><span class="tag tag-manual">手动完成</span></div>
+          <div class="nmeta"><span class="ago">今天完成</span></div>
+        </div>
+        <div class="note gone done" style="--tilt:1deg">
+          <div class="nhead"><span class="ntitle">买牙膏</span><span class="tag tag-manual">手动完成</span></div>
+          <div class="nmeta"><span class="ago">昨天完成</span></div>
+        </div>
+        <div class="note gone done" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">预约洗牙</span><span class="tag tag-auto">超期自动归档</span></div>
+          <div class="nmeta"><span class="ago">9月9日归档</span></div>
+        </div>
+        <div class="note gone done" style="--tilt:1deg">
+          <div class="nhead"><span class="ntitle">更新简历</span><span class="tag tag-auto">超期自动归档</span></div>
+          <div class="nmeta"><span class="ago">9月6日归档</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <button class="fab">+</button>
+  </div>
+
+  <ul class="legend">
+    <li><span class="n">轴</span><b>主时间线只讲创建时间</b>：灵感与备忘混排、创建倒序——位置与紧急程度解耦，紧急程度由角标承担（D12）</li>
+    <li><span class="n">1</span><b>置顶分区</b>：品牌蓝浅底容器强调（四分区中唯一带色块容器）；默认展开、可收起；置顶备忘到期照样离开本区进入已过期（D11）</li>
+    <li><span class="n">2</span><b>备忘黄卡 + 倒计时角标</b>（按自然日）：还剩 N 天 → 明天到期 → <b>今天到期</b>（深黄底 + 橙徽标，截止日当天仍算正常，D5/D6/D7）</li>
+    <li><span class="n">3</span><b>无日期备忘</b>：无角标，仅 meta 弱化小字「未设日期」——7 天兜底在后台悄悄流转，不显示数字（D5）</li>
+    <li><span class="n">4</span><b>灵感白卡 💡</b>：无角标无「完成」，正文 4 行截断点击展开；只能删除 / 钉住 / 编辑（D3/D4）</li>
+    <li><span class="n">5</span><b>展开态</b>：全文 + 动作行；「标记完成」只出现在备忘卡上（D4）</li>
+    <li><span class="n">6</span><b>已过期 / 已完成默认收起</b>，计数在折叠栏上；空分区整区隐藏（D8/D10/9.2-10）</li>
+    <li><span class="n">7</span>时间线越往下备忘越少（14 天内必然离场），<b>底部自然只剩灵感历史，可无限下翻</b>（2.1/D4）</li>
+    <li><span class="n">8</span><b>同行卡片等高</b>：行高 = 行内最高的卡，meta 沉底，行缘整齐（2026-09-12 用户裁定）</li>
+    <li><span class="n">9</span>微倾斜（±1.5°，id 哈希、不落库）：仅存拟物，建议保留；无推送/通知/声音/弹窗，一切提醒由界面承载（D2）</li>
+  </ul>
+</section>
+
+<!-- ============ ② 折叠域展开态 ============ -->
+<section class="spec">
+  <h2>② 「已过期 / 已完成」展开态 <small>已过期 = 「有没有真忘了的事」的窗口；已完成 = 不必再看的归档，两者独立不混装</small></h2>
+  <div class="frame">
+    <div class="colw" style="padding-top:18px;">
+
+      <div class="foldbar">已过期<span class="cnt">3</span><span class="hint">按距自动归档升序——最先看到的就是「再不看就没啦」</span><em>收起 ▴</em></div>
+      <div class="zone show">
+        <div class="note gone open" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">回访客户老陈</span><span class="cd cd-exp">已过期 7 天</span></div>
+          <div class="nmeta"><span class="ago">截止 9月5日 · 明天自动归档</span></div>
+          <div class="acts"><span class="pri">转为已完成</span><span class="del">删除</span></div>
+        </div>
+        <div class="note gone" style="--tilt:1deg">
+          <div class="nhead"><span class="ntitle">取修改好的眼镜</span><span class="cd cd-exp">已过期 4 天</span></div>
+          <div class="nmeta"><span class="ago">截止 9月8日</span></div>
+        </div>
+        <div class="note gone" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">判断健身房年卡要不要续</span><span class="cd cd-exp">已过期 2 天</span></div>
+          <div class="nmeta"><span class="ago">截止 9月10日</span></div>
+        </div>
+      </div>
+
+      <div class="foldbar">已完成<span class="cnt">4</span><span class="hint">按进入时间倒序</span><em>收起 ▴</em></div>
+      <div class="zone show">
+        <div class="note gone done" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">交水费</span><span class="tag tag-manual">手动完成</span></div>
+          <div class="nmeta"><span class="ago">今天完成 · 10月12日清除</span></div>
+        </div>
+        <div class="note gone done" style="--tilt:1deg">
+          <div class="nhead"><span class="ntitle">买牙膏</span><span class="tag tag-manual">手动完成</span></div>
+          <div class="nmeta"><span class="ago">昨天完成</span></div>
+        </div>
+        <div class="note gone done" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">预约洗牙</span><span class="tag tag-auto">超期自动归档</span></div>
+          <div class="nmeta"><span class="ago">9月9日归档 · 10月9日清除</span></div>
+        </div>
+        <div class="note gone done" style="--tilt:1deg">
+          <div class="nhead"><span class="ntitle">更新简历</span><span class="tag tag-auto">超期自动归档</span></div>
+          <div class="nmeta"><span class="ago">9月6日归档</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <ul class="legend">
+    <li><span class="n">1</span><b>过期卡置灰不划线</b>——划线是「完成」的专属视觉，过期只是「凉了」（5.1）</li>
+    <li><span class="n">2</span>过期域动作只有两个：<b>转为已完成</b>（记「手动完成」标识）/ 删除；不可编辑、不可改日期复活（9.1）</li>
+    <li><span class="n">3</span><b>排序</b>：已过期天数最多的排最前（等价于距自动归档最近，D8）</li>
+    <li><span class="n">4</span><b>来源标识仅两种</b>：手动完成（蓝） / 超期自动归档（灰）——在哪个阶段点的完成不区分，以用户处理结果为准（D10）</li>
+    <li><span class="n">5</span>进入已完成再过 <b>30 天静默清除</b>，无通知无确认；meta 可带清除日期（可选展示）</li>
+  </ul>
+</section>
+
+<!-- ============ ③ 卡片状态图鉴 ============ -->
+<section class="spec">
+  <h2>③ 卡片状态图鉴 <small>类型 × 状态的全部样式，实现按此对表</small></h2>
+  <div class="frame" style="padding:20px;">
+    <div class="gallery">
+      <div class="spec-card">
+        <div class="note memo" style="--tilt:0deg">
+          <div class="nhead"><span class="ntitle">缴物业费</span><span class="cd cd-days">还剩 5 天</span></div>
+          <div class="nmeta"><span class="ago">2 小时前</span></div>
+        </div>
+        <div class="cap"><b>备忘 · 倒计时中</b><br>黄卡 + 角标，按自然日 N=截止−今天</div>
+      </div>
+      <div class="spec-card">
+        <div class="note memo" style="--tilt:0deg">
+          <div class="nhead"><span class="ntitle">周日和王星聚餐</span><span class="cd cd-tmr">明天到期</span></div>
+          <div class="nmeta"><span class="ago">昨天</span></div>
+        </div>
+        <div class="cap"><b>备忘 · 明天到期</b><br>N=1 专用文案，比「还剩 1 天」更自然</div>
+      </div>
+      <div class="spec-card">
+        <div class="note memo due" style="--tilt:0deg">
+          <div class="nhead"><span class="ntitle">给王星发广州攻略</span><span class="cd cd-today">今天到期</span></div>
+          <div class="nmeta"><span class="ago">5 小时前</span></div>
+        </div>
+        <div class="cap"><b>备忘 · 今天到期</b><br>截止日当天仍算正常（D7）；深黄底 + 橙徽标强调</div>
+      </div>
+      <div class="spec-card">
+        <div class="note memo" style="--tilt:0deg">
+          <div class="nhead"><span class="ntitle">冰箱鸡蛋没了，买鸡蛋</span></div>
+          <div class="nmeta"><span class="nodate">未设日期</span><span class="ago">昨天</span></div>
+        </div>
+        <div class="cap"><b>备忘 · 未设日期</b><br>无角标；7 天兜底不显示数字（D5）</div>
+      </div>
+      <div class="spec-card">
+        <div class="note idea" style="--tilt:0deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">做一个便利贴页面</span></div>
+          <div class="nbody clamp">像贴便利贴一样随手记：上面是灵感，中间混着带倒计时的备忘。</div>
+          <div class="nmeta"><span class="ago">3 小时前</span></div>
+        </div>
+        <div class="cap"><b>灵感 · 白卡</b><br>描边白卡 + 💡，无角标无「完成」（D3/D4）</div>
+      </div>
+      <div class="spec-card">
+        <div class="note gone" style="--tilt:0deg">
+          <div class="nhead"><span class="ntitle">取修改好的眼镜</span><span class="cd cd-exp">已过期 4 天</span></div>
+          <div class="nmeta"><span class="ago">截止 9月8日</span></div>
+        </div>
+        <div class="cap"><b>备忘 · 已过期</b><br>置灰不划线；负数不显示，改显「已过期 N 天」（D6）</div>
+      </div>
+      <div class="spec-card">
+        <div class="note gone done" style="--tilt:0deg">
+          <div class="nhead"><span class="ntitle">交水费</span><span class="tag tag-manual">手动完成</span></div>
+          <div class="nmeta"><span class="ago">今天完成</span></div>
+        </div>
+        <div class="cap"><b>已完成 · 手动完成</b><br>划线置灰 + 蓝标识；正常期/过期期点的完成同标识（D10）</div>
+      </div>
+      <div class="spec-card">
+        <div class="note gone done" style="--tilt:0deg">
+          <div class="nhead"><span class="ntitle">预约洗牙</span><span class="tag tag-auto">超期自动归档</span></div>
+          <div class="nmeta"><span class="ago">9月9日归档</span></div>
+        </div>
+        <div class="cap"><b>已完成 · 超期自动归档</b><br>过期满 7 天系统收走，灰标识（D9）</div>
+      </div>
+      <div class="spec-card">
+        <div class="note memo open" style="--tilt:0deg">
+          <div class="nhead"><span class="ntitle">还给同事充电宝</span><span class="cd cd-tmr">明天到期</span></div>
+          <div class="nmeta"><span class="ago">3 天前</span></div>
+          <div class="acts"><span class="pri">标记完成</span><span>钉住</span><span>编辑</span><span class="del">删除</span></div>
+        </div>
+        <div class="cap"><b>备忘展开态</b><br>完成 / 钉住 / 编辑 / 删除；类型不可改（D15）</div>
+      </div>
+      <div class="spec-card">
+        <div class="note idea open" style="--tilt:0deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">做一个便利贴页面</span></div>
+          <div class="nbody">像贴便利贴一样随手记：上面是灵感，中间混着带倒计时的备忘，过期的自动归档、30 天后消失。</div>
+          <div class="nmeta"><span class="ago">3 小时前</span></div>
+          <div class="acts"><span>编辑</span><span>钉住</span><span class="del">删除</span></div>
+        </div>
+        <div class="cap"><b>灵感展开态</b><br>只有 编辑 / 钉住 / 删除——没有「完成」（D4）</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ④ 新建 / 编辑弹窗 ============ -->
+<section class="spec">
+  <h2>④ 新建 / 编辑弹窗 · 备忘 <small>类型二选一且创建后不可更改；日期可选、只到今天+7、没有「几点」；记录零决策成本</small></h2>
+  <div class="frame modalframe">
+    <div class="note memo ghost-note" style="left:8%; top:16%; width:220px; --tilt:-1deg;">
+      <div class="nhead"><span class="ntitle">缴物业费</span><span class="cd cd-days">还剩 5 天</span></div>
+      <div class="nmeta"><span class="ago">2 小时前</span></div>
+    </div>
+    <div class="note idea ghost-note" style="right:9%; bottom:14%; width:220px; --tilt:1deg;">
+      <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">做一个便利贴页面</span></div>
+      <div class="nbody clamp">像贴便利贴一样随手记。</div>
+    </div>
+    <div class="backdrop">
+      <div class="modal">
+        <h3>记一条</h3>
+        <div class="typeseg"><span class="on">备忘</span><span>灵感</span></div>
+        <div class="typehint">类型创建后不可更改；记错了删掉重记</div>
+        <textarea>冰箱鸡蛋没了，买鸡蛋</textarea>
+        <div class="counter">10 / 500</div>
+        <div class="sub">
+          <div class="sublabel">日期（可选）</div>
+          <div class="seg2" style="margin-bottom:4px;"><span class="on">不设日期</span><span>指定日期</span></div>
+          <div class="dtrow">
+            <input class="dt" value="2026-09-19" min="2026-09-12" max="2026-09-19">
+          </div>
+          <div class="dthint">最早今天 · 最晚 9月19日（今天 + 7 天）· 没有「几点」，按天算<br>不设日期：7 天后自动进入已过期，再 7 天自动归档，全程无提醒</div>
+        </div>
+        <div class="meta">3 分钟前更新</div>
+        <div class="mfoot">
+          <span class="del-link">删除</span>
+          <button class="btn ghost">取消</button>
+          <button class="btn main">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul class="legend">
+    <li><span class="n">1</span><b>类型二选一</b>：首次默认「备忘」，之后记住上次选择（9.2-2）；<b>创建后不可互转</b>（D15）</li>
+    <li><span class="n">2</span><b>日期可选</b>，默认「不设日期」；范围今天 ~ 今天+7（D5）；<b>无时间选择</b>——本产品没有「几点」的概念（1.2）</li>
+    <li><span class="n">3</span>选「灵感」时整个日期区收起；灵感永远不过期、不可完成（2.1）</li>
+    <li><span class="n">4</span>新建入口只有 FAB「+」，无二级菜单（对照 v2 的「记任务/记点子」双菜单）</li>
+  </ul>
+</section>
+
+<!-- ============ ⑤ 移动端 ============ -->
+<section class="spec">
+  <h2>⑤ 移动端 <small>392px 宽 · 固定 2 列，逐行从左到右填充（D13）——同一套代码，窄屏自动降列</small></h2>
+  <div class="frame mob">
+    <div class="hero">
+      <div class="logo">⬡</div>
+      <div>
+        <div class="word">Handle</div>
+        <div class="sub">Data Console</div>
+      </div>
+      <div class="sp"></div>
+      <span class="login"><i></i>user@mail.com</span>
+    </div>
+    <div class="tabs">
+      <span>余额 <em>6</em></span>
+      <span>会员 <em>4</em></span>
+      <span class="on">便利贴 <em>16</em></span>
+    </div>
+    <div class="colw">
+      <div class="pinwrap">
+      <div class="foldbar">📌 置顶<span class="cnt">2</span><em>收起 ▴</em></div>
+      <div class="zone show">
+        <div class="note idea" style="--tilt:-1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">周末去东山口扫街拍照</span></div>
+          <div class="nmeta"><span class="ago">4 小时前</span></div>
+        </div>
+        <div class="note memo" style="--tilt:1deg">
+          <div class="nhead"><span class="ntitle">周三前回复房东</span><span class="cd cd-days">还剩 3 天</span></div>
+          <div class="nmeta"><span class="ago">昨天</span></div>
+        </div>
+      </div>
+      </div>
+      <div class="zone" style="margin-bottom:0;">
+        <div class="note memo" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">缴物业费</span><span class="cd cd-days">还剩 5 天</span></div>
+          <div class="nmeta"><span class="ago">2 小时前</span></div>
+        </div>
+        <div class="note idea" style="--tilt:1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">做一个便利贴页面</span></div>
+          <div class="nbody clamp">像贴便利贴一样随手记：上面是灵感，中间混着带倒计时的备忘。</div>
+          <div class="nmeta"><span class="ago">3 小时前</span></div>
+        </div>
+        <div class="note memo due" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">给王星发广州攻略</span><span class="cd cd-today">今天到期</span></div>
+          <div class="nmeta"><span class="ago">5 小时前</span></div>
+        </div>
+        <div class="note memo" style="--tilt:1deg">
+          <div class="nhead"><span class="ntitle">周日和王星聚餐</span><span class="cd cd-tmr">明天到期</span></div>
+          <div class="nbody">老友王星突然来广州，定在体育东的粤菜馆碰头。</div>
+          <div class="nmeta"><span class="ago">昨天</span></div>
+        </div>
+        <div class="note memo" style="--tilt:-1deg">
+          <div class="nhead"><span class="ntitle">冰箱鸡蛋没了，买鸡蛋</span></div>
+          <div class="nmeta"><span class="nodate">未设日期</span><span class="ago">昨天</span></div>
+        </div>
+        <div class="note idea" style="--tilt:1deg">
+          <div class="nhead"><span class="idea-badge">💡</span><span class="ntitle">相册自动按月份整理</span></div>
+          <div class="nmeta"><span class="ago">昨天</span></div>
+        </div>
+      </div>
+      <div class="foldbar" style="margin-top:14px;">已过期<span class="cnt">3</span><em>展开 ▾</em></div>
+      <div class="foldbar">已完成<span class="cnt">4</span><em>展开 ▾</em></div>
+    </div>
+    <button class="fab" style="right:18px; bottom:20px;">+</button>
+  </div>
+  <ul class="legend">
+    <li><span class="n">1</span>移动端固定 2 列，逐行「之字形」阅读顺序与创建顺序严格一致（D13）</li>
+    <li><span class="n">2</span><b>同行卡片等高</b>：拉伸至行内最高的卡，meta 沉底；不做跨行填充（2026-09-12 用户裁定）</li>
+    <li><span class="n">3</span>折叠栏计数徽章让折叠域在窄屏也可发现；点开展开后同样 2 列 grid</li>
+  </ul>
+</section>
+
+<script>
+  // 折叠域开合（样式稿演示用）
+  document.querySelectorAll('[data-fold]').forEach(function(bar){
+    bar.addEventListener('click', function(){
+      var t = document.getElementById(bar.dataset.fold);
+      if(!t) return;
+      var open = t.classList.toggle('hide') === false;
+      bar.querySelector('em').textContent = open ? '收起 ▴' : '展开 ▾';
+    });
+  });
+  // 卡片点击 = 展开/收起（演示用，实现时「同时只一张」）
+  document.querySelectorAll('.note').forEach(function(n){
+    n.addEventListener('click', function(e){
+      if(e.target.closest('.acts')) return;
+      if(n.classList.contains('gone') && !n.querySelector('.acts')) return;
+      n.classList.toggle('open');
+    });
+  });
+</script>
+
+</body>
+</html>

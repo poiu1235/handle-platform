@@ -226,7 +226,7 @@ export function collapsedInfo(view) {
   // 换成"已用完"胶囊
   if (view.usedUp && !view.row.auto_renew) {
     // 命中扣款窗口 → 追加独立小标签（4-B12：沉底不等于对钱失明）
-    if (view.reminders.billing) tags.push({ key: 'billing', text: billingTag(view) })
+    if (view.reminders.billing) tags.push({ key: 'billing', text: billingCountdown(view.daysToBilling) })
     return { main: '已用完', days: view.daysToDdl, count: '已用完', tags }
   }
   // 扣款倒计时直读 daysToBilling（2026-09-06 用户裁定：列表主信息不看静默——

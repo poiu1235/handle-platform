@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import * as api from '../lib/apiClient'
 import { useCardsStore } from '../lib/cardsStore'
+import { useNotesStore } from '../lib/notesStore'
 import {
   suggestIconKey,
 } from '../lib/iconMatch'
@@ -10,6 +11,7 @@ import { useIconManifest } from '../lib/useIconManifest'
 import CardMark from '../components/CardMark'
 import { IconPickerField } from '../components/IconPicker'
 import CardsPanel from './CardsPanel'
+import NotesPanel from './NotesPanel'
 import wordmark from '../assets/font_daoliti.svg'
 import iconDelete from '../assets/icons/delete.svg'
 import iconEditor from '../assets/icons/editor.svg'
@@ -30,17 +32,8 @@ import './board.css'
 const TABS = [
   { key: 'balance', label: '余额' },
   { key: 'cards', label: '会员' },
-  { key: 'coupon', label: '优惠券' },
+  { key: 'notes', label: '便利贴' },
 ]
-
-const DATA = {
-  coupon: [
-    { id: 'c1', name: '满100减20', amount: 20, unit: '元', updatedAt: '2026-08-12' },
-    { id: 'c2', name: '新人立减券', amount: 15, unit: '元', updatedAt: '2026-08-01' },
-    { id: 'c3', name: '生日专属券', amount: 50, unit: '元', updatedAt: '2026-07-20' },
-    { id: 'c4', name: '会员日折扣', amount: 95, unit: '折', updatedAt: '2026-08-16' },
-  ],
-}
 
 const PALETTES = {
   balance: [
@@ -48,12 +41,6 @@ const PALETTES = {
     '#efb366', '#e07a5f', '#f4d35e', '#dda15e', '#eaac8b',
     '#c97b63', '#f6bd60', '#e8998d', '#d4a276', '#f28482',
     '#efc88b',
-  ],
-  coupon: [
-    '#e6a8c7', '#eeb8cf', '#eda3bd', '#edbcc9', '#eba8b5',
-    '#f2b9c0', '#eaadaf', '#f1bfbd', '#f0b0a8', '#f0cac1',
-    '#efbead', '#efd3c5', '#d8e0ae', '#d8e8b9', '#c8e7a9',
-    '#cae7bc',
   ],
 }
 
@@ -735,6 +722,7 @@ function ConfirmDeleteModal({ itemName, onCancel, onConfirm }) {
 export default function Hello() {
   const { user, logout } = useAuth()
   const { rows: cardRows } = useCardsStore()
+  const { rows: noteRows } = useNotesStore()
   const [apiState, setApiState] = useState({ status: 'pending', message: '' })
 
   const [activeTab, setActiveTab] = useState('balance')
@@ -818,7 +806,7 @@ export default function Hello() {
   const visibleBalanceItems = includeZero
     ? balanceItems
     : balanceItems.filter((it) => it.amount !== 0)
-  const items = activeTab === 'balance' ? visibleBalanceItems : DATA[activeTab] ?? []
+  const items = visibleBalanceItems
   const sorted = useMemo(
     () => sortItems(items, sortKey, sortDir),
     [items, sortKey, sortDir]
@@ -990,7 +978,7 @@ export default function Hello() {
                 ? balanceItems.length
                 : tab.key === 'cards'
                   ? cardRows.length
-                  : DATA[tab.key].length}
+                  : noteRows.length}
             </span>
           </button>
         ))}
@@ -999,7 +987,10 @@ export default function Hello() {
       {/* 会员：面板始终挂载（进站结算与 alert 不依赖当前标签），内容仅激活时渲染 */}
       <CardsPanel active={activeTab === 'cards'} onActivate={() => setActiveTab('cards')} />
 
-      {activeTab !== 'cards' && (
+      {/* 便利贴：激活期挂载（拉取 / 跨零点重算由面板自身驱动），状态全派生（PRD v3） */}
+      <NotesPanel active={activeTab === 'notes'} />
+
+      {activeTab === 'balance' && (
         <>
           <div className="bd-sort-row">
             <button
