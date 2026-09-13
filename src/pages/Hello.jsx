@@ -949,7 +949,13 @@ export default function Hello() {
       <header className="bd-header">
         <div className="bd-header-top">
           <div>
-            <p className="bd-eyebrow">{activeTab === 'cards' ? 'Membership Overview' : 'Assets Overview'}</p>
+            <p className="bd-eyebrow">
+              {activeTab === 'cards'
+                ? 'Membership Overview'
+                : activeTab === 'notes'
+                  ? 'Memo Overview'
+                  : 'Assets Overview'}
+            </p>
             <h1 className="bd-title">
               <img className="bd-title-word" src={wordmark} alt="Handle 数据管理端" />
             </h1>
