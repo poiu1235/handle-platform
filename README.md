@@ -35,6 +35,23 @@
 | `SUPABASE_ANON_KEY` | Worker 代理 signup/login/verify/recover/refresh 等公开认证操作 |
 | `SUPABASE_SERVICE_ROLE_KEY` | 仅 `reset-password.js` 用来直接改密码，**务必设为 Secret，不要出现在任何前端代码里** |
 | `RESET_TICKET_SECRET` | 建议 `openssl rand -base64 32` 生成，设为 Secret |
+| `TURNSTILE_SECRET_KEY` | **Secret**。Turnstile siteverify 服务端校验（认证闸门 Web 通道），模板见 `.dev.vars.example` |
+| `WX_APPID` / `WX_SECRET` | **Secret**。小程序 appid/appsecret，认证闸门 mp 通道 code2session 验真用（D3 的 wechat 端点复用同一 helper） |
+
+## 认证闸门（2026-09-13，D4 分通道人机验证）
+
+`functions/_lib/authGate.js`：`register` / `resend-signup` / `login` / `forgot-password`
+四个端点在触达 Supabase 前统一过闸，通道判定凭「能验证的凭证种类」而非客户端自报字段——
+
+- 请求带 `wxLoginCode`（小程序通道）：现场 code2session 验真（`_lib/wxTicket.js`），
+  换到 openid 即放行，失败不降级；
+- 否则（Web 通道）：`captchaToken` 必填且 siteverify 通过（`_lib/turnstile.js`），
+  400 文案与迁移前 Supabase 报错的翻译一字不差，Web 前端零改动。
+
+附属实例级内存频控（同一 IP 60 秒 5 次，isolate 各自计数）。**前置约束**：本闸门生效的
+前提是 Supabase Dashboard 的 Captcha 保护已关闭——Turnstile token 一次性，siteverify
+消费后开着的 Supabase Captcha 会因重复消费再拒一次；若日后重开 Supabase Captcha，
+必须先摘掉 Web 通道的 siteverify 分支。
 
 ## 待你接手的收尾工作
 

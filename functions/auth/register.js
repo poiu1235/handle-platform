@@ -1,8 +1,12 @@
 import { json, supabaseAuthFetch, translateSupabaseError } from '../_lib/supabase.js'
 import { isPasswordValid, passwordHint } from '../../shared/passwordRules.js'
+import { authGate } from '../_lib/authGate.js'
 
 export async function onRequestPost(context) {
   const { request, env } = context
+  // 认证闸门（D4）：mp 通道验 wxLoginCode、Web 通道验 Turnstile，未过闸不触达 Supabase
+  const gate = await authGate(request, env)
+  if (!gate.pass) return gate.response
   const { email, password, captchaToken } = await request.json().catch(() => ({}))
   if (!email || !password) return json({ error: '缺少邮箱或密码' }, 400)
 
