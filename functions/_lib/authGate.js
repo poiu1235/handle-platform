@@ -12,7 +12,7 @@
 // 两层不能同时强校验。若日后重开 Supabase Captcha，必须先摘掉 Web 通道的 siteverify 分支。
 import { json } from './supabase.js'
 import { verifyTurnstile } from './turnstile.js'
-import { verifyWxTicket } from './wxTicket.js'
+import { code2session } from './wxTicket.js'
 
 // 频控兜底（PRD 6.1-8 占位实）：实例级内存窗口，同一 IP 60 秒内最多 5 次。
 // 每个 isolate 各自计数（实际阈值 = 配置值 × 并发 isolate 数），只求把 authGate
@@ -46,9 +46,14 @@ export async function authGate(request, env) {
   const body = await request.clone().json().catch(() => ({}))
 
   if (body.wxLoginCode) {
-    const ok = await verifyWxTicket(body.wxLoginCode, env)
-    if (!ok) {
-      return { pass: false, response: json({ error: '微信身份校验失败', code: 'wx_ticket_invalid' }, 400) }
+    const r = await code2session(body.wxLoginCode, env)
+    if (!r.ok) {
+      // errcode 直接带回去（40013=appid 不符 / 40125=secret 错 / 40029=code 无效或已用 / 40164=IP 白名单），
+      // 排障从冒烟日志一步到位；errmsg 只进 CF 日志，不回传客户端
+      return {
+        pass: false,
+        response: json({ error: `微信身份校验失败（errcode: ${r.errcode}）`, code: 'wx_ticket_invalid' }, 400),
+      }
     }
     return { pass: true }
   }
