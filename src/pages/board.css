@@ -245,17 +245,19 @@
 
 /* ---------- 排序 ---------- */
 
+/* 排序折叠成下拉后行内容变短（下拉 ~150px + 模式切换），不再需要横向滚动；
+   overflow 必须回到 visible——排序下拉的浮层菜单溢出行外显示，留在 auto 会被
+   裁进滚动容器（2026-09-13 用户裁定：三枚排序按钮折叠 + 列表/日历回第一行） */
 .bd-sort-row {
   flex-shrink: 0;
   display: flex;
+  align-items: center;
   gap: 8px;
   padding: 12px var(--bd-gutter) 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
-.bd-sort-row::-webkit-scrollbar {
-  display: none;
+.bd-sort-row .cd-mode-seg {
+  margin-left: auto;
 }
 
 .bd-sort-btn {
@@ -279,6 +281,79 @@
   border-color: var(--au-brand);
   background: var(--au-brand-soft);
   color: var(--au-brand-text);
+}
+
+/* ---------- 排序下拉（余额 / 会员页共用，SortDropdown.jsx） ----------
+   按钮样式对照 .cd-select（34px 高、自绘右侧箭头）；浮层菜单覆盖在行下方 */
+
+.bd-sort-dd {
+  position: relative;
+  flex: none;
+}
+
+.bd-sort-dd-btn {
+  height: 34px;
+  padding: 0 30px 0 12px;
+  border: 1px solid var(--au-border);
+  border-radius: 8px;
+  background-color: var(--au-card);
+  color: var(--au-text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  /* 自绘下拉箭头（与 .cd-select 同款），方向箭头在文案内由组件渲染 */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23939393' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  transition: border-color 0.15s ease;
+}
+
+.bd-sort-dd-btn:hover {
+  color: var(--au-text);
+}
+
+.bd-sort-dd-btn.open {
+  border-color: var(--au-brand);
+  color: var(--au-text);
+}
+
+.bd-sort-dd-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--au-card);
+  border: 1px solid var(--au-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(1, 15, 28, 0.16);
+}
+
+.bd-sort-dd-item {
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: var(--au-text-2);
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bd-sort-dd-item:hover {
+  background: var(--au-bg);
+  color: var(--au-text);
+}
+
+.bd-sort-dd-item.on {
+  color: var(--au-brand-text);
+  font-weight: 700;
 }
 
 /* ---------- 0 余额开关 ---------- */
@@ -2525,15 +2600,6 @@
    列表 ⇄ 日历分段控件 + 月视图网格 + 跨天日程条 + 卡片多选筛选
    ============================================================ */
 
-/* 展示模式切换独立第二行（2026-09-13 用户裁定）：此前与排序按钮同行、靠
-   margin-left:auto 右贴——移动端排序按钮把它挤出容器右边界（排序行
-   overflow-x 裁切，右边缘被截断）；独占一行后右缘回到 --bd-gutter 内 */
-.bd-mode-row {
-  display: flex;
-  justify-content: flex-end;
-  padding: 8px var(--bd-gutter) 2px;
-}
-
 .cd-mode-seg {
   display: inline-flex;
   border: 1px solid var(--au-border);
@@ -3045,27 +3111,19 @@
   }
 }
 
-/* ---------- 工具行：第一行类型筛选；第二行搜索（仅列表）+ 展示模式切换 ----------
+/* ---------- 工具行：类型筛选 + 展示模式切换（右端）；下方第二行搜索框 ----------
    行距 4px 与面板顶部 padding 同节奏（2026-09-13 用户裁定：搜索框上下间距
    对齐筛选段与页面顶部的间距，不留大空隙） */
 
 .nt-toolbar {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+  align-items: center;
   margin-bottom: 4px;
 }
 
-.nt-row2 {
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-/* 展示模式切换在第二行右端（复用会员页 cd-mode-seg 方形样式，见会员页段） */
-.nt-row2 .cd-mode-seg {
+/* 展示模式切换在第一行右端（方形，复用会员页 cd-mode-seg 样式，见会员页段；
+   2026-09-13 用户裁定） */
+.nt-toolbar .cd-mode-seg {
   margin-left: auto;
 }
 
@@ -3113,6 +3171,7 @@
   border: 1px solid var(--au-border);
   border-radius: 999px;
   padding: 6px 16px;
+  margin-bottom: 4px;
   outline: none;
 }
 

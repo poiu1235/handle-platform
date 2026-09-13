@@ -10,6 +10,7 @@ import {
 import { useIconManifest } from '../lib/useIconManifest'
 import CardMark from '../components/CardMark'
 import { IconPickerField } from '../components/IconPicker'
+import SortDropdown from '../components/SortDropdown'
 import CardsPanel from './CardsPanel'
 import NotesPanel from './NotesPanel'
 import wordmark from '../assets/font_daoliti.svg'
@@ -33,6 +34,15 @@ const TABS = [
   { key: 'balance', label: '余额' },
   { key: 'cards', label: '会员' },
   { key: 'notes', label: '便利贴' },
+]
+
+// 余额排序下拉选项（2026-09-13 用户裁定：三枚排序按钮折叠为下拉框）。默认
+// 金额降序（见 sortKey / sortDir 初始值）；下拉里重选同一项 = 换向，换向 /
+// 切换落地在 toggleSort（↑ 升序 / ↓ 降序，随排序状态变化）
+const BALANCE_SORT_OPTIONS = [
+  { key: 'amount', label: '按金额排序' },
+  { key: 'time', label: '按更新时间排序' },
+  { key: 'name', label: '按名称排序' },
 ]
 
 const PALETTES = {
@@ -993,24 +1003,12 @@ export default function Hello() {
       {activeTab === 'balance' && (
         <>
           <div className="bd-sort-row">
-            <button
-              className={`bd-sort-btn ${sortKey === 'amount' ? 'bd-sort-btn-active' : ''}`}
-              onClick={() => toggleSort('amount')}
-            >
-              按金额 {sortKey === 'amount' && (sortDir === 'desc' ? '↓' : '↑')}
-            </button>
-            <button
-              className={`bd-sort-btn ${sortKey === 'time' ? 'bd-sort-btn-active' : ''}`}
-              onClick={() => toggleSort('time')}
-            >
-              按更新时间 {sortKey === 'time' && (sortDir === 'desc' ? '↓' : '↑')}
-            </button>
-            <button
-              className={`bd-sort-btn ${sortKey === 'name' ? 'bd-sort-btn-active' : ''}`}
-              onClick={() => toggleSort('name')}
-            >
-              按名称 {sortKey === 'name' && (sortDir === 'desc' ? '↓' : '↑')}
-            </button>
+            <SortDropdown
+              options={BALANCE_SORT_OPTIONS}
+              activeKey={sortKey}
+              dir={sortDir}
+              onSelect={toggleSort}
+            />
           </div>
 
           {activeTab === 'balance' && zeroCount > 0 && (

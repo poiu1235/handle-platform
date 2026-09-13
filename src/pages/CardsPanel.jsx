@@ -22,6 +22,7 @@ import { NO_ICON_KEY, suggestIconKey } from '../lib/iconMatch'
 import { useIconManifest } from '../lib/useIconManifest'
 import DaysRing from '../components/DaysRing'
 import CardMark from '../components/CardMark'
+import SortDropdown from '../components/SortDropdown'
 import { IconPickerField, useCardIconState } from '../components/IconPicker'
 import moneyIcon from '../assets/icons/money.svg'
 import closeRemindIcon from '../assets/icons/close-remind.svg'
@@ -2225,6 +2226,15 @@ export default function CardsPanel({ active, onActivate }) {
     showNotice('已保存')
   }
 
+  // 排序下拉选项（2026-09-13 用户裁定：三枚排序按钮折叠为下拉框）。默认到期日
+  // 升序（sortKey / sortDir 初始值不变）；下拉里重选同一项 = 换向，落地在
+  // toggleSort（↑ 升序 / ↓ 降序，随排序状态变化）
+  const CARDS_SORT_OPTIONS = [
+    { key: 'ddl', label: '按到期日排序' },
+    { key: 'name', label: '按名称排序' },
+    { key: 'updated', label: '按更新时间排序' },
+  ]
+
   // 展示模式分段控件：列表 ⇄ 日历（日历模式内嵌在日历工具栏复用同一实例）
   const modeSeg = (
     <div className="cd-mode-seg" role="tablist" aria-label="展示模式">
@@ -2291,32 +2301,14 @@ export default function CardsPanel({ active, onActivate }) {
       {active && viewMode === 'list' && (
         <>
           <div className="bd-sort-row">
-            <button
-              type="button"
-              className={`bd-sort-btn ${sortKey === 'ddl' ? 'bd-sort-btn-active' : ''}`}
-              onClick={() => toggleSort('ddl')}
-            >
-              按到期日 {sortKey === 'ddl' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-            </button>
-            <button
-              type="button"
-              className={`bd-sort-btn ${sortKey === 'name' ? 'bd-sort-btn-active' : ''}`}
-              onClick={() => toggleSort('name')}
-            >
-              按名称 {sortKey === 'name' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-            </button>
-            <button
-              type="button"
-              className={`bd-sort-btn ${sortKey === 'updated' ? 'bd-sort-btn-active' : ''}`}
-              onClick={() => toggleSort('updated')}
-            >
-              按更新时间 {sortKey === 'updated' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-            </button>
+            <SortDropdown
+              options={CARDS_SORT_OPTIONS}
+              activeKey={sortKey}
+              dir={sortDir}
+              onSelect={toggleSort}
+            />
+            {modeSeg}
           </div>
-
-          {/* 展示模式切换独立第二行（2026-09-13 用户裁定）：此前挤在排序行尾，
-              移动端被排序按钮挤出容器右边界（排序行 overflow-x 裁切） */}
-          <div className="bd-mode-row">{modeSeg}</div>
 
           <div className="bd-zero-row">
             <label className="bd-toggle">

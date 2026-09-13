@@ -340,9 +340,8 @@ export default function NotesPanel({ active }) {
       )}
       {status === 'pending' && <p className="nt-status">加载中…</p>}
 
-      {/* 工具行：第一行类型筛选（纯前端过滤，切换零请求）；段按钮再点一下切换
-          排序。第二行 = 搜索框（仅列表视图，固定宽 208px）+ 展示模式切换
-          （方形，复用会员页 cd-mode-seg 样式，右对齐）；行距 4px 对齐面板顶部 */}
+      {/* 工具行：类型筛选（纯前端过滤，切换零请求；段按钮再点一下切换排序）+
+          展示模式切换（方形，复用会员页 cd-mode-seg 样式，第一行右端） */}
       <div className="nt-toolbar">
         <div className="nt-seg">
           <button type="button" className={kindFilter === 'all' ? 'on' : ''} onClick={() => clickFilter('all')}>
@@ -365,28 +364,28 @@ export default function NotesPanel({ active }) {
             仅灵感{kindFilter === 'idea' ? (ideaDir === 'new' ? ' ↓' : ' ↑') : ''}
           </button>
         </div>
-        <div className="nt-row2">
-          {/* 搜索（仅列表视图，PRD 4.6）：固定宽度见 .nt-search 注释；输入字号
-              16px——低于 16px 聚焦会触发 iOS 自动放大页面且不回缩 */}
-          {view === 'list' && (
-            <input
-              type="search"
-              className="nt-search"
-              value={query}
-              placeholder="🔍 搜索便利贴内容…"
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          )}
-          <div className="cd-mode-seg" role="tablist" aria-label="展示模式">
-            <button type="button" className={view === 'list' ? 'cd-seg-active' : ''} onClick={() => setView('list')}>
-              列表
-            </button>
-            <button type="button" className={view === 'cal' ? 'cd-seg-active' : ''} onClick={() => setView('cal')}>
-              日历
-            </button>
-          </div>
+        <div className="cd-mode-seg" role="tablist" aria-label="展示模式">
+          <button type="button" className={view === 'list' ? 'cd-seg-active' : ''} onClick={() => setView('list')}>
+            列表
+          </button>
+          <button type="button" className={view === 'cal' ? 'cd-seg-active' : ''} onClick={() => setView('cal')}>
+            日历
+          </button>
         </div>
       </div>
+
+      {/* 搜索（仅列表视图，PRD 4.6）：固定宽 208px、输入字号 16px 防 iOS 缩放；
+          日历视图不显示——搜索是列表的查找能力，不影响日历落位；查询词切走
+          再切回仍保留 */}
+      {view === 'list' && (
+        <input
+          type="search"
+          className="nt-search"
+          value={query}
+          placeholder="🔍 搜索便利贴内容…"
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      )}
 
       {view === 'cal' ? (
         <div className="nt-cal">
