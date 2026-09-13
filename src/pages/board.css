@@ -1297,7 +1297,7 @@
   border: 1px solid var(--au-border);
   border-radius: 12px;
   background: var(--au-card);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.6;
   color: var(--au-text);
   resize: vertical;
@@ -2249,7 +2249,9 @@
   border-radius: 8px;
   background: var(--au-card);
   color: var(--au-text);
-  font-size: 13px;
+  /* ≥16px 硬约束：低于 16px 的输入框聚焦会触发 iOS Safari 自动放大页面且不回缩
+     （2026-09-13 用户反馈），勿调小 */
+  font-size: 16px;
   font-variant-numeric: tabular-nums;
   outline: none;
   appearance: none;
@@ -2266,7 +2268,8 @@
 }
 
 .cd-date-input {
-  width: 138px;
+  /* 138px 是 13px 字号时代的宽度——16px 下原生日期框会被裁，同步放宽 */
+  width: 150px;
 }
 
 /* 周期下拉（周/月/季/年/固定天数）：与行内输入同规格，原生箭头保留 */
@@ -2277,7 +2280,7 @@
   border-radius: 8px;
   background: var(--au-card);
   color: var(--au-text);
-  font-size: 13px;
+  font-size: 16px;
   outline: none;
   appearance: none;
   cursor: pointer;
@@ -2522,9 +2525,13 @@
    列表 ⇄ 日历分段控件 + 月视图网格 + 跨天日程条 + 卡片多选筛选
    ============================================================ */
 
-/* 列表模式：模式切换与排序按钮同一行，右对齐、不超出列表列宽 */
-.bd-sort-row .cd-mode-seg {
-  margin-left: auto;
+/* 展示模式切换独立第二行（2026-09-13 用户裁定）：此前与排序按钮同行、靠
+   margin-left:auto 右贴——移动端排序按钮把它挤出容器右边界（排序行
+   overflow-x 裁切，右边缘被截断）；独占一行后右缘回到 --bd-gutter 内 */
+.bd-mode-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px var(--bd-gutter) 2px;
 }
 
 .cd-mode-seg {
@@ -2696,7 +2703,8 @@
   border: 1px solid var(--au-border);
   border-radius: 8px;
   font: inherit;
-  font-size: 13px;
+  /* ≥16px：低于 16px 的输入框聚焦会触发 iOS Safari 自动放大页面且不回缩 */
+  font-size: 16px;
   color: var(--au-text);
   background: var(--au-bg);
   outline: none;
@@ -3037,12 +3045,28 @@
   }
 }
 
-/* ---------- 工具行：类型筛选（全部 / 只显示备忘 / 只显示灵感） ---------- */
+/* ---------- 工具行：第一行类型筛选；第二行搜索（仅列表）+ 展示模式切换 ----------
+   行距 4px 与面板顶部 padding 同节奏（2026-09-13 用户裁定：搜索框上下间距
+   对齐筛选段与页面顶部的间距，不留大空隙） */
 
 .nt-toolbar {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.nt-row2 {
+  align-self: stretch;
+  display: flex;
   align-items: center;
-  margin-bottom: 14px;
+  gap: 10px;
+}
+
+/* 展示模式切换在第二行右端（复用会员页 cd-mode-seg 方形样式，见会员页段） */
+.nt-row2 .cd-mode-seg {
+  margin-left: auto;
 }
 
 .nt-seg {
@@ -3072,26 +3096,23 @@
   box-shadow: 0 2px 8px rgba(91, 187, 238, 0.4);
 }
 
-.nt-seg-right {
-  margin-left: auto;
-}
-
 /* ---------- 搜索（列表视图 · 2026-09-13）：纯前端过滤，PRD 4.6 ---------- */
 
 /* 固定宽度 = 筛选段无箭头默认态总宽：三按钮（全部 2×13 + 仅备忘/仅灵感各 3×13
    内容 104px）+ 按钮 padding 32×3 + 容器 padding 3×2 + 边框 1×2 = 208px。
-   ⚠ 与 .nt-seg 的字号 / padding 耦合——改筛选段尺寸时同步调这里 */
+   ⚠ 与 .nt-seg 的字号 / padding 耦合——改筛选段尺寸时同步调这里。
+   字号必须 ≥16px：更小的输入框聚焦会触发 iOS Safari 自动放大页面且不回缩
+   （2026-09-13 用户反馈），勿调小 */
 .nt-search {
   display: block;
   width: 208px;
   font: inherit;
-  font-size: 13px;
+  font-size: 16px;
   color: var(--au-text);
   background: var(--au-card);
   border: 1px solid var(--au-border);
   border-radius: 999px;
-  padding: 8px 16px;
-  margin-bottom: 14px;
+  padding: 6px 16px;
   outline: none;
 }
 
@@ -3735,7 +3756,7 @@
   border-radius: 12px;
   padding: 10px 12px;
   font: inherit;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.6;
   resize: vertical;
   color: var(--au-text);
@@ -3792,7 +3813,7 @@
   border-radius: 10px;
   padding: 9px 12px;
   font: inherit;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--au-text);
   background: var(--au-card);
   margin-bottom: 6px;

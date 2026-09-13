@@ -2312,8 +2312,11 @@ export default function CardsPanel({ active, onActivate }) {
             >
               按更新时间 {sortKey === 'updated' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
             </button>
-            {modeSeg}
           </div>
+
+          {/* 展示模式切换独立第二行（2026-09-13 用户裁定）：此前挤在排序行尾，
+              移动端被排序按钮挤出容器右边界（排序行 overflow-x 裁切） */}
+          <div className="bd-mode-row">{modeSeg}</div>
 
           <div className="bd-zero-row">
             <label className="bd-toggle">
