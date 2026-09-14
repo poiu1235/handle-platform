@@ -39,7 +39,17 @@ export async function onRequest(context) {
       audience: 'authenticated',
     })
     payload = result.payload
-  } catch {
+  } catch (err) {
+    // 临时诊断日志（排查 cards/notes 间歇性 401 用）：把 jwtVerify 具体失败原因
+    // 打出来——常见几种：JWKSNoMatchingKey（远端 JWKS 抓取/匹配失败）、
+    // JWTExpired（token 真过期）、JWTClaimValidationFailed（iss/aud 不匹配）。
+    // 排查完记得删掉这行，避免长期把 token 前缀/路径这类信息留在日志里。
+    console.error('[_middleware] jwtVerify failed:', {
+      name: err?.name,
+      message: err?.message,
+      path: new URL(request.url).pathname,
+      method: request.method,
+    })
     return json({ error: '登录状态无效或已过期，请重新登录' }, 401)
   }
 
