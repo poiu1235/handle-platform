@@ -55,7 +55,9 @@ export async function authGate(request, env) {
         response: json({ error: `微信身份校验失败（errcode: ${r.errcode}）`, code: 'wx_ticket_invalid' }, 400),
       }
     }
-    return { pass: true }
+    // openid/unionid 一并带出去：code2session 换过一次的一次性 code 已经消费掉了，
+    // 调用方（login.js 的登录后微信身份冲突检查）不能再换第二次，只能复用这里的结果
+    return { pass: true, openid: r.openid, unionid: r.unionid }
   }
 
   if (!body.captchaToken) {
