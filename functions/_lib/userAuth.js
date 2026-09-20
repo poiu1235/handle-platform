@@ -48,3 +48,59 @@ export async function serviceRoleFetch(env, path, { method = 'GET', body } = {})
   const data = await res.json().catch(() => ({}))
   return { ok: res.ok, status: res.status, data }
 }
+
+// 服务端替用户完成一次 magic link 登录（D3 会话签发，R7 spike 定案 2026-09-13：
+// verify 必须走 { type:'magiclink', token_hash } 形态，旧形态 { type, token } 会被
+// 400 拒绝；全程不出网到邮箱）。wechat-login 命中/建访客两条分支共用
+// （scripts/spike-gotrue-session.mjs 为行为依据）。失败返回 null，调用方拼文案。
+export async function issueSessionByEmail(env, email) {
+  const gl = await serviceRoleFetch(env, '/auth/v1/admin/generate_link', {
+    method: 'POST',
+    body: { type: 'magiclink', email },
+  })
+  const tokenHash = gl.data?.properties?.token_hash ?? gl.data?.hashed_token
+  if (!gl.ok || !tokenHash) {
+    console.error('[userAuth] generate_link failed:', JSON.stringify(gl.data))
+    return null
+  }
+
+  const vf = await fetch(`${env.SUPABASE_URL}/auth/v1/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: env.SUPABASE_ANON_KEY },
+    body: JSON.stringify({ type: 'magiclink', token_hash: tokenHash }),
+  })
+  const session = await vf.json().catch(() => ({}))
+  if (!vf.ok || !session.access_token || !session.refresh_token) {
+    console.error('[userAuth] verify failed:', JSON.stringify(session).slice(0, 300))
+    return null
+  }
+  return { accessToken: session.access_token, refreshToken: session.refresh_token }
+}
+
+// 密码重填 proof（D5 拍板 5，解绑/注销共用）：GoTrue admin API 没有「验密」端点，
+// 借 password grant 真登录一次即验证。副作用是 GoTrue 多出一条新会话——解绑路径
+// 紧接着 revoke 全部会话会把它一并清掉；注销路径该会话属于本人、冷却期本就允许
+// 继续使用，无害。成败只看 res.ok，错误文案不回传。
+export async function verifyPasswordProof(env, email, password) {
+  if (!email || !password) return false
+  const res = await fetch(`${env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: env.SUPABASE_ANON_KEY },
+    body: JSON.stringify({ email, password }),
+  })
+  return res.ok
+}
+
+// B28 原语：撤销某账号全部会话（refresh 链）。解绑与改密两处共用，失败进日志
+// 由人工补——不翻转主业务结果（门已拆/密码已改是主语义）。access token 是无状态
+// JWT，撤销后仍有 ≤签发上限（默认 1h）的自然过期残余窗口，设计显式接受。
+// GoTrue admin DELETE /users/{id}/sessions 的可用性列入冒烟清单（同 R7 教训）。
+export async function revokeAllSessions(env, userId) {
+  const res = await serviceRoleFetch(
+    env,
+    `/auth/v1/admin/users/${encodeURIComponent(userId)}/sessions`,
+    { method: 'DELETE' },
+  )
+  if (!res.ok) console.error('[userAuth] revoke sessions failed:', userId, JSON.stringify(res.data))
+  return res.ok
+}

@@ -1,6 +1,7 @@
 import { json } from '../_lib/supabase.js'
 import { code2session } from '../_lib/wxTicket.js'
 import { verifyUserBearer, serviceRoleFetch } from '../_lib/userAuth.js'
+import { isGuestUser } from '../_lib/guestUser.js'
 
 // 微信身份绑定（PRD D3 3.3.4）：用户已邮箱登录后由客户端静默触发。
 // 门禁 = 有效 Bearer 会话 + 一次性 wx.login code，二者缺一不可；
@@ -27,6 +28,13 @@ export async function onRequestPost(context) {
   const byOpenid = await serviceRoleFetch(env, `${base}&openid=eq.${encodeURIComponent(openid)}`)
   const openidRow = byOpenid.data?.[0]
   if (openidRow && openidRow.user_id !== user.userId) {
+    // D5 5.5 防御分支：映射指向访客（这个微信的门还开在自己空账号上）——
+    // 独立结构化码，客户端维持「失败不打扰」纪律不弹错，绑定管理页据此显示
+    // 「微信未绑定」并引导去走绑定流程（v1.5 评审 #7）
+    const owner = await serviceRoleFetch(env, `/auth/v1/admin/users/${encodeURIComponent(openidRow.user_id)}`)
+    if (isGuestUser(owner.data)) {
+      return json({ error: '该微信当前为访客身份', code: 'openid_taken_guest' }, 409)
+    }
     return json({ error: '该微信已绑定其他账号', code: 'openid_taken' }, 409)
   }
 
@@ -37,6 +45,16 @@ export async function onRequestPost(context) {
     // 同一身份重复绑定 = 幂等成功（下次登录重试触发的正常路径）
     if (userRow.openid === openid) return json({ bound: true })
     return json({ error: '当前账号已绑定其他微信，如需换绑请联系服务端处理', code: 'already_bound' }, 409)
+  }
+
+  // 2.3：注销/清理置位期内的账号不接受新门钥匙（撤位只走 login / wechat-login
+  // 两条「本人回归」通道，静默 bind 谁都不代表）
+  const pdel = await serviceRoleFetch(
+    env,
+    `/rest/v1/pending_deletions?user_id=eq.${encodeURIComponent(user.userId)}&select=reason`,
+  )
+  if (pdel.data?.length) {
+    return json({ error: '账号正在注销或清理流程中，暂不可操作', code: 'deletion_pending' }, 409)
   }
 
   const ins = await serviceRoleFetch(env, table, {

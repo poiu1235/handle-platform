@@ -1,12 +1,14 @@
 import { json } from '../_lib/supabase.js'
 import { verifyResetTicket } from '../_lib/resetTicket.js'
+import { revokeAllSessions } from '../_lib/userAuth.js'
+import { sendNotify, notifyTemplates } from '../_lib/mailer.js'
 import { isPasswordValid, passwordHint } from '../../shared/passwordRules.js'
 
 // 密码复杂度规则从前后端共用的 shared/passwordRules.js 引入——这道服务端校验本身
 // 就是防线之一，不是"前端已经拦过就不用管"的形式主义
 
 export async function onRequestPost(context) {
-  const { request, env } = context
+  const { request, env, waitUntil } = context
   const { resetTicket, password } = await request.json().catch(() => ({}))
   if (!resetTicket || !password) return json({ error: '缺少参数' }, 400)
 
@@ -64,5 +66,14 @@ export async function onRequestPost(context) {
     return json({ error: data?.msg || '密码更新失败，请重试' }, res.status)
   }
 
-  return json({ ok: true })
+  // B28（v1.8）：改密成功后撤销全部会话。Admin PUT 不像自助改密会断会话——
+  // 被盗设备上的旧 refresh 链不会因改密自然失效，不主动踢就等于「改密防不住
+  // 已登进来的贼」。失败进日志不翻转改密结果（与解绑路径同一口径）；
+  // 残余窗口 = access token ≤1h 无状态过期，设计显式接受（1.3 边界）
+  const revoked = await revokeAllSessions(env, payload.sub)
+
+  // 改密安全通知：fire-and-forget（resetTicket 自带 email claim）
+  waitUntil(sendNotify(env, { to: payload.email, ...notifyTemplates().passwordChanged }))
+
+  return json({ ok: true, sessionsRevoked: revoked })
 }

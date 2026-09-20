@@ -1,14 +1,21 @@
 import { json, translateSupabaseError } from '../_lib/supabase.js'
 import { authGate } from '../_lib/authGate.js'
 import { serviceRoleFetch } from '../_lib/userAuth.js'
+import { isGuestEmail, isGuestUser } from '../_lib/guestUser.js'
+import { sendNotify, notifyTemplates } from '../_lib/mailer.js'
 
 export async function onRequestPost(context) {
-  const { request, env } = context
+  const { request, env, waitUntil } = context
   // 认证闸门（D4）：mp 通道验 wxLoginCode、Web 通道验 Turnstile，未过闸不触达 Supabase
   const gate = await authGate(request, env)
   if (!gate.pass) return gate.response
   const { email, password, captchaToken } = await request.json().catch(() => ({}))
   if (!email || !password) return json({ error: '缺少邮箱或密码' }, 400)
+  // B9：访客占位邮箱不是可登录身份（随机密码本来就登不进，这里给可读文案 +
+  // 省一次注定失败的 Supabase 请求）
+  if (isGuestEmail(email)) {
+    return json({ error: '这是微信访客账号，请在微信内直接打开使用或绑定邮箱', code: 'guest_account' }, 400)
+  }
 
   // 登录后微信身份一致性检查（仅 mp 通道）：gate.openid 只有在这次请求带了
   // wxLoginCode（即小程序端）才会有值，Web 通道走 Turnstile，gate.openid 恒为
@@ -47,10 +54,21 @@ export async function onRequestPost(context) {
     const byOpenid = await serviceRoleFetch(env, `${base}&openid=eq.${encodeURIComponent(gate.openid)}`)
     const openidRow = byOpenid.data?.[0]
     if (openidRow && openidRow.user_id !== data.user?.id) {
-      return json(
-        { error: '该邮箱数据仅允许通过已绑定的微信查看，请使用绑定时的微信重新登录', code: 'wechat_identity_mismatch' },
-        403,
+      // D5 5.5：冲突方是访客账号 → 放行。访客态下小程序的邮箱入口本来就是
+      // 绑定流程的载体，这次登录是 5.2 的②步而非冲突——openid 的钥匙还留在
+      // 访客名下，稍后由 guest-upgrade-confirm 原子搬过来。这里 403 会把
+      // 绑定流程结构性堵死（用户永远进不了目标账号）。
+      // 冲突方是别的邮箱账号 → 维持 wechat_identity_mismatch 拒绝（D3 原语义）。
+      const owner = await serviceRoleFetch(
+        env,
+        `/auth/v1/admin/users/${encodeURIComponent(openidRow.user_id)}`,
       )
+      if (!isGuestUser(owner.data)) {
+        return json(
+          { error: '该邮箱数据仅允许通过已绑定的微信查看，请使用绑定时的微信重新登录', code: 'wechat_identity_mismatch' },
+          403,
+        )
+      }
     }
 
     const byUser = await serviceRoleFetch(env, `${base}&user_id=eq.${encodeURIComponent(data.user?.id)}`)
@@ -60,6 +78,26 @@ export async function onRequestPost(context) {
         { error: '该邮箱数据仅允许通过已绑定的微信查看，请使用绑定时的微信重新登录', code: 'wechat_identity_mismatch' },
         403,
       )
+    }
+  }
+
+  // 2.3 登录即撤位：注销冷却期内重新登录 = 本人撤销注销（与 wechat-login 的
+  // 免登撤位同一语义 + 同一通知策略：撤位 DB 即时生效，通知 fire-and-forget）
+  if (data.user?.id) {
+    const pdel = await serviceRoleFetch(
+      env,
+      `/rest/v1/pending_deletions?user_id=eq.${encodeURIComponent(data.user.id)}&select=reason`,
+    )
+    if (pdel.data?.length) {
+      await serviceRoleFetch(
+        env,
+        `/rest/v1/pending_deletions?user_id=eq.${encodeURIComponent(data.user.id)}`,
+        { method: 'DELETE' },
+      )
+      if (pdel.data[0].reason === 'user_delete') {
+        waitUntil(sendNotify(env, { to: data.user.email, ...notifyTemplates().cancelRevoked }))
+      }
+      console.log(`[login] pending deletion revoked: ${data.user.id} (${pdel.data[0].reason})`)
     }
   }
 

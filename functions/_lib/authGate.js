@@ -17,14 +17,16 @@ import { code2session } from './wxTicket.js'
 // 频控兜底（PRD 6.1-8 占位实）：实例级内存窗口，同一 IP 60 秒内最多 5 次。
 // 每个 isolate 各自计数（实际阈值 = 配置值 × 并发 isolate 数），只求把 authGate
 // 万一被绕过时的最坏情况挡在门外，不上强度。
+// rateGuard 同口径泛化给 D5 用（建访客 B10、guest-upgrade 各端点），
+// 阈值/窗口由调用方按场景给；语义是「兜底不求精确」。
 const RATE_LIMIT_MAX = 5
 const RATE_LIMIT_WINDOW_MS = 60_000
 const RATE_BUCKETS_MAX = 10_000
 const rateBuckets = new Map()
 
-function isRateLimited(key, now = Date.now()) {
+export function rateGuard(key, max = RATE_LIMIT_MAX, windowMs = RATE_LIMIT_WINDOW_MS, now = Date.now()) {
   const bucket = rateBuckets.get(key)
-  if (!bucket || now - bucket.start >= RATE_LIMIT_WINDOW_MS) {
+  if (!bucket || now - bucket.start >= windowMs) {
     if (rateBuckets.size >= RATE_BUCKETS_MAX) {
       for (const [k, b] of rateBuckets) {
         if (now - b.start >= RATE_LIMIT_WINDOW_MS) rateBuckets.delete(k)
@@ -34,12 +36,12 @@ function isRateLimited(key, now = Date.now()) {
     return false
   }
   bucket.count += 1
-  return bucket.count > RATE_LIMIT_MAX
+  return bucket.count > max
 }
 
 export async function authGate(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown'
-  if (isRateLimited(`auth:${ip}`)) {
+  if (rateGuard(`auth:${ip}`)) {
     return { pass: false, response: json({ error: '尝试过于频繁，请稍后再试' }, 429) }
   }
 

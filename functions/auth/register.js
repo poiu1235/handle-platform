@@ -1,6 +1,7 @@
 import { json, supabaseAuthFetch, translateSupabaseError } from '../_lib/supabase.js'
 import { isPasswordValid, passwordHint } from '../../shared/passwordRules.js'
 import { authGate } from '../_lib/authGate.js'
+import { isGuestEmail } from '../_lib/guestUser.js'
 
 export async function onRequestPost(context) {
   const { request, env } = context
@@ -9,6 +10,10 @@ export async function onRequestPost(context) {
   if (!gate.pass) return gate.response
   const { email, password, captchaToken } = await request.json().catch(() => ({}))
   if (!email || !password) return json({ error: '缺少邮箱或密码' }, 400)
+  // B9：访客占位域不进注册（理论上拼不出来，堵住手造同域地址的缝）
+  if (isGuestEmail(email)) {
+    return json({ error: '该邮箱地址不可用', code: 'guest_account' }, 400)
+  }
 
   // 服务端自己做一遍校验，不依赖前端、也不单独依赖 Supabase Dashboard 的密码策略——
   // 这道检查本身就是防线，顺带省一次注定会失败的 Supabase 请求

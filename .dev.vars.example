@@ -7,6 +7,11 @@ SUPABASE_ANON_KEY=
 VITE_TURNSTILE_SITE_KEY=
 SUPABASE_SERVICE_ROLE_KEY=   # [Secret] 仅 reset-password.js 使用
 RESET_TICKET_SECRET=         # [Secret] 建议 openssl rand -base64 32 生成
+UPGRADE_TICKET_SECRET=       # [Secret] D5 访客升级票据（guest-upgrade init/confirm），独立密钥不与重置票据混用
 TURNSTILE_SECRET_KEY=        # [Secret] Turnstile siteverify 服务端校验（D4 authGate Web 通道）
 WX_APPID=                    # [Secret] 小程序 appid（D4 authGate mp 通道 / D3 wechat 端点共用）
 WX_SECRET=                   # [Secret] 小程序 appsecret（同上）
+RESEND_API_KEY=              # [Secret] D5 通知邮件通道（_lib/mailer.js：解绑/撤注销/改密告警），resend.com 控制台生成
+MAIL_FROM=                   # 通知发信地址（如 Handle Notifications <notify@handle.host>），域名需先在 Resend 完成 DNS 验证
+# GUEST_MODE 为明文 var（wrangler.toml [vars] 默认 "false"）；本地开访客模式
+# 联调在 .dev.vars 加一行 GUEST_MODE=true 覆盖即可

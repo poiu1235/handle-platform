@@ -1,18 +1,25 @@
 import { json } from '../_lib/supabase.js'
 import { code2session } from '../_lib/wxTicket.js'
-import { serviceRoleFetch } from '../_lib/userAuth.js'
+import { serviceRoleFetch, issueSessionByEmail } from '../_lib/userAuth.js'
+import { rateGuard } from '../_lib/authGate.js'
+import { createGuestUser, isGuestUser } from '../_lib/guestUser.js'
+import { sendNotify, notifyTemplates } from '../_lib/mailer.js'
 
-// openid 免登（PRD D3 3.3.4）：冷启动 wx.login code → openid → 查映射。
+// openid 免登（D3 3.3.4 → D5 流程一）：冷启动 wx.login code → openid → 查映射。
 // 门禁就是 code 本身——一次性、约 5 分钟时效、只能在小程序客户端内取得（3.3.5-2）。
 //
-// 命中映射：服务端用 service_role 走 generate_link + verify 替用户完成一次
-// magic link 登录，下发真实 Supabase 会话（全程不出网到邮箱）。
-// R7 spike 结论（2026-09-13，scripts/spike-gotrue-session.mjs）：
-//   verify 的请求形态必须是 { type: 'magiclink', token_hash }——
-//   旧形态 { type, token } 在当前 Supabase 版本会被 400 拒绝。
-// 未命中：返回 { bound: false }，客户端走邮箱登录，登录成功后回到 wechat-bind 流程。
+// 命中映射：签发真实 Supabase 会话（generate_link + verify，R7 spike 定案，
+// 现收敛到 _lib/userAuth.issueSessionByEmail），响应带 isGuest 供客户端分流 UI。
+// 未命中：
+//   GUEST_MODE=true（D5）→ 建访客 shadow user + 插映射 + 直接签发会话，
+//     零摩擦落地（设计 1 章定位：小程序 = 轻量输入 + 大量查询，登录摩擦须趋零）；
+//   GUEST_MODE=false → { bound: false }，维持 D3 原语义（回滚开关，只影响
+//     「新建」——已建访客走命中分支不受开关影响，见设计 §10 回滚约束）。
+//
+// 免登命中若目标在 pending_deletions 置位期内 → 撤位（设计 2.3：重新登录就是
+// 最自然的撤销动作，不需要任何 UI；清理位撤销后夜 job 不会再删，B27 双保险）。
 export async function onRequestPost(context) {
-  const { request, env } = context
+  const { request, env, waitUntil } = context
   if (!env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: '服务端未配置 SUPABASE_SERVICE_ROLE_KEY' }, 500)
 
   const { code } = await request.json().catch(() => ({}))
@@ -26,9 +33,25 @@ export async function onRequestPost(context) {
     `/rest/v1/user_identities?select=user_id&provider=eq.wechat_mp&openid=eq.${encodeURIComponent(wx.openid)}`,
   )
   const userId = found.data?.[0]?.user_id
-  if (!userId) return json({ bound: false })
 
-  // generate_link 按 email 生成一次性凭证 → 映射表只有 user_id，先查邮箱
+  if (!userId) {
+    if (env.GUEST_MODE !== 'true') return json({ bound: false })
+
+    // B10 建访客频控：60s/5 + 1h/50 双窗口（isolate 级，1.3「基础兜底」口径，
+    // 攻击门槛本来就是真实微信会话的合法 code）
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown'
+    if (rateGuard(`guest-create-60s:${ip}`) || rateGuard(`guest-create-1h:${ip}`, 50, 3_600_000)) {
+      return json({ error: '尝试过于频繁，请稍后再试' }, 429)
+    }
+
+    const guest = await createGuestUser(env, { openid: wx.openid, unionid: wx.unionid })
+    if (!guest.ok) return json({ error: '免登失败，请用邮箱登录' }, 500)
+    const session = await issueSessionByEmail(env, guest.email)
+    if (!session) return json({ error: '免登失败，请用邮箱登录' }, 500)
+    return json({ ...session, isGuest: true })
+  }
+
+  // 命中：读账号——isGuest 判定与 generate_link 都要用到 admin user 数据
   const u = await serviceRoleFetch(env, `/auth/v1/admin/users/${encodeURIComponent(userId)}`)
   const email = u.data?.email
   if (!u.ok || !email) {
@@ -36,28 +59,26 @@ export async function onRequestPost(context) {
     return json({ error: '免登失败，请用邮箱登录' }, 500)
   }
 
-  const gl = await serviceRoleFetch(env, '/auth/v1/admin/generate_link', {
-    method: 'POST',
-    body: { type: 'magiclink', email },
-  })
-  const tokenHash = gl.data?.properties?.token_hash ?? gl.data?.hashed_token
-  if (!gl.ok || !tokenHash) {
-    console.error('[wechat-login] generate_link failed:', JSON.stringify(gl.data))
-    return json({ error: '免登失败，请用邮箱登录' }, 500)
+  const pdel = await serviceRoleFetch(
+    env,
+    `/rest/v1/pending_deletions?user_id=eq.${encodeURIComponent(userId)}&select=reason`,
+  )
+  if (pdel.data?.length) {
+    await serviceRoleFetch(
+      env,
+      `/rest/v1/pending_deletions?user_id=eq.${encodeURIComponent(userId)}`,
+      { method: 'DELETE' },
+    )
+    // 撤位分两种语义（2.3）：guest 清理位静默撤销（人回来就完事，无需打扰）；
+    // 注销位撤销发通知邮件（本人可能不记得自己点过注销，静默反而像「注销没生效」）
+    const reason = pdel.data[0].reason
+    if (reason === 'user_delete') {
+      waitUntil(sendNotify(env, { to: email, ...notifyTemplates().cancelRevoked }))
+    }
+    console.log(`[wechat-login] pending deletion revoked: ${userId} (${reason})`)
   }
 
-  // R7 结论：token_hash 走 token_hash 字段；以 anon apikey 模拟公开客户端完成 verify
-  const vf = await fetch(`${env.SUPABASE_URL}/auth/v1/verify`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: env.SUPABASE_ANON_KEY },
-    body: JSON.stringify({ type: 'magiclink', token_hash: tokenHash }),
-  })
-  const session = await vf.json().catch(() => ({}))
-  if (!vf.ok || !session.access_token || !session.refresh_token) {
-    console.error('[wechat-login] verify failed:', JSON.stringify(session).slice(0, 300))
-    return json({ error: '免登失败，请用邮箱登录' }, 500)
-  }
-
-  // 响应形状与 /auth/login 一致（accessToken/refreshToken），客户端 applySession 直接消费
-  return json({ accessToken: session.access_token, refreshToken: session.refresh_token })
+  const session = await issueSessionByEmail(env, email)
+  if (!session) return json({ error: '免登失败，请用邮箱登录' }, 500)
+  return json({ ...session, isGuest: isGuestUser(u.data) })
 }
