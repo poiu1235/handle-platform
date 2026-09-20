@@ -18,9 +18,31 @@ export function isGuestUser(gotrueUser) {
   return gotrueUser?.user_metadata?.account_type === 'guest'
 }
 
+// Supabase 项目开了强密码策略（四类字符各至少一个），纯 hex 密码必撞
+// weak_password 422——2026-09-20 真机首测新访客全被踢回登录页的根因。
+// 访客密码无人输入、只当熵源用，四类各取一字符 + 全集合补足后洗牌。
+const PWD_CLASSES = [
+  'abcdefghijklmnopqrstuvwxyz',
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  '0123456789',
+  '!@#$%^&*()_+-=[]{};\'\\:"|<>?,./`~',
+]
+
 function randomPassword() {
-  const bytes = crypto.getRandomValues(new Uint8Array(32))
-  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
+  const all = PWD_CLASSES.join('')
+  const pick = (set) => {
+    const buf = new Uint32Array(1)
+    crypto.getRandomValues(buf)
+    return set[buf[0] % set.length]
+  }
+  const chars = [...PWD_CLASSES.map(pick), ...Array.from({ length: 28 }, () => pick(all))]
+  for (let i = chars.length - 1; i > 0; i--) {
+    const buf = new Uint32Array(1)
+    crypto.getRandomValues(buf)
+    const j = buf[0] % (i + 1)
+    ;[chars[i], chars[j]] = [chars[j], chars[i]]
+  }
+  return chars.join('')
 }
 
 // 未命中 openid → 建访客。顺序（设计 3.3 节拍板）：先建用户、后插映射；
