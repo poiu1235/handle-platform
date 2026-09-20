@@ -15,5 +15,5 @@ VITE_TURNSTILE_SITE_KEY = "0x4AAAAAAEWKp5fnOWpBMTe9"
 # D5 访客模式总开关（wechat-login 未命中分支：true=建访客直接进，false=D3 原语义
 # bound:false）。默认关，按设计 §10 两步上线翻转；翻转只影响「新建访客」，
 # 已建访客走命中分支不受影响。
-GUEST_MODE = "false"
+GUEST_MODE = "true"
 MAIL_FROM= "Handle Notifications <notify@sys.handle.host>"
