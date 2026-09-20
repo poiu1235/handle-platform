@@ -13,9 +13,17 @@ export function isGuestEmail(email) {
   return typeof email === 'string' && email.toLowerCase().endsWith(GUEST_EMAIL_DOMAIN)
 }
 
-// 入参是 GoTrue admin API 返回的 user 对象（含 user_metadata）
+// 入参是 GoTrue admin API 返回的 user 对象（含 user_metadata）。
+// 判据与客户端 applySession 同构：metadata 主判据 + 占位域后缀兜底。
+// 兜底不是可选项——GoTrue 各流程（magiclink verify 写 email_verified 等）
+// 可能改写 metadata，实测 admin create 的 data 就有整段丢失的先例
+// （2026-09-20 绑定 400 not_guest 根因）；占位域是 RFC2606 保留域 +
+// uuid 邮箱，后缀本身是更稳的不变量。
 export function isGuestUser(gotrueUser) {
-  return gotrueUser?.user_metadata?.account_type === 'guest'
+  return (
+    gotrueUser?.user_metadata?.account_type === 'guest' ||
+    isGuestEmail(gotrueUser?.email)
+  )
 }
 
 // Supabase 项目开了强密码策略（四类字符各至少一个），纯 hex 密码必撞
@@ -51,13 +59,18 @@ function randomPassword() {
 // 返回 { ok: true, userId, email } / { ok: false }（细节只进日志）。
 export async function createGuestUser(env, { openid, unionid }) {
   const email = `guest_${crypto.randomUUID()}${GUEST_EMAIL_DOMAIN}`
+  const metadata = { account_type: 'guest', provider: 'wechat_mp' }
+  // data / user_metadata 双发：GoTrue 源码 UserParams 认 `data`，官方文档示例
+  // 却是 `user_metadata`，实测只发 data 时整段被丢（2026-09-20）——两键并发送，
+  // 未知字段 GoTrue 忽略，无副作用，哪个版本生效哪个落库
   const created = await serviceRoleFetch(env, '/auth/v1/admin/users', {
     method: 'POST',
     body: {
       email,
       password: randomPassword(),
       email_confirm: true,
-      data: { account_type: 'guest', provider: 'wechat_mp' },
+      data: metadata,
+      user_metadata: metadata,
     },
   })
   const userId = created.data?.id
