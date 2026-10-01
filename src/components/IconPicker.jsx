@@ -7,16 +7,16 @@ import {
 import { useIconManifest } from '../lib/useIconManifest'
 
 // 图标选择区块（余额 ↔ 会员表单共用）：已选中锚定预览 / 搜索框 / 图标网格 /
-// "默认N"兜底网格。纯受控组件——选中值与点选回调由父级表单持有，两边的
-// 提交语义不同（余额：null = 不配置；会员：null = 按名称自动匹配），
-// 状态机留在各自表单里，这里只管清单加载、搜索过滤和展示。
+// "默认N"兜底网格。纯受控组件——选中值与点选回调由父级表单持有（两边都用
+// 下面那套 useCardIconState 三态契约，2026-10-01 余额侧对齐过来），这里只管
+// 清单加载、搜索过滤和展示。
 //
 // props：
 //   value       当前选中的 key（null = 未指定/自动，是否显示网格由此决定）
 //   noneOption  网格里是否渲染"无"格（余额 true；会员无"无"的概念，false）
 //   showAutoTag 预览上是否挂"按名称自动匹配"标签
-//   clearLabel  预览右侧按钮文案（余额恒为「移除」；会员自动匹配时「移除」、
-//               手动指定后「恢复自动」；null = 不渲染按钮）
+//   clearLabel  预览右侧按钮文案（两边同形：自动匹配时「移除」、手动指定后
+//               「恢复自动」；null = 不渲染按钮）
 //   onPick(key) 点选任意图标（noneOption 时也可能收到 null）
 //   onClear()   预览按钮回调
 export function IconPickerField({
@@ -142,8 +142,8 @@ export function IconPickerField({
 // clear()（2026-09-06 用户裁定，对齐余额「移除」）：自动匹配预览上的「移除」=
 // 清空展示值并停掉跟随，网格展开供自由选择；此后 key 为 null、manual 为 true——
 // 提交会携带 icon_key = null（清除库内既有 key，记录回到按名称自动匹配）。
-// 与余额的差异：余额 iconTouched 后"无"也是终态；会员没有"无"，恢复自动 =
-// 回到跟随（同名覆盖提交契约见 CardAddModal buildSubmitPayload）。
+// 与余额的差异只剩一处：余额网格有"无"格（noneOption，落 NO_ICON_KEY 终态），
+// 会员没有"无"，恢复自动 = 回到跟随（同名覆盖提交契约见 CardAddModal buildSubmitPayload）。
 export function useCardIconState({ name, initialKey, resetToken }) {
   const options = useIconManifest()
   const [iconKey, setIconKey] = useState(initialKey ?? null)

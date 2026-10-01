@@ -5,11 +5,12 @@ import * as api from '../lib/apiClient'
 import { useCardsStore } from '../lib/cardsStore'
 import { useNotesStore } from '../lib/notesStore'
 import {
+  NO_ICON_KEY,
   suggestIconKey,
 } from '../lib/iconMatch'
 import { useIconManifest } from '../lib/useIconManifest'
 import CardMark from '../components/CardMark'
-import { IconPickerField } from '../components/IconPicker'
+import { IconPickerField, useCardIconState } from '../components/IconPicker'
 import SortDropdown from '../components/SortDropdown'
 import CardsPanel from './CardsPanel'
 import NotesPanel from './NotesPanel'
@@ -577,12 +578,7 @@ function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, 
     mode === 'edit' ? String(initialItem?.amount ?? '') : ''
   )
 
-  // 图标：null = 不配置（显示默认菱形点）。iconTouched 标记用户是否手动碰过选择器——
-  // 碰过之后，输入名称不再触发自动建议覆盖用户的选择（包括用户主动选"无"）。
-  const [iconKey, setIconKey] = useState(mode === 'edit' ? initialItem?.iconKey ?? null : null)
-  const [iconTouched, setIconTouched] = useState(mode === 'edit' && !!initialItem?.iconKey)
-  const iconOptions = useIconManifest()
-
+  // 图标三态见下方 useCardIconState（与本页会员卡、小程序余额面板同一套契约）
   const amountNumber = Number(amountText)
   const nameTrim = name.trim()
   // 修改弹窗重名预检（2026-09-02，对齐会员编辑弹窗）：改成已有其他记录的名字
@@ -597,8 +593,9 @@ function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, 
   // 新增模式重名预填（2026-09-06，对齐会员新增弹窗）：名称与已有记录完全一致时，
   // 把那条记录的当前余额/图标带出来预填，并在头部标红提醒——提交会按名称覆盖
   // 那条记录，预填能让人一眼看到自己即将改的是哪条、原来是多少，而不是凭空
-  // 填一个可能偏差很大的数字。只在第一次命中某条记录时预填一次，之后用户自己
-  // 改动这些字段，就不再被同一条命中结果反复覆盖。
+  // 填一个可能偏差很大的数字。余额只在第一次命中某条记录时预填一次，之后用户
+  // 自己改动这些字段，就不再被同一条命中结果反复覆盖；图标交给下面的
+  // useCardIconState（resetToken 跟随命中的同名卡，与小程序同一套写法）。
   const duplicateItem =
     mode === 'add' ? items.find((it) => it.name === nameTrim) ?? null : null
   const prefilledForId = useRef(null)
@@ -611,22 +608,25 @@ function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, 
     if (prefilledForId.current === duplicateItem.id) return
     prefilledForId.current = duplicateItem.id
     setAmountText(String(duplicateItem.amount))
-    setIconKey(duplicateItem.iconKey ?? null)
-    setIconTouched(true)
   }, [duplicateItem])
 
-  // 自动建议：只在用户还没手动碰过图标选择器时生效，命中就预选，没命中保持"无"。
-  // 用户一旦点了任意图标选项（含"无"），iconTouched 变 true，这里永久让位。
-  useEffect(() => {
-    if (iconTouched) return
-    setIconKey(suggestIconKey(nameTrim, iconOptions))
-  }, [nameTrim, iconOptions, iconTouched])
-
-  function pickIcon(key) {
-    setIconKey(key)
-    setIconTouched(true)
-    // 搜索词的清空/网格收起由 IconPickerField 内部处理
-  }
+  // 图标状态机（与本页会员卡、小程序余额面板同构）：null = 未指定 ⇒ 展示层按名称
+  // 自动匹配；NO_ICON_KEY = 用户明确选「无」⇒ 恒不匹配；具体 key = 手动指定。
+  // manual 为真后自动跟随让位，直到点「恢复自动」。
+  const icon = useCardIconState({
+    name: nameTrim,
+    initialKey:
+      mode === 'edit'
+        ? initialItem?.iconKey ?? null
+        : duplicateItem
+          ? duplicateItem.iconKey ?? null
+          : null,
+    resetToken: mode === 'edit' ? initialItem?.id : duplicateItem ? duplicateItem.id : null,
+  })
+  // diff-only：manual 翻转或 key 变化才算改过——没接管过时不携带新值，保留库内现值
+  const iconChanged =
+    icon.manual !== (initialItem?.iconKey != null) ||
+    (icon.manual && icon.iconKey !== initialItem?.iconKey)
 
   return (
     <div className="bd-modal-backdrop" onClick={onClose}>
@@ -669,15 +669,15 @@ function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, 
           <div className="bd-field">
             <label>图标（可选）</label>
             <IconPickerField
-              value={iconKey}
+              value={icon.iconKey === NO_ICON_KEY ? null : icon.iconKey}
               noneOption
-              showAutoTag={!iconTouched}
-              clearLabel="移除"
-              onPick={pickIcon}
-              onClear={() => {
-                setIconKey(null)
-                setIconTouched(true)
-              }}
+              showAutoTag={!icon.manual}
+              clearLabel={icon.manual ? (icon.iconKey ? '恢复自动' : null) : '移除'}
+              onPick={(key) => icon.pick(key ?? NO_ICON_KEY)}
+              // 「移除」落 NO_ICON_KEY 而不是 null：展示层有了按名称推导之后，null 的含义是
+              // "未指定 ⇒ 自动匹配"，存 null 等于什么都没移除（下次渲染又匹配回来）。
+              // 显式「无」才是移除，与会员卡的三态契约同一套语义。
+              onClear={icon.manual ? icon.restoreAuto : () => icon.pick(NO_ICON_KEY)}
             />
           </div>
 
@@ -692,7 +692,14 @@ function BalanceFormModal({ mode, initialItem, items, submitting, errorMessage, 
             <button
               className="bd-btn"
               disabled={!canSubmit || submitting}
-              onClick={() => onSubmit({ name: name.trim(), amount: amountNumber, iconKey })}
+              onClick={() =>
+                onSubmit({
+                  name: name.trim(),
+                  amount: amountNumber,
+                  iconKey: icon.manual ? icon.iconKey : null,
+                  iconChanged,
+                })
+              }
             >
               {submitting ? '保存中…' : '保存'}
             </button>
@@ -817,6 +824,25 @@ export default function Hello() {
     ? balanceItems
     : balanceItems.filter((it) => it.amount !== 0)
   const items = visibleBalanceItems
+
+  // 展示层图标（对齐小程序 BalancePanel 与本页会员卡的 iconKeyById）：库内 icon_key
+  // 三态——null = 未指定 ⇒ 按名称自动匹配，NO_ICON_KEY = 用户明确选「无」⇒ 恒不匹配，
+  // 具体 key = 手动指定。此前这里直接把库内值交给卡片渲染，缺了推导：小程序那一侧
+  // 提交的自动匹配行 icon_key 是 null（未接管时不入库），于是这批记录在 Web 上
+  // 一直没图标，只有走一次「修改→保存」把 key 物化进库才显示出来。
+  // ⚠ 只作用于渲染：写路径读原始行（见 openEditModal），否则推导结果会被物化回 DB。
+  const iconManifest = useIconManifest()
+  const displayIconKeyById = useMemo(() => {
+    const map = new Map()
+    for (const it of balanceItems) {
+      map.set(
+        it.id,
+        it.iconKey === NO_ICON_KEY ? null : it.iconKey || suggestIconKey(it.name, iconManifest)
+      )
+    }
+    return map
+  }, [balanceItems, iconManifest])
+
   const sorted = useMemo(
     () => sortItems(items, sortKey, sortDir),
     [items, sortKey, sortDir]
@@ -846,8 +872,11 @@ export default function Hello() {
   }
 
   function openEditModal(item) {
+    // 卡片手上那份 item 带展示层推导出来的 iconKey；弹窗初始态必须回到库内现值，
+    // 否则「只改金额」也会把按名推导出来的图标物化进 DB（自动匹配语义走样）
+    const raw = balanceItems.find((r) => r.id === item.id) ?? item
     setModalError('')
-    setModalState({ open: true, mode: 'edit', item })
+    setModalState({ open: true, mode: 'edit', item: raw })
   }
 
   function closeModal() {
@@ -855,11 +884,18 @@ export default function Hello() {
     setModalError('')
   }
 
-  async function handleModalSubmit({ name, amount, iconKey }) {
+  async function handleModalSubmit({ name, amount, iconKey, iconChanged }) {
     if (!user) return
     setModalSubmitting(true)
     setModalError('')
     const submitTime = new Date().toISOString()
+    // diff-only（对齐小程序 balancesStore.submitBalance）：没碰过图标就回写库内现值。
+    // 不能靠"省略 icon_key"保现值——POST 的同名覆盖是整行 upsert，省略即清空。
+    const iconPayload = iconChanged
+      ? { icon_key: iconKey }
+      : modalState.item
+        ? { icon_key: modalState.item.iconKey ?? null }
+        : { icon_key: null }
 
     try {
       const res =
@@ -871,7 +907,7 @@ export default function Hello() {
                 app_name: name,
                 amount,
                 updated_at: submitTime,
-                icon_key: iconKey ?? null,
+                ...iconPayload,
               }),
             })
           : await api.authorizedFetch(`/api/balances/${modalState.item.id}`, {
@@ -881,7 +917,7 @@ export default function Hello() {
                 app_name: name,
                 amount,
                 updated_at: submitTime,
-                icon_key: iconKey ?? null,
+                ...iconPayload,
               }),
             })
 
@@ -1063,7 +1099,7 @@ export default function Hello() {
               activeTab === 'balance' ? (
                 <SwipeableBalanceCard
                   key={item.id}
-                  item={item}
+                  item={{ ...item, iconKey: displayIconKeyById.get(item.id) ?? null }}
                   expanded={expandedId === item.id}
                   onToggleExpand={toggleExpand}
                   onEdit={openEditModal}
