@@ -109,6 +109,28 @@
   cursor: default;
 }
 
+/* 导出进行中：光有 :disabled 的灰读起来像「这个按钮坏了」，加一点呼吸把它说成
+   「点下去了、还在办事」。底色停在 0.55 = 上面的禁用灰，峰值 0.85 不超过常态按钮 */
+.acc-btn-busy {
+  animation: acc-busy-breathe 1.2s ease-in-out infinite;
+}
+
+@keyframes acc-busy-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acc-btn-busy {
+    animation: none;
+  }
+}
+
 .acc-btn-ghost {
   background: transparent;
   border: 1px solid var(--au-border);
