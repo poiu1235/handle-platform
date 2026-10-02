@@ -9,8 +9,14 @@ export function json(body, status = 200) {
 }
 
 // 用 anon key 调用 Supabase Auth 的 POST 类端点（/verify /signup /recover /resend 等），
-// 统一处理 apikey 头和 JSON 解析，返回 {ok, status, data} 而不是直接 throw，
-// 方便调用方按业务语义决定要不要把错误翻译给用户。
+// 统一处理 apikey 头和 JSON 解析，返回 {ok, status, data}，方便调用方按业务语义决定
+// 要不要把错误翻译给用户。
+//
+// ⚠ 只兜「Supabase 答了但答得不对」这一类：HTTP 非 2xx 会照常返回 {ok:false, …}。
+// **出网异常（DNS / TLS / 连接被重置 / 超时）不在这里吞**，会一路抛到
+// functions/_middleware.js 的全局边界，回成 503 upstream_unreachable。刻意不在这里
+// catch：把异常伪装成 {ok:false, status:0} 会让调用方把它当成"业务失败"去翻译文案，
+// 而 serviceRoleFetch 那边还有只读 .data 不判 .ok 的调用点，同一套写法会开成空守卫。
 export async function supabaseAuthFetch(env, path, body) {
   const res = await fetch(`${env.SUPABASE_URL}/auth/v1${path}`, {
     method: 'POST',

@@ -1,5 +1,5 @@
 import { json } from '../_lib/supabase.js'
-import { code2session } from '../_lib/wxTicket.js'
+import { code2session, wxTicketResponse } from '../_lib/wxTicket.js'
 import { serviceRoleFetch, issueSessionByEmail } from '../_lib/userAuth.js'
 import { rateGuard } from '../_lib/authGate.js'
 import { createGuestUser, isGuestUser } from '../_lib/guestUser.js'
@@ -24,9 +24,7 @@ export async function onRequestPost(context) {
 
   const { code } = await request.json().catch(() => ({}))
   const wx = await code2session(code, env)
-  if (!wx.ok) {
-    return json({ error: `微信身份校验失败（errcode: ${wx.errcode}）`, code: 'wx_ticket_invalid' }, 400)
-  }
+  if (!wx.ok) return wxTicketResponse(wx)
 
   const found = await serviceRoleFetch(
     env,

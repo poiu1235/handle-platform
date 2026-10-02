@@ -7,12 +7,16 @@
 // 400 文案沿用 translateSupabaseError 对 captcha 的既有翻译（「人机验证未通过，请重试」），
 // Web 前端展示的文案与校验点迁移前一字不差（零改动）。
 //
+// 唯一的例外只改**形态**不改**结论**：Turnstile 连不上校验服务时回 503
+// captcha_unavailable（见下方第三态），而不是把服务端故障说成用户验证码没过。
+// 过闸条件仍然只有 verified === true 一条。
+//
 // ⚠️ 依赖约束：本闸门上线的前提是 Supabase Captcha 已关闭。Turnstile token 是一次性
 // 凭证，siteverify 消费后，开着的 Supabase Captcha 会因 token 已被消费而再次拒绝——
 // 两层不能同时强校验。若日后重开 Supabase Captcha，必须先摘掉 Web 通道的 siteverify 分支。
 import { json } from './supabase.js'
-import { verifyTurnstile } from './turnstile.js'
-import { code2session } from './wxTicket.js'
+import { TURNSTILE_UNAVAILABLE, turnstileUnavailableResponse, verifyTurnstile } from './turnstile.js'
+import { code2session, wxTicketResponse } from './wxTicket.js'
 
 // 频控兜底（PRD 6.1-8 占位实）：实例级内存窗口，同一 IP 60 秒内最多 5 次。
 // 每个 isolate 各自计数（实际阈值 = 配置值 × 并发 isolate 数），只求把 authGate
@@ -50,12 +54,10 @@ export async function authGate(request, env) {
   if (body.wxLoginCode) {
     const r = await code2session(body.wxLoginCode, env)
     if (!r.ok) {
-      // errcode 直接带回去（40013=appid 不符 / 40125=secret 错 / 40029=code 无效或已用 / 40164=IP 白名单），
-      // 排障从冒烟日志一步到位；errmsg 只进 CF 日志，不回传客户端
-      return {
-        pass: false,
-        response: json({ error: `微信身份校验失败（errcode: ${r.errcode}）`, code: 'wx_ticket_invalid' }, 400),
-      }
+      // errcode 直接带回去（40013=appid 不符 / 40125=secret 错 / 40029=code 无效或已用
+      // / 40164=IP 白名单），排障从冒烟日志一步到位；errmsg 只进 CF 日志，不回传客户端。
+      // 服务端故障那一格由 wxTicketResponse 分出去（503），不混进「校验失败」。
+      return { pass: false, response: wxTicketResponse(r) }
     }
     // openid/unionid 一并带出去：code2session 换过一次的一次性 code 已经消费掉了，
     // 调用方（login.js 的登录后微信身份冲突检查）不能再换第二次，只能复用这里的结果
@@ -66,6 +68,10 @@ export async function authGate(request, env) {
     return { pass: false, response: json({ error: '人机验证未通过，请重试' }, 400) }
   }
   const verified = await verifyTurnstile(body.captchaToken, env)
+  // 第三态先判：'unavailable' 是真值，放到 !verified 里会被吞掉
+  if (verified === TURNSTILE_UNAVAILABLE) {
+    return { pass: false, response: turnstileUnavailableResponse() }
+  }
   if (!verified) {
     return { pass: false, response: json({ error: '人机验证未通过，请重试' }, 400) }
   }
