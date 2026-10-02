@@ -7,6 +7,7 @@ import Register from './pages/Register'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import Hello from './pages/Hello'
+import Account from './pages/Account'
 import BalanceImport from './pages/BalanceImport'
 import CardsImport from './pages/CardsImport'
 
@@ -64,6 +65,14 @@ export default function App() {
           element={
             <RequireAuth>
               <Hello />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/app/account"
+          element={
+            <RequireAuth>
+              <Account />
             </RequireAuth>
           }
         />

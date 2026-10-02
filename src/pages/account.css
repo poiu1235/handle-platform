@@ -1,0 +1,170 @@
+/* ============================================================
+   账户信息页（acc- 前缀）
+
+   色板、字体、box-sizing 全部复用 board.css 挂在 .bd-import 上的 --au-* token
+   ——本页外壳就用 .bd-import 那一套（深蓝 hero + 返回链接），只有面板自成长。
+   尺寸按小程序 pages/account/index.scss 折算：设计稿 750 宽 ≙ Web 375，
+   所以那边每条 px 在这里都取一半。
+   ============================================================ */
+
+/* 内容列收回 --bd-col：--bd-import-col 是批量导入页专用的宽列（桌面为主，
+   至少占视口 2/3，2026-09-03 裁定），账户信息只有几行短文案，跟着宽列会把头部
+   的「返回管理端」甩到面板右缘之外很远处。改这一个变量，头部文案列、水印、
+   正文列三处一起对齐到 560px（它们本来就都读这个 var）。
+   两个类名并列是为了压过 .bd-import 规则里的同名 var——同特异度时靠文件顺序
+   决胜，跨 CSS 模块的顺序不可依赖。 */
+.bd-import.acc-page {
+  --bd-import-col: var(--bd-col);
+}
+
+.acc-panel {
+  background: var(--au-card);
+  border-radius: 12px;
+  padding: 16px 16px 18px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 12px rgba(1, 15, 28, 0.05);
+}
+
+.acc-panel-title {
+  margin: 0 0 10px;
+  color: var(--au-brand-text);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+}
+
+.acc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 0;
+}
+
+.acc-row-label {
+  color: var(--au-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.acc-row-state {
+  color: var(--au-text-2);
+  font-size: 13px;
+}
+
+/* 邮箱是唯一可能溢出的值：只截断它，旁边的标签永远完整 */
+.acc-row-email {
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acc-hint {
+  margin: 6px 0 10px;
+  color: var(--au-text-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.acc-link-danger {
+  flex: none;
+  border: none;
+  background: none;
+  padding: 4px 6px;
+  color: var(--au-danger);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.acc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 42px;
+  border: none;
+  border-radius: 8px;
+  margin-top: 4px;
+  background: var(--au-navy-2);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+}
+
+.acc-btn:hover {
+  background: var(--au-navy);
+}
+
+.acc-btn:focus-visible {
+  outline: 2px solid var(--au-brand);
+  outline-offset: 3px;
+}
+
+.acc-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.acc-btn-ghost {
+  background: transparent;
+  border: 1px solid var(--au-border);
+  color: var(--au-text-2);
+}
+
+.acc-btn-ghost:hover {
+  background: var(--au-brand-soft);
+  border-color: var(--au-brand);
+  color: var(--au-brand-text);
+}
+
+.acc-btn-danger {
+  background: var(--au-danger);
+}
+
+.acc-btn-danger:hover {
+  background: #dc2626;
+}
+
+.acc-btn-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.acc-btn-row .acc-btn {
+  margin-top: 0;
+}
+
+/* 确认区永远长在那一行下面（小程序同款：密码输入和说明文案要在同一口气里读完） */
+.acc-confirm {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--au-border);
+}
+
+.acc-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  margin: 4px 0 10px;
+  background: var(--au-card);
+  border: 1px solid var(--au-border);
+  border-radius: 6px;
+  color: var(--au-text);
+  font-size: 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.acc-input::placeholder {
+  color: var(--au-text-3);
+}
+
+.acc-input:focus {
+  outline: none;
+  border-color: var(--au-brand);
+  box-shadow: 0 0 0 3px rgba(91, 187, 238, 0.25);
+}

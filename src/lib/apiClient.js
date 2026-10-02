@@ -23,7 +23,9 @@ function applySession(data) {
   return { user: { id: payload?.sub, email: payload?.email } }
 }
 
-function clearSession() {
+// 服务端已经把这个账号的全部会话 revoke 掉了（解绑路径 B28），本地只需清残留、
+// 不能再发 /logout——手上的 refresh token 已失效，那条请求只会白白报错
+export function clearSession() {
   accessToken = null
   refreshToken = null
   localStorage.removeItem('refreshToken')
@@ -45,6 +47,62 @@ async function post(path, body) {
     throw err
   }
   return data
+}
+
+// 上面两类 auth 请求共用的响应出口：错误语义与 post() 一致
+async function readAuthResult(res) {
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const err = new Error(data.error || '请求失败')
+    if (data.code) err.code = data.code
+    throw err
+  }
+  return data
+}
+
+// /auth/* 下"已登录用户"才能调的端点（绑定管理 / 解绑 / 注销）：服务端靠
+// verifyUserBearer 校验 Bearer，与上面不带 token 的 post()（注册/登录/验证码
+// 这类公开端点）不可混用。
+// body 传 undefined 走 GET；POST 一律带 JSON（访客注销无密码，也要发 {} 而非不发）
+function authFetchOptions(body) {
+  if (body === undefined) return { headers: { Authorization: `Bearer ${accessToken}` } }
+  return {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify(body),
+  }
+}
+
+// accessToken 是纯内存 1h 短票，过期是常态而不是异常：这里与 /api 通道
+// （authorizedFetch）同一套自愈——401 先换新票再重试一次，换不到才交给
+// RequireAuth 跳登录页。两条通道不同步的话，同一个过期会在首页静默恢复、
+// 在账户页直接报"登录状态无效"。
+async function authorizedAuthRequest(path, body) {
+  let res = await fetch(`/auth${path}`, authFetchOptions(body))
+  if (res.status === 401 && refreshToken) {
+    try {
+      applySession(await post('/refresh', { refreshToken }))
+      // 重试要重建 options：accessToken 已经被 applySession 换成新的了
+      res = await fetch(`/auth${path}`, authFetchOptions(body))
+    } catch {
+      clearSession()
+    }
+  }
+  return readAuthResult(res)
+}
+
+// 当前账号的第三方绑定列表：只回 provider + bound_at，服务端刻意不回 openid
+export function fetchIdentities() {
+  return authorizedAuthRequest('/identities')
+}
+
+// 解绑成功后服务端已 revoke 全部会话（含本设备），调用方据此收尾并引导重新登录
+export function unbindIdentity(provider, password) {
+  return authorizedAuthRequest('/identity-unbind', { provider, password })
+}
+
+export function deleteAccount(password) {
+  return authorizedAuthRequest('/delete-account', password ? { password } : {})
 }
 
 // App 启动时尝试用本地存的 refresh token 换一个新的 access token；

@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useAuth } from '../lib/AuthContext'
 import { applyRows, useCardsStore } from '../lib/cardsStore'
 import * as api from '../lib/apiClient'
 import {
@@ -52,7 +51,6 @@ function Tag({ children, tone }) {
 }
 
 export default function CardsImport() {
-  const { logout } = useAuth()
   const store = useCardsStore()
   const [rawText, setRawText] = useState('')
   const [submitState, setSubmitState] = useState({ status: 'idle', message: '' })
@@ -119,9 +117,9 @@ export default function CardsImport() {
             <Link className="bd-text-btn" to="/app">
               返回管理端
             </Link>
-            <button className="bd-text-btn" onClick={logout}>
-              退出登录
-            </button>
+            <Link className="bd-text-btn" to="/app/account">
+              账户信息
+            </Link>
           </div>
         </div>
         <p className="bd-import-hint">

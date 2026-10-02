@@ -26,15 +26,24 @@ export async function onRequestPost(context) {
     return json({ error: '服务端未配置 SUPABASE_SERVICE_ROLE_KEY' }, 500)
   }
 
-  const res = await fetch(`${env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: env.SUPABASE_ANON_KEY },
-    body: JSON.stringify({
-      email,
-      password,
-      gotrue_meta_security: captchaToken ? { captcha_token: captchaToken } : undefined,
-    }),
-  })
+  // 连不上认证服务与「密码错」是两回事：Supabase 回 4xx 才是凭证不对（走下面的
+  // translateSupabaseError）。这里单独给 503，别伪装成登录失败让人反复试密码。
+  // 异常本身不在这里记日志——functions/_middleware.js 的边界会记 path + reference，
+  // 站点级 catch 能看到的也只有那个被 workerd 替换过的错误。
+  let res
+  try {
+    res = await fetch(`${env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: env.SUPABASE_ANON_KEY },
+      body: JSON.stringify({
+        email,
+        password,
+        gotrue_meta_security: captchaToken ? { captcha_token: captchaToken } : undefined,
+      }),
+    })
+  } catch {
+    return json({ error: '认证服务暂时连不上，请稍后再试', code: 'upstream_unreachable' }, 503)
+  }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) return json({ error: translateSupabaseError(data) }, res.status)
 

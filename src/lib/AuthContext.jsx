@@ -70,9 +70,20 @@ export function AuthProvider({ children }) {
     setStatus('anonymous')
   }, [])
 
+  // 解绑专用：服务端已经把这个账号的全部会话 revoke 掉了（B28），本地只剩收尾，
+  // 不能再走 logout——手上的 refresh token 已失效，那条 /logout 必然报错，
+  // 而它会 throw 使得下面的状态更新整段跳过，人留在原地却是已掉线的半死态
+  const endSession = useCallback(() => {
+    resetCardsSession()
+    api.clearSession()
+    setUser(null)
+    setResetTicket(null)
+    setStatus('anonymous')
+  }, [])
+
   const value = useMemo(
-    () => ({ status, user, login, register, verifySignup, forgotPassword, verifyRecovery, resetPassword, logout }),
-    [status, user, login, register, verifySignup, forgotPassword, verifyRecovery, resetPassword, logout]
+    () => ({ status, user, login, register, verifySignup, forgotPassword, verifyRecovery, resetPassword, logout, endSession }),
+    [status, user, login, register, verifySignup, forgotPassword, verifyRecovery, resetPassword, logout, endSession]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -71,7 +71,7 @@ function IconThumb({ iconKey }) {
 }
 
 export default function BalanceImport() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const [rawText, setRawText] = useState('')
   const [submitState, setSubmitState] = useState({ status: 'idle', message: '' })
   const [iconManifest, setIconManifest] = useState([])
@@ -148,9 +148,9 @@ export default function BalanceImport() {
             <Link className="bd-text-btn" to="/app">
               返回管理端
             </Link>
-            <button className="bd-text-btn" onClick={logout}>
-              退出登录
-            </button>
+            <Link className="bd-text-btn" to="/app/account">
+              账户信息
+            </Link>
           </div>
         </div>
         <p className="bd-import-hint">

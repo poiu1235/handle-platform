@@ -737,7 +737,7 @@ function ConfirmDeleteModal({ itemName, onCancel, onConfirm }) {
 }
 
 export default function Hello() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const { rows: cardRows } = useCardsStore()
   const { rows: noteRows } = useNotesStore()
   const [apiState, setApiState] = useState({ status: 'pending', message: '' })
@@ -996,9 +996,9 @@ export default function Hello() {
               <img className="bd-title-word" src={wordmark} alt="Handle 数据管理端" />
             </h1>
           </div>
-          <button className="bd-text-btn" onClick={logout}>
-            退出登录
-          </button>
+          <Link className="bd-text-btn" to="/app/account">
+            账户信息
+          </Link>
         </div>
         <div className="bd-status">
           <span
