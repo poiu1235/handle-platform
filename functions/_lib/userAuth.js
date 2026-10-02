@@ -36,15 +36,19 @@ export async function verifyUserBearer(request, env) {
 // service_role 调 Supabase REST / Admin API（绝不进客户端、不进日志）。
 // 返回 { ok, status, data }，语义同 _lib/supabase.js 的 supabaseAuthFetch。
 export async function serviceRoleFetch(env, path, { method = 'GET', body } = {}) {
-  const res = await fetch(`${env.SUPABASE_URL}${path}`, {
+  const options = {
     method,
     headers: {
       'Content-Type': 'application/json',
       apikey: env.SUPABASE_SERVICE_ROLE_KEY,
       Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
     },
-    body: body ? JSON.stringify(body) : undefined,
-  })
+  }
+  // 条件构造而不是 `body: body ? … : undefined`：后者的 `body` 键永远存在，静态判据
+  // 读不出 method 的取值，就一直报「GET 不许带 body」。沿用原来的真值判断，行为逐字
+  // 不变（现有调用方传的都是对象，或干脆不传）。
+  if (body) options.body = JSON.stringify(body)
+  const res = await fetch(`${env.SUPABASE_URL}${path}`, options)
   const data = await res.json().catch(() => ({}))
   return { ok: res.ok, status: res.status, data }
 }

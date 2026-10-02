@@ -168,7 +168,7 @@ export async function authorizedFetch(path, options = {}) {
     return fetch(path, {
       ...options,
       headers: {
-        ...(options.headers || {}),
+        ...options.headers,
         Authorization: `Bearer ${accessToken}`,
       },
     })
