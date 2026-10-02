@@ -17,6 +17,7 @@ import {
   DONE_RETENTION_DAYS,
   DUE_MAX_LOOKAHEAD_DAYS,
   EXPIRED_RETENTION_DAYS,
+  FOLD_CONTENT_MAX,
   NO_DATE_TTL_DAYS,
 } from './notesConfig.js'
 
@@ -289,4 +290,119 @@ export function dueDateError(dueDate, kind, today) {
     return `日期最多选到 ${shortDate(addDaysISO(today, DUE_MAX_LOOKAHEAD_DAYS))}`
   }
   return null
+}
+
+// ---------- 灵感汇聚（account-membership-prd 4.4，纯函数、零请求） ----------
+// 机制正本（4.4 第 1–5 条，第六～十一轮裁定）：
+//   · 只并灵感，备忘不聚（4.4.4）；
+//   · 分片粒度是「周」（周一～周日），且只并「已经结束的周」——本周还在继续写，
+//     不参与（4.4 第 2 条，P-16 第九轮）；
+//   · 载体是那周 created_at「最早」的那条灵感行本身，不新建行（4.4 第 3 条，P-18）；
+//   · 载体正文只许尾部追加，所以它那一句天然排在合集开头、不被人动手改写；
+//     其余原文按时间顺序接在后面并标序号，逐字保全文（4.4.1 第 1 条：汇聚＝收纳，
+//     不是摘要）；
+//   · 一整周要么并成一张、要么整周不并（4.4 第 2 条，P-16 第十一轮甲解）：合并正文
+//     超 FOLD_CONTENT_MAX 就不生成这一周的载体，原文全留墙上，出路只剩导出（P-19）；
+//   · 已汇聚过的不再重复：成员行 folded_at 非空、载体行 fold_week_start 非空，
+//     两者都不再进入下一次汇聚（4.4 第 4 条 + P-17 载体不可再汇聚）。
+//
+// 字数口径：这里用 JS String.length（UTF-16 码元），DB 用 char_length（码点）。
+// 代理对（emoji 等）在 JS 记 2、在 DB 记 1 ⇒ JS 只会**多估**，判定偏保守，
+// 绝不会出现「JS 说装得下、DB 撑不住」的反向失误；DB CHECK 才是最终权威。
+
+// 周一为一周起点（ISO 8601）；getUTCDay 0=周日 ⇒ 周一的偏移是 0
+export function weekStartOf(isoDay) {
+  const dow = new Date(isoToUTC(isoDay)).getUTCDay()
+  return addDaysISO(isoDay, -((dow + 6) % 7))
+}
+
+export function weekEndOf(weekStart) {
+  return addDaysISO(weekStart, 6)
+}
+
+// 该周是否已经过完（周日的次日才是「已完结」——本周永不参与）
+export function isCompletedWeek(weekStart, today) {
+  return diffDays(today, weekEndOf(weekStart)) > 0
+}
+
+// '2026-09-15' → '09-15'（正文里的周区间，短标记）
+function mmdd(iso) {
+  return iso.slice(5)
+}
+
+// 成员行在合集里的时间标记：MM-DD HH:mm（按查看端本地日历）
+function foldStamp(timestamp) {
+  const d = new Date(timestamp)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// 载体正文 = 载体原句（第 1 条，原样在开头）+ 区间说明行 + 其余原文按时间顺序编号。
+// 成员原文一律逐字拼接（含内部换行），DB 侧的「每条原文都必须在正文里出现」判据
+// 依赖这一点，别在这里做任何清洗
+export function buildFoldContent(carrier, members, weekStart) {
+  const total = members.length + 1
+  const range = `${mmdd(weekStart)}～${mmdd(weekEndOf(weekStart))}`
+  const head = `—— 本周灵感汇聚 ${range} · 共 ${total} 条（本行以上为第 1 条，其后按时间顺序）——`
+  const lines = members.map(
+    (m, i) => `${i + 2}. ${foldStamp(m.created_at)}｜${m.content}`
+  )
+  return `${carrier.content}\n\n${head}\n${lines.join('\n')}`
+}
+
+// 同刻并列按 id 定序（与 sortCreatedAsc 同一支序，保证多端规划结果一致）
+function byCreatedAsc(a, b) {
+  const t = Date.parse(a.created_at) - Date.parse(b.created_at)
+  if (t !== 0) return t
+  return a.id < b.id ? -1 : 1
+}
+
+// rows = 未折叠、非载体的灵感行（GET 已排除折叠行，这里再自筛一层防直调）；
+// today 按查看设备本地日历。返回：
+//   plans    —— 可直接执行的周（按周从旧到新，一次点击把已完结的周全部并掉）
+//   oversize —— 超容被放弃的周（甲解：整周不并，必须回话给用户，否则看着像 bug）
+//   held     —— 未成周 / 只有 1 条 / 本周的灵感条数（留在墙上）
+export function planIdeaFolds(rows, today) {
+  const list = (Array.isArray(rows) ? rows : []).filter(
+    (r) => r.kind === 'idea' && r.folded_at == null && r.fold_week_start == null
+  )
+  const byWeek = new Map()
+  for (const row of list) {
+    const ws = weekStartOf(localDayOf(row.created_at))
+    if (!byWeek.has(ws)) byWeek.set(ws, [])
+    byWeek.get(ws).push(row)
+  }
+
+  const plans = []
+  const oversize = []
+  let held = 0
+  for (const weekStart of [...byWeek.keys()].sort()) {
+    const weekRows = byWeek.get(weekStart).sort(byCreatedAsc)
+    // 一周至少 2 条才值得并：只有一条灵感的周，并了不省任何格子
+    if (!isCompletedWeek(weekStart, today) || weekRows.length < 2) {
+      held += weekRows.length
+      continue
+    }
+    const [carrier, ...members] = weekRows
+    const content = buildFoldContent(carrier, members, weekStart)
+    if (content.length > FOLD_CONTENT_MAX) {
+      oversize.push({
+        week_start: weekStart,
+        week_end: weekEndOf(weekStart),
+        total: weekRows.length,
+        chars: content.length,
+      })
+      continue
+    }
+    plans.push({
+      week_start: weekStart,
+      week_end: weekEndOf(weekStart),
+      carrier_id: carrier.id,
+      member_ids: members.map((m) => m.id),
+      total: weekRows.length,
+      content,
+      chars: content.length,
+    })
+  }
+  return { plans, oversize, held, candidates: list.length }
 }

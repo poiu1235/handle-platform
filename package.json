@@ -10,7 +10,8 @@
     "lint": "oxlint",
     "test:cards": "node scripts/test-cards-domain.mjs",
     "preview": "vite preview",
-    "test:notes": "node scripts/test-notes-domain.mjs"
+    "test:notes": "node scripts/test-notes-domain.mjs",
+    "test:notes-export": "node scripts/test-notes-export.mjs"
   },
   "dependencies": {
     "@marsidev/react-turnstile": "^1.6.0",

@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import * as api from '../lib/apiClient'
 import { useAutoDismiss } from '../lib/useAutoDismiss'
+import { buildNotesExport, exportFileName } from '../lib/notesExport'
+import { XLSX_MIME, buildXlsx } from '../lib/xlsxWriter'
+import { todayISO } from '../../shared/notesDomain.js'
 import './account.css'
 
 // ============================================================
@@ -21,6 +24,10 @@ import './account.css'
 // 确认区一律内联、不弹窗：密码输入要和说明文案在同一口气里读完，
 // 弹窗反而把两者拆散（小程序那边是 showModal 收不了输入才被迫内联，这里内联
 // 是更直接的形态）。
+//
+// 「便利贴导出」是一条只读旁路：点一下才发一次 GET /api/notes（与面板同一读路径），
+// 表构建与 .xlsx 组装全在浏览器里（src/lib/notesExport.js、src/lib/xlsxWriter.js），
+// 不写库、不触发清除、后端零改动——摘掉这个按钮，其它链路不受任何影响。
 // ============================================================
 
 const PROVIDER_LABELS = { wechat_mp: '微信' }
@@ -28,6 +35,17 @@ const dateOnly = (iso) => (iso || '').slice(0, 10)
 
 // 解绑/注销后先把话说完再收尾会话的停留时长（与小程序同一节奏）
 const TEARDOWN_DELAY_MS = 900
+
+// 字节流落成浏览器下载。revokeObjectURL 放在下一拍而不是 click() 之后同步执行：
+// click 只是发起下载，数据的实际读取由浏览器随后完成，提前释放就断了来源
+function saveToDisk(bytes, filename) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: XLSX_MIME }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
 
 export default function Account() {
   const { user, logout, endSession } = useAuth()
@@ -40,6 +58,9 @@ export default function Account() {
   const [mode, setMode] = useState(null)
   const [targetProvider, setTargetProvider] = useState('')
   const [password, setPassword] = useState('')
+  // 导出自成一路：不借用 unbind/delete 的 mode 机与 busy——那两个动作会收尾会话，
+  // 导出只读数据，进行中态串在一起会让一个按钮的禁用跟着另一条路径走
+  const [exporting, setExporting] = useState(false)
   useAutoDismiss(error, setError)
   useAutoDismiss(notice, setNotice)
 
@@ -98,6 +119,33 @@ export default function Account() {
     } catch (err) {
       setError(err.message || '注销申请失败')
       setBusy(false)
+    }
+  }
+
+  async function handleExport() {
+    if (exporting) return
+    setExporting(true)
+    setError('')
+    setNotice('')
+    try {
+      const res = await api.authorizedFetch('/api/notes')
+      const body = await res.json().catch(() => [])
+      if (!res.ok) throw new Error(body?.error || `便利贴读取失败（${res.status}）`)
+
+      const today = todayISO()
+      const { sheet, exported, cleared } = buildNotesExport(body, today)
+      if (exported === 0) {
+        setNotice(cleared > 0 ? `便利贴都已到清除时刻（${cleared} 条），没有可导出的内容` : '还没有便利贴')
+        return
+      }
+      saveToDisk(buildXlsx(sheet), exportFileName(today))
+      setNotice(
+        `已导出 ${exported} 条${cleared > 0 ? `（另有 ${cleared} 条已过清除时刻，未包含）` : ''}`
+      )
+    } catch (err) {
+      setError(err.message || '导出失败')
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -176,6 +224,18 @@ export default function Account() {
               </div>
             </div>
           )}
+        </section>
+
+        <section className="acc-panel">
+          <h2 className="acc-panel-title">便利贴导出</h2>
+          <p className="acc-hint">
+            把灵感与备忘汇总成一张 Excel 表下载到本地：正常、已过期、已完成都在内，
+            列含类型、内容、状态、截止日期、置顶与创建/完成时间。
+            页面上已到达清除时刻的条目不导出（它们也已经从面板消失）。
+          </p>
+          <button className="acc-btn" disabled={exporting} onClick={handleExport}>
+            {exporting ? '导出中…' : '导出 Excel'}
+          </button>
         </section>
 
         <section className="acc-panel">

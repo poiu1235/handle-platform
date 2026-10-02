@@ -4,6 +4,11 @@
 // 正文长度上限（7.1；DB CHECK 与 CF 层同口径，1–500 字）
 export const CONTENT_MAX = 500
 
+// 汇聚载体正文上限（account-membership-prd 4.4.2 / P-10：普通便签仍限 500，
+// 只有「一整周并成一张」的汇聚卡走这一档）。DB CHECK 按 fold_week_start 分流，
+// CF 普通新增路径绝不放行 >500 的正文——5000 只能由服务端合并既有行产生（P-14 闸门）。
+export const FOLD_CONTENT_MAX = 5000
+
 // 每用户条数上限（9.2-6：物理行数；灵感长期沉淀，较旧版 200 放宽）。
 // ⚠ 耦合：CF 层 POST 前以 count 判定 → 409
 export const NOTES_CAP = 500
