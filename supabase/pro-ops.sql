@@ -95,7 +95,9 @@ order by o.created_at;
 -- A5 本月收款额：按 env 与"是否测试道具"分列（D-10 后果③：测试单要单列，别混进 GMV）
 --    ⚠ 这只是**我方近似**：月收款 10 万那道限额是平台口径（平台自己的月界与结算规则），
 --      真撞上限只能看后台——我方库里没有平台侧聚合。这条查询的作用是"看见趋势"。
---    ⚠ 'pro_test_day' 是硬编码的测试道具 id；改名要同步这一行（它不进 GET products）。
+--    ⚠ 'pro_test_day' 在这里是硬编码：✅ E-8 已判＝商品配置**不建表**，唯一来源是 CF 侧的
+--      模块常量（B3 的 functions/_lib/proCatalog.js）⇒ 改测试道具 id 要同步两处（那处常量＋这一行）。
+--      它不进 GET products，也不该混进真实 GMV。
 -- ────────────────────────────────────────────────────────────────────────────
 select date_trunc('month', o.paid_at at time zone 'Asia/Shanghai') as 北京月,
        o.env                                                      as 环境,
