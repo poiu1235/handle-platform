@@ -32,9 +32,11 @@ export async function onRequestPost(context) {
   if (!PROVIDERS.includes(provider)) return json({ error: '不支持的身份类型', code: 'bad_provider' }, 400)
 
   const q = encodeURIComponent(user.userId)
+  // select 里带 openid 不是为了判断，是为了**在删行之前把它抄一份**：解绑＝物理删行，
+  // 删完"解掉了哪个微信"在库里再无痕迹（S-7 加 identity_unbinds.openid 这一列的原因）。
   const rows = await serviceRoleFetch(
     env,
-    `/rest/v1/user_identities?select=id&user_id=eq.${q}&provider=eq.${encodeURIComponent(provider)}`,
+    `/rest/v1/user_identities?select=id,openid&user_id=eq.${q}&provider=eq.${encodeURIComponent(provider)}`,
   )
   if (!rows.data?.length) {
     // 无绑定可拆 = 幂等语义上的「已经是解绑态」，但为了让客户端区分「操作成功」
@@ -60,10 +62,14 @@ export async function onRequestPost(context) {
   // 解绑次数数 identity_unbinds（d5-unbind-churn.sql 增量迁移的流水）。
   // 静默 wechat-bind 的首绑不计入——正常首绑不是 churn，被计数的闭环是
   // 「unbind+upgrade 循环」，已经完整覆盖滥用面。
+  // 🔴 D-9a 已判＝**人工解绑不占用户自己的额度** ⇒ 解绑侧只数 `operator is null` 的行。
+  //   不过滤的后果是反的：客服帮一个撞了上限的人解绑，反而又挤掉他一格额度。
+  //   ⚠️ 这个过滤**只加在 identity_unbinds 上**——account_merges 没有 operator 列，
+  //     加上去是 400，不是"少算一点"。
   const since = new Date(Date.now() - CHURN_WINDOW_DAYS * 86_400_000).toISOString()
   const [merges, unbinds] = await Promise.all([
     serviceRoleFetch(env, `/rest/v1/account_merges?select=id&target_id=eq.${q}&provider=eq.${encodeURIComponent(provider)}&created_at=gt.${since}`),
-    serviceRoleFetch(env, `/rest/v1/identity_unbinds?select=id&user_id=eq.${q}&provider=eq.${encodeURIComponent(provider)}&unbound_at=gt.${since}`),
+    serviceRoleFetch(env, `/rest/v1/identity_unbinds?select=id&user_id=eq.${q}&provider=eq.${encodeURIComponent(provider)}&unbound_at=gt.${since}&operator=is.null`),
   ])
   if ((merges.data?.length ?? 0) + (unbinds.data?.length ?? 0) >= CHURN_MAX) {
     return json({ error: '30 天内绑定关系变更已达上限，请过段时间再操作', code: 'rate_limited' }, 429)
@@ -83,10 +89,17 @@ export async function onRequestPost(context) {
     console.error('[identity-unbind] delete failed:', JSON.stringify(del.data))
     return json({ error: '解绑失败，请稍后重试' }, 502)
   }
-  await serviceRoleFetch(env, '/rest/v1/identity_unbinds', {
+  // 流水写在删成功之后（删失败却记一条"已解绑"＝假流水）；openid 取自删之前那次 select，
+  // 所以这里不依赖任何"删完还读得到"的假设。
+  // 🔴 刻意**不写 operator**：自助路径留 null 正是 D-9a 那个 `operator is null` 过滤的
+  //   判据面——自助的要计入 30 天额度、人工补记的不计入。写错这一列等于把用户自己的
+  //   额度翻倍。
+  const flow = await serviceRoleFetch(env, '/rest/v1/identity_unbinds', {
     method: 'POST',
-    body: { user_id: user.userId, provider },
+    body: { user_id: user.userId, provider, openid: rows.data[0].openid },
   })
+  // 流水漏写不翻转解绑结果（门已拆是主语义），但它＝用户额度被**少算**，必须留可 grep 的 token
+  if (!flow.ok) console.error('[identity-unbind] pro-unbind-flow-write-failed', JSON.stringify(flow.data))
 
   // B28 联动撤销（原语在 userAuth.revokeAllSessions，与改密路径共用）：
   // 失败不翻转解绑结果（门已拆是主语义），进日志人工补
