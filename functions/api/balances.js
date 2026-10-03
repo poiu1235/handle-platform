@@ -1,5 +1,6 @@
 import { json } from '../_lib/supabase.js'
 import { buildBalanceInsert } from '../_lib/balanceFields.js'
+import { countRows, enforceCapacity } from '../_lib/proCap.js'
 
 // 转发的是用户自己的 access token（在 _middleware.js 里已验签、排除过 recovery），
 // 不是 service_role——balances 表原有的 RLS（user_id 归属校验）继续生效，
@@ -39,6 +40,22 @@ export async function onRequestPost(context) {
   // user_id 由服务端从校验过的 token 里取，不信任前端传来的任何 user_id 字段。
   const { row, error } = buildBalanceInsert(payload, data.user.id)
   if (error) return json({ error }, 400)
+
+  // 容量墙（3.4 七入口之一）。🔴 关态＝**没有墙**（现网 balances 从来没有行数墙），
+  // 所以这里 legacyCap 不传——与 notes 那一侧正好相反，两页的关态判据要分别实测。
+  // dedupe：本端点是 upsert on (user_id, app_name)，同名覆盖不增行 ⇒ 临界时先确认
+  // 是不是覆盖；把"覆盖已有条目"也拦掉等于违反一.5「记录动作永远免费无摩擦」。
+  const total = await countRows(env, data.accessToken, 'balances', data.user.id)
+  const gate = await enforceCapacity({
+    env,
+    accessToken: data.accessToken,
+    user: data.user,
+    domain: 'balances',
+    existing: total,
+    incoming: 1,
+    dedupe: { table: 'balances', column: 'app_name', value: row.app_name },
+  })
+  if (!gate.allowed) return json({ error: gate.error }, 409)
 
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/balances?on_conflict=user_id,app_name`, {
     method: 'POST',

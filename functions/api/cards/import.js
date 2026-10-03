@@ -10,6 +10,7 @@ import {
   restHeaders,
   todayISO,
 } from './_lib.js'
+import { enforceBatchCapacity } from '../../_lib/proCap.js'
 
 // 批量导入提交（S2/S15）：CF 层逐行校验（7.5 清单）+ 剥离显式 null 值键后
 // 转发 rpc/import_my_cards——三分支与合并全部在 SQL 内完成，一次请求。
@@ -104,6 +105,20 @@ export async function onRequestPost(context) {
 
     cleaned.push(row)
   }
+
+  // 容量墙（3.4 点名的"最容易漏的那个入口"）。必须在 RPC 之前拦：import_my_cards 一旦跑起来
+  // 就是"一次请求完成三分支"，事后回滚不在它的设计里。整批预检 ⇒ 超出就整批不导。
+  // 关态＝没有墙（现网 cards 导入无行数限制）⇒ 不传 legacyCap。
+  const gate = await enforceBatchCapacity({
+    env,
+    accessToken: data.accessToken,
+    user: data.user,
+    domain: 'cards',
+    table: 'cards',
+    keyColumn: 'name',
+    keys: cleaned.map((r) => r.name),
+  })
+  if (!gate.allowed) return json({ error: gate.error }, 409)
 
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/import_my_cards`, {
     method: 'POST',

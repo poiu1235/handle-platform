@@ -13,7 +13,8 @@
     "test:notes": "node scripts/test-notes-domain.mjs",
     "test:notes-export": "node scripts/test-notes-export.mjs",
     "test:pro": "node scripts/test-pro-coverage.mjs",
-    "test:unbind": "node scripts/test-unbind-audit.mjs"
+    "test:unbind": "node scripts/test-unbind-audit.mjs",
+    "test:cap": "node scripts/test-pro-cap.mjs"
   },
   "dependencies": {
     "@marsidev/react-turnstile": "^1.6.0",

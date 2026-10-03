@@ -12,6 +12,7 @@ import {
   restHeaders,
   todayISO,
 } from './cards/_lib.js'
+import { countRows, enforceCapacity } from '../_lib/proCap.js'
 
 // 转发的是用户自己的 access token（_middleware.js 已验签、排除 recovery），
 // cards 表 RLS（user_id 归属）继续生效；本层只做配置窗口/枚举/次数规则校验
@@ -176,6 +177,20 @@ export async function onRequestPost(context) {
       row.icon_key = iconKey
     }
   }
+
+  // 容量墙（3.4 七入口之一）。关态＝没有墙（现网 cards 无行数墙）⇒ 不传 legacyCap。
+  // dedupe：本端点 upsert on (user_id, name)，同名覆盖不增行 ⇒ 临界时先确认是不是覆盖。
+  const total = await countRows(env, data.accessToken, 'cards', data.user.id)
+  const gate = await enforceCapacity({
+    env,
+    accessToken: data.accessToken,
+    user: data.user,
+    domain: 'cards',
+    existing: total,
+    incoming: 1,
+    dedupe: { table: 'cards', column: 'name', value: row.name },
+  })
+  if (!gate.allowed) return json({ error: gate.error }, 409)
 
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/cards?on_conflict=user_id,name`, {
     method: 'POST',

@@ -15,6 +15,7 @@ import {
   isISODate,
   todayISO,
 } from '../../shared/notesDomain.js'
+import { enforceCapacity } from '../_lib/proCap.js'
 
 // 便利贴集合端点（PRD 8.3）。_middleware.js 已验签并把 access token 放进 data，
 // 本层只做白名单 / 枚举 / 窗口校验（shared/notesDomain.js 与前端同源），RLS 兜底
@@ -89,9 +90,20 @@ export async function onRequestPost(context) {
     await sweepCleared(env, data.accessToken)
     total = await countNotes(env, data.accessToken, data.user.id)
   }
-  if (Number.isFinite(total) && total >= NOTES_CAP) {
-    return json({ error: `便利贴已到上限（${NOTES_CAP} 条），先清理一些吧` }, 409)
-  }
+  // 判墙交给唯一实现（3.4「判墙的代码只写一处、七个入口都调它」）。
+  // 🔴 legacyCap＝NOTES_CAP 是刻意的：墙关着时仍是**现网那面单一 500 的墙**、文案逐字不变
+  //   （8.3 关态判据第 1 条要的就是"症状逐字比对"）；墙开着才换成分层值（免费 200／会员 500）。
+  // ⚠️ 先 sweep 再判墙的顺序不能倒：僵尸行在撞墙那一刻仍占额度（3.3），sweep 是给它让位。
+  const gate = await enforceCapacity({
+    env,
+    accessToken: data.accessToken,
+    user: data.user,
+    domain: 'notes',
+    existing: total,
+    incoming: 1,
+    legacyCap: NOTES_CAP,
+  })
+  if (!gate.allowed) return json({ error: gate.error }, 409)
 
   const row = {
     user_id: data.user.id,

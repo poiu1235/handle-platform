@@ -1,5 +1,6 @@
 import { json } from '../../_lib/supabase.js'
 import { buildBalanceInsert } from '../../_lib/balanceFields.js'
+import { enforceBatchCapacity } from '../../_lib/proCap.js'
 
 // 对应 BalanceImport.jsx 的批量粘贴导入：同名覆盖、不同名插入，一次提交多条，
 // 语义和 balances.js 的单条 POST 一致，只是走数组批量 upsert
@@ -21,6 +22,19 @@ export async function onRequestPost(context) {
     if (error) return json({ error: `第 ${i + 1} 行：${error}` }, 400)
     payload.push(row)
   }
+
+  // 容量墙（3.4 点名的"最容易漏的那个入口"）。整批预检：超出 ⇒ 整批不导、告知还能导入几条。
+  // 关态＝没有墙（现网 balances 导入从来没有行数限制）⇒ 不传 legacyCap。
+  const gate = await enforceBatchCapacity({
+    env,
+    accessToken: data.accessToken,
+    user: data.user,
+    domain: 'balances',
+    table: 'balances',
+    keyColumn: 'app_name',
+    keys: payload.map((r) => r.app_name),
+  })
+  if (!gate.allowed) return json({ error: gate.error }, 409)
 
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/balances?on_conflict=user_id,app_name`, {
     method: 'POST',
