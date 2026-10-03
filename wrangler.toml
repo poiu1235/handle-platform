@@ -17,3 +17,19 @@ VITE_TURNSTILE_SITE_KEY = "0x4AAAAAAEWKp5fnOWpBMTe9"
 # 已建访客走命中分支不受影响。
 GUEST_MODE = "true"
 MAIL_FROM= "Handle Notifications <notify@sys.handle.host>"
+# ── 会员体系（PRD v3 8.3）────────────────────────────────────────────────
+# 🔴 强制侧在这里，不在端上：端上那份 config/pro-feature.js 只管"画不画入口"，
+#    服务端**绝不从请求体/请求头接收开关状态**（否则端上能自己把墙关掉）。
+#    两侧不一致时唯一容错方向＝按更严的走，且要能被测出来（验收 #54）。
+# 值恒为字符串：'true'/'1' 才算开，缺失/空串/拼错一律算关（fail-closed）。
+# 三个都关＝现网行为：便利贴单一 500、余额与卡没有行数墙、没有购买入口
+#（⚠️ 不是"免费档的新数值"，关态判据见 8.3 那四格）。
+PRO_WALLS_ENABLED = "false"
+PRO_PURCHASE_ENABLED = "false"
+# 判定认哪个 env 的账本行：0 现网／1 沙箱。D-10 已判 V1 不依赖 env=1 发货，
+# 但这一列与这道隔离保留——它是"沙箱单发出真实会员"的唯一闸门
+#（anomaly_reason 里的 env_mismatch 是打不到的死分支，别指望它）。
+PRO_ENV = "0"
+# 将来 B3/B4 要加的两把**只进 secret、不进本文件**（选错那把的失败形态长得像"平台没推送"）：
+#   npx wrangler pages secret put WX_PAY_APPKEY_PROD      # 现网 AppKey（签名用）
+#   npx wrangler pages secret put PRO_ADMIN_TOKEN         # 4.6 入口④管理端鉴权
