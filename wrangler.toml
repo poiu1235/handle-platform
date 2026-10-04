@@ -37,6 +37,10 @@ PRO_ENV = "0"
 #   名单里放的是 openid（伪匿名串，不是密钥），但它决定"谁能花几分钱买会员"⇒ 改动只走这里，
 #   不许有端上副本、不许从请求里接收（8.3 第 1 条）。
 PRO_TEST_OPENIDS = ""
+# 虚拟支付的商户号（signData.offerId，6.3）。🔴 它不是密钥（会随 signData 出现在端上），
+# 但也不能瞎填：`goodsPrice` 与 `offerId` 都是 paySig 的组成部分 ⇒ 与后台发布的道具不一致，
+# 表现就是"拉起支付直接被平台拒绝"。⚠️ 对应的 AppKey **只进 secret**（下面那两行注释），别写这里。
+WX_PAY_OFFER_ID = ""
 # 将来 B3/B4 要加的两把**只进 secret、不进本文件**（选错那把的失败形态长得像"平台没推送"）：
 #   npx wrangler pages secret put WX_PAY_APPKEY_PROD      # 现网 AppKey（签名用）
 #   npx wrangler pages secret put PRO_ADMIN_TOKEN         # 4.6 入口④管理端鉴权
