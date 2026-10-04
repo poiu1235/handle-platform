@@ -25,7 +25,12 @@ MAIL_FROM= "Handle Notifications <notify@sys.handle.host>"
 # 三个都关＝现网行为：便利贴单一 500、余额与卡没有行数墙、没有购买入口
 #（⚠️ 不是"免费档的新数值"，关态判据见 8.3 那四格）。
 PRO_WALLS_ENABLED = "false"
-PRO_PURCHASE_ENABLED = "true"
+# 🔴 **✅ E-14／E-15 已判＝乙（owner 2026-10-04）：B3-3（查单＋推送入账）落地前这一条必须是 "false"。**
+#   开着它＝开了一条"钱能进平台、我方没有任何代码把它认成会员"的通道（入账只认 `/pay/query`，
+#   那段代码没写、接口形状还没实证＝R-9 ①）。想验下单侧七条前置，**关着它**用真 Bearer 打 curl 就够
+#   （先撞 `purchase_disabled`，那本身就是判据）；真要验拉起支付，只在"测试道具 + openid 名单内"做，
+#   做完立刻关回来并重新部署。
+PRO_PURCHASE_ENABLED = "false"
 # 判定认哪个 env 的账本行：0 现网／1 沙箱。D-10 已判 V1 不依赖 env=1 发货，
 # 但这一列与这道隔离保留——它是"沙箱单发出真实会员"的唯一闸门
 #（anomaly_reason 里的 env_mismatch 是打不到的死分支，别指望它）。
