@@ -32,7 +32,7 @@ PRO_WALLS_ENABLED = "false"
 #   名单内）、测试道具 1 分钱买一次 ⇒ 读完验收 #69 那五格后**立刻关回 false 并重新部署**
 #   （这是"证据到手就关"，不是"内测收尾再关"）。
 #   ⚠️ 只想验七条前置不用开它：关着拿真 Bearer 打 curl 会先撞 `purchase_disabled`，那本身就是判据。
-PRO_PURCHASE_ENABLED = "false"
+PRO_PURCHASE_ENABLED = "true"
 # 判定认哪个 env 的账本行：0 现网／1 沙箱。D-10 已判 V1 不依赖 env=1 发货，
 # 但这一列与这道隔离保留——它是"沙箱单发出真实会员"的唯一闸门
 #（anomaly_reason 里的 env_mismatch 是打不到的死分支，别指望它）。
