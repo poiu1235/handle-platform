@@ -94,11 +94,17 @@ export async function code2sessionKey(code, env) {
   return { ok: true, openid: data.openid, unionid: data.unionid || null, sessionKey: data.session_key }
 }
 
-/** 只回端上**需要**的三样：拉起参数 + 我方单号。🔴 sessionKey 与 openid 都不在这里出现 */
+/**
+ * 只回端上**需要**的三样：拉起参数 + 我方单号。🔴 sessionKey 与 openid 都不在这里出现。
+ * ✅ `signData` 给的是**字符串**而不是对象——官方页（2026-10-04 抓取）对这四个字段的原话是
+ *   "以下支付参数拼成的 **JSON 字符串**"，且 `paySig`/`signature` 的输入就是这一个字符串。
+ *   ⇒ 传对象等于把"再序列化一次"交给端上，而 6.2 铁律 1 要的是**逐字节一致**（键序、空格、
+ *     转义任一变化都失效，症状长得像"平台拒绝"）。端上唯一的动作是原样转交。
+ */
 export function toClientPayParams(payload) {
   return {
     mode: 'short_series_goods', // 官方个人版页固定值（6.3）
-    signData: payload.signData,
+    signData: payload.postBody,
     paySig: payload.paySig,
     signature: payload.signature,
   }

@@ -23,6 +23,12 @@ export const CAPS = {
   free: { notes: 200, balances: 50, cards: 50 },
 }
 
+// 续购窗口（4.5 前置⑤，✅ D-18 已判＝甲：剩余 > 20 天一律不能买**任何**卡，跨档同样拦）。
+// 🔴 与端上 `proQuota.ts` 的 `RENEW_WINDOW_DAYS` 是同一个数的两份镜像：服务端这份是**判据**
+//   （拒不拒），端上那份只管**文案**（提示条上写"还剩 N 天"）。改一处不改另一处的表现＝
+//   提示说"可续购"、下单当场被拒（正是第二十轮评审第 20 条要消灭的那种不同形）。
+export const RENEW_WINDOW_DAYS = 20
+
 function isOn(v) {
   // 只有显式 'true'/'1' 算开；缺失、空串、'false'、拼错一律算关（fail-closed，与 7.2 同构）。
   // 注意 wrangler [vars] 的值恒为字符串，不是布尔。
@@ -98,6 +104,20 @@ async function callProCoverage(env, openid, nowIso, proEnv) {
     validUntil: typeof d.valid_until === 'string' && d.valid_until !== '' ? d.valid_until : null,
     remainingDays: typeof rem === 'number' && Number.isFinite(rem) ? Math.trunc(rem) : null,
   }
+}
+
+/**
+ * 已知 openid 时的判定（下单前置⑤用）。🔴 与 getProView 走**同一个 rpc 调用点**，
+ * 不是第二套折叠实现（验收 #39 的判据是"调用点唯一"，不是"导出函数唯一"）。
+ * 为什么下单不复用 getProView：那条会再读一次 `user_identities`，而下单路径为了前置②
+ * 本来就已经拿到 openid——多一次读不多，但"用哪一条 openid 判"这件事在同一个请求里出现两次
+ * 时，让第二个消费者显式接参数比让它自己再查一遍更不容易漂。
+ * @param {number} proEnv 已经由 readProFlags 转成 integer 的那个值（4.4 E-4：别再传字符串）
+ */
+export async function getCoverageByOpenid(env, openid, proEnv) {
+  const nowIso = new Date().toISOString()
+  const c = await callProCoverage(env, openid, nowIso, proEnv)
+  return { ...c, serverNow: nowIso }
 }
 
 /**

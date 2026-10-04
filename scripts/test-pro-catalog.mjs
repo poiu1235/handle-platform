@@ -131,11 +131,13 @@ const wlSites = jsFiles
   .map((p) => path.relative(root, p).split(path.sep).join('/'))
 check('4.2 PRO_TEST_OPENIDS 只在 proCatalog 被读', wlSites, [])
 // 4.3 测试档守卫不许被"列表里有没有"替代：下单侧将来必须自己调 testAllowed/canBuyNormalTier
+// ✅ B3-2 就是这条"将来"：orders.js 自己调两道守卫，没有把"它出现在 products 列表里"当放行依据
+//   ⇒ 这一格从"只 proCatalog 消费"变成"proCatalog + orders"是**预期中的消费者出现**，不是守卫被绕过。
 const guardSites = jsFiles.filter((p) => /testAllowed|canBuyNormalTier/.test(read(p))).map((p) => path.basename(p))
-check('4.4 守卫函数的消费者＝proCatalog 自身 + proCatalog（products 只经 sellableProducts）', guardSites, ['proCatalog.js'])
+check('4.4 守卫函数的消费者＝proCatalog 自身 + 下单端点（列表不算判据）', guardSites, ['orders.js', 'proCatalog.js'])
 // 4.5 端点不许把 openid 写进响应：proCoverage 导出的 getAccountOpenid 只允许被服务端模块用
 const openidSites = jsFiles.filter((p) => /getAccountOpenid/.test(read(p))).map((p) => path.basename(p)).sort()
-check('4.5 getAccountOpenid 的消费者清单（新增消费者要一起看 4.6 的"不下发 openid"）', openidSites, ['proCoverage.js', 'products.js'])
+check('4.5 getAccountOpenid 的消费者清单（新增消费者要一起看 4.6 的"不下发 openid"）', openidSites, ['orders.js', 'proCoverage.js', 'products.js'])
 
 let fails = 0
 for (const r of results) {
