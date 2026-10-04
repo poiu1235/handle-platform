@@ -19,17 +19,19 @@
 //   不会出现"守卫按 A 判、落库写 B"。代价是守卫拒绝时这一次 code 白烧了——`wx.login` 是静默的，
 //   端上下一次点还能再取，不烦人。
 //
-// ⚠️ 本端点**不发货**：建单只是把 `pending` 行写好、把签名算出来。发货只认 `/pay/query`
-//   查得已付（6.2 铁律 2 收紧版），那一路是 B3-3，且按 4.5 顶格划线——**R-9 ① 实证前不许动码**。
-//   ⇒ 🔴 **✅ E-14 已判＝乙（owner 2026-10-04）：购买闸在 B3-3 落地前保持关**（`PRO_PURCHASE_ENABLED`
-//     与 `PRO_WALLS_ENABLED` 都不开）。判乙的含义是"收钱必须以'能当场认回来'为前提"，
-//     所以这一版连"换档时关旧单建新单"都不做（见前置④那一段）——不是保守，是因为
-//     判甲会让 7.6 那句"❌ 永不允许先收钱后手工补"当场作废，两者不能同时要。
+// ⚠️ 本端点**不发货**：建单只是把 `pending` 行写好、把签名算出来。发货只认查单查得已付
+//   （6.2 铁律 2 收紧版），实现是 `_lib/proCredit.js`，触发源是 `GET /api/pro/orders/:no`
+//   （端上确认态轮询）与将来的入站推送。🔴 下单这一侧**不亲自写账本**：触发源可以有几个，
+//   "写账本"的实现与入口必须各只有一份（4.6）。
+//   ⇒ ✅ E-14 判乙的那条前提（"查单没代码 ⇒ 收钱认不回来"）已随 B3-3 解除：现在
+//     `PRO_PURCHASE_ENABLED` 的开闸条件变成"**端上确认态轮询已上线**"，而不是"推送接收器已就绪"
+//     ——轮询这条路径自己就能把货发出去（6.4 的第②层），推送只是多一层兜底。
 import { json } from '../../../_lib/supabase.js'
 import { serviceRoleFetch } from '../../../_lib/userAuth.js'
 import { readProFlags, getAccountOpenid, getCoverageByOpenid, RENEW_WINDOW_DAYS, PROVIDER } from '../../../_lib/proCoverage.js'
 import { catalogEntry, sellableProducts, testAllowed, canBuyNormalTier } from '../../../_lib/proCatalog.js'
-import { findPendingOrder, insertOrder, listOrdersByOpenid } from '../../../_lib/proStore.js'
+import { findPendingOrder, closePendingOrder, insertOrder, listOrdersByOpenid } from '../../../_lib/proStore.js'
+import { queryOrderState } from '../../../_lib/proCredit.js'
 import { code2sessionKey, buildPayPayload, makeOutTradeNo, toClientPayParams } from '../../../_lib/proPaySign.js'
 import { wxTicketResponse } from '../../../_lib/wxTicket.js'
 
@@ -213,28 +215,60 @@ export async function onRequestPost(context) {
   //   不落库、不进响应、不进日志（U-7 判 ⓐ；proPaySign.js 顶部那三条纪律）。
   //   签名**贴着这次响应算**，不提前算好放着（6.3 末段那条"静默重新登录会让签名失效"的暴露面靠这个收窄）。
 
-  // 前置④：同 `product_id` ＋ 同 `env` ＋ 未过期 ⇒ 复用原单重签一次；**其余一律不写**。
-  // 🔴 ✅ E-14 已判＝乙（owner 2026-10-04）：查单（六.4／B3-3）没有代码 ⇒ 既不"关旧建新"也不"复用旧号"，
-  //   当场拒单。理由不是省事：置 `closed` 只是**我方口径**的关闭（关单接口未证＝R-9 ⑦），
-  //   而那张被关的旧单在平台侧可能仍可付 ⇒ 认它回来要 4.5 的 `closed` 继续分支＋`paid_after_close`
-  //   复活，那一段属于 B3-3。判乙＝"收钱必须以'能当场认回来'为前提"，于是这一支现在只能拒。
-  //   ⚠️ 代价（当场入账，别等哪天当 bug 查）：**取消支付满 15 分钟后再点同一档会被拒**，
-  //     直到 B3-3 把"查得未付 ⇒ 关旧建新"接上。这条拒单在库里留得下痕迹（A4 那段 pending 巡检）。
-  //   🔴 B3-3 落地时要改的就是这三行：先查单 ⇒ 未付才关（PATCH 必须带 `status=eq.pending`，
-  //     否则与推送撞车会把已付单改回未付）⇒ 再建新单号。
+  // 前置④：同 `product_id` ＋ 同 `env` ＋ 未过期 ⇒ 复用原单重签一次；否则**先查单再决定**。
+  // ✅ E-14 判乙时这里只有"不能复用就当场拒"（因为查单还没代码）；B3-3 把查单接上之后，
+  //   恢复成正本那句："先查单确认未付 ⇒ 把旧单置 closed ⇒ 再建新单号"。
+  //   🔴 顺序不能反：不查就关＝拿"我方口径的关闭"（关单接口未证＝R-9 ⑦）去赌"这单没被付"。
   if (pending) {
-    if (!canReuse(pending, productId, flags.proEnv, nowMs)) {
+    if (canReuse(pending, productId, flags.proEnv, nowMs)) {
+      // 复用不重算金额：签的是**行里的值**（这张单成立时的价格，同时是 paySig 的输入）；
+      // 但 `session_key` 可能是新的（冷启动／ensureAuth 刷新／切前台）⇒ 同一份 post_body 重签一次
+      return await respond({ env, order: pending, sessionKey: wx.sessionKey, userId, reused: true })
+    }
+    let st = null
+    try {
+      st = await queryOrderState(env, pending)
+    } catch (err) {
+      return unavailable('pending-query', err)
+    }
+    if (st.outcome === 'paid') {
+      // 上一笔其实付过了 ⇒ 不建新单，把那张单号回给端上让它去确认。
+      // 🔴 入账**不在这里做**：下单端点只负责"要不要再收一笔钱"，写账本的触发源是
+      //   轮询端点（与将来的推送），实现只有一份（4.6）。
       return json(
         {
-          error: '你有一笔未完成的订单。请稍后再试一次；反复出现的话，请到「账户信息」页联系在线客服。',
-          code: 'pending_order_open',
+          error: '你上一笔订单已经支付，权益正在生效，不需要再买一次。',
+          code: 'previous_order_paid',
+          orderNo: String(pending.out_trade_no),
         },
         409,
       )
     }
-    // 复用不等于"把上次算好的名再发一遍"：`session_key` 可能已经换过一次（冷启动、ensureAuth 刷新、
-    // 切前台）⇒ 拿**这一个新 key** 对同一份 post_body 重签（单号、金额、attach 全取行里的原值）。
-    return await respond({ env, order: pending, sessionKey: wx.sessionKey, userId, reused: true })
+    if (st.outcome === 'refunded') {
+      // 平台说这单退过了，而我方这边它还是一张 pending（从没入过账）。
+      // 🔴 这里既不关也不建：把一张"平台口径已退款"的单按我方口径置 closed，等于在没有
+      //   退款状态写路径（那是 B4：`markOrderRefunded` + `xpay_refund_notify`）的时候伪造状态列。
+      //   文案也不能沿用上面那句"权益正在生效"——那一支的前提是钱在我们账上，这里恰恰相反。
+      return json(
+        {
+          error: '你上一笔订单已退款，请稍后再试，或联系在线客服确认。',
+          code: 'previous_order_refunded',
+          orderNo: String(pending.out_trade_no),
+        },
+        409,
+      )
+    }
+    if (st.outcome === 'query_error') {
+      // 判不出 ⇒ 既不关也不建（与 4.5 三态表同源：**没查到不等于没付**）
+      return json({ error: '暂时无法开通，请稍后再试', code: 'pro_unavailable' }, 503)
+    }
+    // unpaid / closed / not_found ⇒ 可以关旧建新。PATCH 带 `status=eq.pending`：
+    // 与轮询撞上时（旧单刚被记成 paid）匹配 0 行 ⇒ 不会把已付单改回未付。
+    try {
+      await closePendingOrder(env, String(pending.out_trade_no))
+    } catch (err) {
+      return unavailable('pending-close', err)
+    }
   }
 
   const outTradeNo = makeOutTradeNo()

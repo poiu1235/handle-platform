@@ -2,8 +2,9 @@
 // 五个入口——①下单 ②支付推送 ③退款申请 ④管理端执行／补写 ⑤外部退款推送——共用它，
 // 这样幂等与校验只写一遍，不会各入口漏一项）。
 //
-// B3-2 只落入口①要用的三件事：查未付单、置 closed、建单。②③④⑤ 到 B3-3／B4／B5 再继续
-// 往本文件加；🔴 别在端点里各写一份 serviceRoleFetch 直接打这三张表（那正是 4.6 收成一个模块要防的）。
+// B3-2 落了入口①要用的三件事（查未付单、置 closed、建单）＋订单页读侧；B3-3 又加了入账那四件
+// （读单行、回填 paid、查账本在不在、写账本行）。③④⑤ 到 B4／B5 再继续往本文件加；
+// 🔴 别在端点里各写一份 serviceRoleFetch 直接打这三张表（那正是 4.6 收成一个模块要防的）。
 //
 // ⚠️ 读回来的行是 PostgREST 的原始形状：`env`／`goods_price` 是**数字**，`expires_at` 是 ISO 串，
 //   `status` 是文本。本模块不做任何"顺手转换"，转换发生在消费它的端点里——判据要能对到具体某一行。
@@ -59,8 +60,7 @@ export async function listOrdersByOpenid(env, openid) {
 }
 
 /**
- * 建单（落 `pro_orders` 一行 `pending`）。
- * 🔴 行由调用方组装，本模块不校验业务规则（前置①–⑦ 是端点的事）；这里只管一件事：
+ * 建单（落 `pro_orders` 一行 `pending`）。 * 🔴 行由调用方组装，本模块不校验业务规则（前置①–⑦ 是端点的事）；这里只管一件事：
  *   把库侧的两种"撞号"分开回给调用方，因为它们的用户文案不同：
  *   · 撞 `pro_orders_one_pending_per_openid` ＝ 有人（可能是用户自己双击）已经建了一张未付单
  *     ⇒ 结构化 409，让端上"稍后重试／去账户页看"；
@@ -79,4 +79,104 @@ export async function insertOrder(env, order) {
     return { ok: false, status: res.status, conflict: 'out_trade_no', data: res.data }
   }
   return { ok: false, status: res.status, conflict: null, data: res.data }
+}
+
+/**
+ * 入账第 5 步的前半：回填 `paid_at`／`wx_order_id` 并把订单置 `paid`。
+ * 🔴 过滤条件 `status=in.('pending','closed')`：已 `paid`/`refunded` 的行改不动——这正是
+ *   4.5 第 3 步"拒绝复活"的库侧形态（重放不会把已付单的 `paid_at` 挪后，而那是 7 天窗口起点）。
+ *   匹配 0 行**不算错误**（幂等重放是正常路径）：真正的双入账闸门是 `pro_ledger.order_id` unique。
+ * ⚠️ `paidAtIso` 由调用方给（查单 `paid_time × 1000`；拿不到才退到"本次确认时刻"并留 `note`），
+ *   🔴 绝不取落库时刻。
+ * ⚠️ `isDuplicate`／`paidAfterClose` 只在为真时写：这两列的默认值就是 false，而它们是
+ *   4.2 点名"不落字段就统计不到"的那两个位——`is_duplicate` 决定 B4 里这单算不算
+ *   duplicate 类（不耗退款额度），`paid_after_close` 是"我方已关单后钱才回来"的唯一体现。
+ */
+export async function markOrderPaid(env, { outTradeNo, paidAtIso, wxOrderId, note, isDuplicate, paidAfterClose }) {
+  const body = { status: 'paid', paid_at: paidAtIso, updated_at: new Date().toISOString() }
+  if (wxOrderId) body.wx_order_id = String(wxOrderId)
+  if (note) body.note = String(note)
+  if (isDuplicate) body.is_duplicate = true
+  if (paidAfterClose) body.paid_after_close = true
+  const res = await serviceRoleFetch(env, `${ORDERS}?out_trade_no=eq.${encodeURIComponent(outTradeNo)}&status=in.%28%27pending%27%2C%27closed%27%29`, {
+    method: 'PATCH',
+    body,
+  })
+  if (!res.ok) throw fail('pro_order_mark_paid_failed', res.status, JSON.stringify(res.data))
+  return true
+}
+
+/**
+ * 这张单是否已入账（幂等判据的**可读版**，用于给端上/日志一个好文案）。
+ * 🔴 它不是闸门——读与写之间有并发窗口，真正的闸门是 `pro_ledger.order_id` 那条 unique，
+ *   见 `insertLedgerRow` 的 `already_credited` 分支。别拿这个返回值当"可以放心插"的依据。
+ */
+export async function ledgerExistsForOrder(env, orderId) {
+  const res = await serviceRoleFetch(env, `/rest/v1/pro_ledger?select=id&order_id=eq.${encodeURIComponent(orderId)}&limit=1`)
+  if (!res.ok) throw fail('pro_ledger_lookup_failed', res.status, JSON.stringify(res.data))
+  return Array.isArray(res.data) && res.data.length > 0
+}
+
+/**
+ * 入账第 5 步的后半：写一行账本（权益的唯一来源）。
+ * 🔴 双入账的闸门是库侧 `pro_ledger_order_id_uk`：`ledgerExistsForOrder` 说没有也可能插失败。
+ *   所以 23505 单独回成 `conflict:'already_credited'`，调用方**必须按幂等成功处理**——
+ *   报 500 会让用户以为"付了钱没到账"而再买一次，那才是这条路径真正的伤害。
+ * ⚠️ `duration_days` 是快照：由调用方从 `proCatalog` 查出来传进来，本模块不查表。
+ * 🔴 `order_id`／`payer_openid`／`effective_at`／`duration_days` 缺任一个就**当场抛**，不发给库。
+ *   理由是 2026-10-05 那次实读：账本行的 `order_id` 是可空的（unique 在 Postgres 里允许任意多行
+ *   null），所以"漏写"这一类失误**库侧约束抓不住**，漏了以后表现为——去重闸门失效、退款撤不回
+ *   （B4 按 order_id 找行）、对账口径把它算成真单。三张表里只有这一列是"漏写比写错更贵"的形状，
+ *   所以闸门写在本模块的入口，而不是指望每个调用方都记得（四个调用方：轮询、推送、补写、夹具）。
+ */
+export async function insertLedgerRow(env, row) {
+  for (const key of ['order_id', 'payer_openid', 'effective_at', 'duration_days']) {
+    if (row[key] === null || row[key] === undefined || row[key] === '') {
+      throw fail('pro_ledger_row_incomplete', 500, key)
+    }
+  }
+  const res = await serviceRoleFetch(env, '/rest/v1/pro_ledger', { method: 'POST', body: row })
+  if (res.ok) return { ok: true, status: res.status, conflict: null, data: res.data }
+  const message = String((res.data && res.data.message) || '')
+  const code = String((res.data && res.data.code) || '')
+  if (code === '23505' && /order_id/.test(message)) {
+    return { ok: false, status: res.status, conflict: 'already_credited', data: res.data }
+  }
+  return { ok: false, status: res.status, conflict: null, data: res.data }
+}
+
+// ── B3-3 入账侧要用的四件事（4.6：仍然只有本模块碰这三张表）─────────────────
+
+/**
+ * 按我方单号读一行（确认态轮询与入账都从这一条进）。
+ * 🔴 返回 null ＝ 库里没这单（不是故障）。调用方要分清"没这单"与"查失败"：前者在 4.5 是
+ *   `no_such_order` 那一档（要落 anomaly 行），后者只能报"暂时不可用"。
+ */
+export async function getOrderRow(env, outTradeNo) {
+  const res = await serviceRoleFetch(
+    env,
+    `${ORDERS}?select=id,user_id,provider,payer_openid,product_id,goods_price,currency_type,env,` +
+      `buy_quantity,status,paid_at,wx_order_id,out_trade_no,created_at,expires_at,is_duplicate,paid_after_close` +
+      `&out_trade_no=eq.${encodeURIComponent(outTradeNo)}&limit=1`,
+  )
+  if (!res.ok) throw fail('pro_order_lookup_failed', res.status, JSON.stringify(res.data))
+  const rows = Array.isArray(res.data) ? res.data : []
+  return rows[0] || null
+}
+
+/**
+ * 把一张 pending 置 `closed`（4.5 前置④"换档／过期"那一支；✅ E-14 判乙 ⇒ 现在**先查单**、
+ * 查得未付才调它，见 `proCredit.queryOrderState` 在下单端点里的那一支）。
+ * 🔴 过滤条件必须带 `status=eq.pending`：与推送／轮询撞上时（旧单刚被记成 paid）这条 PATCH
+ *   匹配 0 行 ⇒ 不会把已付单改回未付。匹配 0 行不是错误，调用方继续建新单。
+ * ⚠️ 残余照旧（4.5 前置④残余①）：关单接口未证（R-9 ⑦）⇒ 这只是**我方口径**的关闭，
+ *   平台侧那张单可能仍可付 ⇒ 迟到付款由 `closed` 继续分支 ＋ `paid_after_close` 接住。
+ */
+export async function closePendingOrder(env, outTradeNo) {
+  const res = await serviceRoleFetch(env, `${ORDERS}?out_trade_no=eq.${encodeURIComponent(outTradeNo)}&status=eq.pending`, {
+    method: 'PATCH',
+    body: { status: 'closed', updated_at: new Date().toISOString() },
+  })
+  if (!res.ok) throw fail('pro_order_close_failed', res.status, JSON.stringify(res.data))
+  return true
 }

@@ -157,8 +157,11 @@ const guardSites = jsFiles
   .sort()
 check('4.4 守卫函数的消费者＝proCatalog 自身 + 下单端点（列表不算判据）', guardSites, ['orders.js', 'proCatalog.js'])
 // 4.5 端点不许把 openid 写进响应：proCoverage 导出的 getAccountOpenid 只允许被服务端模块用
+// ⚠️ B3-3 起多出第四个消费者 `orders/[no].js`（确认态轮询按 openid 判归属）。这不是回归，
+//   正是这格该有的用法——**新来一个读 openid 的地方，就得有人证明它不往外发 openid**：
+//   那一格写好了，＝ `test:credit` 8.3（响应体里搜不到 openid／user_id／note）＋ 8.2（白名单字段不加不减）。
 const openidSites = jsFiles.filter((p) => /getAccountOpenid/.test(read(p))).map(routeName).sort()
-check('4.5 getAccountOpenid 的消费者清单（新增消费者要一起看 4.6 的"不下发 openid"）', openidSites, ['orders.js', 'proCoverage.js', 'products.js'])
+check('4.5 getAccountOpenid 的消费者清单（新增消费者要一起看 4.6 的"不下发 openid"）', openidSites, ['[no].js', 'orders.js', 'proCoverage.js', 'products.js'])
 
 let fails = 0
 for (const r of results) {

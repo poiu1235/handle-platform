@@ -15,10 +15,13 @@
 // ⚠️ 四笔账（这是探测类代码，按纪律先算清）：
 //   触发时机＝只有显式调用（探针路由／将来 B3-3 的入账事务），没有任何自动方；
 //   单次成本＝两次对外 HTTP（一次取 access_token、一次打接口）；
-//   频次上限＝探针手工跑，B3-3 里是"每笔入账一次"；平台自带 `268490015 频率限制`；
+//   频次上限＝探针手工跑；B3-3 里是"确认态每轮一次、进站一次"⇒ 一次购买最多 6×2 次调用；
+//   平台自带 `268490015 频率限制`，而 `cgi-bin/token` 另有**每日获取上限**（微信通则，具体数值
+//   未逐字复核）⇒ 真撞上限时的两条路是"缓存 token"或改走**稳定版 token 接口**，
+//   别到时候先想到的是把用户的轮询缩短。
 //   凭证＝`access_token` 用 WX_APPID/WX_SECRET 换（小程序全局凭证，**不消耗用户的一次性 code、
-//   不动 session_key**）。⚠️ 这里**刻意不缓存** access_token：探针是一次性的，缓存它等于引入
-//   一个跨 isolate 的凭证生命周期问题（正本 U-7 判 ⓐ 时刚把这类缓存否掉）。B3-3 若量大了再回来判要不要缓存。
+//   不动 session_key**）。⚠️ 这里**刻意不缓存** access_token：多 isolate 各持一份的凭证生命周期
+//   正是正本 U-7 判 ⓐ 时否掉的那类缓存，V1 的量还不需要为它承担这个复杂度。
 import { hmacSha256Hex } from './proPaySign.js'
 
 const API_HOST = 'https://api.weixin.qq.com'
@@ -100,6 +103,34 @@ export async function xpayServerPost({ env, uri, body, accessToken, fetchImpl = 
     data,
     sent: postBody,
   }
+}
+
+/**
+ * 把一次 `query_order` 的回包归到**六档**，供入账与前置④共用（同一份映射，别在两处各写一遍）。
+ * 🔴 分档的依据是 2026-10-04 现网两跑 + 文档字段表（正本附录甲）：
+ *   · `errcode:0` ⇒ 读 `order.status`：2/3/4 已付（待发货／发货中／已发货）、0/1 未付、6 已关闭、5/8 已退款；
+ *   · `268490002` ⇒ **查无此单**。⚠️ 文档错误码表把这码写成"请求参数字段错误"，实测 errmsg 是
+ *     "数据不存在" ⇒ **按 errmsg 与实测读，不按文档归类**（照文档写会把"平台没这单"当成"我们代码错了"）；
+ *   · 其余非 0 的 errcode／HTTP 不 2xx／网络抛错 ⇒ `error`/`unreachable`，
+ *     🔴 **绝不能归进 `unpaid`**——"未付"是有语义的结论（可以关单、可以应答失败），
+ *     而"我这次没查到"不是。把后者当前者，就会在推送侧答"成功"替平台放弃 15 次重推。
+ * @returns {'paid'|'unpaid'|'closed'|'refunded'|'not_found'|'error'|'unreachable'}
+ */
+export function classifyQueryResult(r) {
+  if (!r || typeof r !== 'object') return 'error'
+  if (r.errcode === 'unreachable') return 'unreachable'
+  if (typeof r.errcode === 'string' && r.errcode.startsWith('token_')) return 'error' // 没打到接口
+  if (r.errcode === 268490002) return 'not_found'
+  if (r.errcode !== 0) return 'error'
+  const order = r.data && r.data.order ? r.data.order : null
+  if (!order) return 'not_found'
+  const s = Number(order.status)
+  if (s === 2 || s === 3 || s === 4) return 'paid'
+  if (s === 0 || s === 1) return 'unpaid'
+  if (s === 6) return 'closed'
+  if (s === 5 || s === 8) return 'refunded'
+  // 7 退款失败／9 回收广告金／10 分账回退，以及任何文档里还没见过的值 ⇒ 不猜
+  return 'error'
 }
 
 /**

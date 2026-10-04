@@ -1,5 +1,5 @@
-// B3-2 下单端点的离线判据：跑**真源码** functions/api/pro/orders.js（fetch 打桩成假 Supabase
-// 与假 code2session）。
+// B3-2/B3-3 下单端点的离线判据：跑**真源码** functions/api/pro/orders/index.js（fetch 打桩成
+// 假 Supabase、假 code2session 与假 xpay 查单）。
 // 用法：npm run test:orders
 //
 // 为什么能这么跑：这个端点只用 fetch ＋ Web Crypto（crypto.subtle），没有 workerd 专有 API。
@@ -8,7 +8,8 @@
 // 尤其是"前置②没过不许有任何写动作"这一条，只有打桩能看到"几次 PATCH/POST"。
 //
 // ⚠️ 它证明不了的：微信是否接受这个 signData 字符串（R-9）、道具是否已在后台发布且价格逐字一致
-//   （不一致的症状是拉起被平台拒）、`/pay/query` 那一路能不能把货发出去（B3-3 阻塞在 R-9 ①）、
+//   （不一致的症状是拉起被平台拒）、`/xpay/query_order` 回给我们的 status 数值是否就是文档
+//   那套 0–10 枚举（查单**怎么被解读**在 test-pro-xpay.mjs 里判，"真单回来的形状"只能部署后测）、
 //   以及真机上 `wx.login` 的 code 与 Bearer 会话是否同一微信号（那是验收 #26/#36 的活）。
 
 import crypto from 'node:crypto'
@@ -44,6 +45,10 @@ const defaultStub = () => ({
   patchStatus: 200,
   wxBody: { openid: BOUND, session_key: SESSION_KEY, unionid: 'uBound' },
   wxOk: true,
+  // 🔴 B3-3 之后**下单路径也会打 xpay**（前置④"换档先查单"）⇒ 桩里必须有这两条路由，
+  //   否则"未预期的出网目标"会抛成 503，把网络桩的缺口伪装成业务结论。
+  tokenBody: { access_token: 'TOKEN-x', expires_in: 7200 },
+  queryBody: { errcode: 268490002, errmsg: '数据不存在' }, // 默认＝平台查无此单 ⇒ 可以关旧建新
 })
 const future = () => new Date(Date.now() + 60_000).toISOString()
 const past = () => new Date(Date.now() - 60_000).toISOString()
@@ -55,6 +60,8 @@ globalThis.fetch = async (url, options) => {
   calls.push({ url: u, method, body })
   const mk = (data, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => data })
   if (u.includes('api.weixin.qq.com/sns/jscode2session')) return mk(stub.wxBody, stub.wxOk ? 200 : 200)
+  if (u.includes('/cgi-bin/token')) return mk(stub.tokenBody)
+  if (u.includes('/xpay/query_order')) return mk(stub.queryBody)
   if (u.includes('/rest/v1/rpc/pro_coverage')) return mk(stub.coverageBody, stub.coverageStatus)
   if (u.includes('/rest/v1/user_identities')) return mk(stub.identityRows, stub.identityStatus)
   if (u.includes('/rest/v1/pending_deletions')) return mk(stub.pdelRows, stub.pdelStatus)
@@ -265,6 +272,7 @@ check('7.10 reused:false', r.body.reused, false)
 // ── 8. 前置④状态机：同档同 env 未过期才复用 ─────────────────────────────────
 const pendingRow = (over = {}) => ({
   out_trade_no: 'T1727000000000deadbeef',
+  payer_openid: BOUND,
   product_id: 'monthly_mem_android',
   goods_price: 333,
   env: 0,
@@ -281,39 +289,70 @@ const sd2 = JSON.parse(r.body.pay.signData)
 check('8.2 复用也重签一次（session_key 是新的，签名必须贴着这一刻算）', [sd2.outTradeNo, r.body.pay.signature], ['T1727000000000deadbeef', expectHmac(SESSION_KEY, r.body.pay.signData)])
 check('8.3 金额取**订单行里的值**，不重新读价格表', sd2.goodsPrice, 333)
 
-// 🔴 8.4–8.9 按 **E-14 判乙**重写：查单（B3-3）没代码 ⇒ 只要那张 pending 不能原样复用，就**当场拒**，
-//   既不关也不建。这一族格子的牙齿不在"码对不对"，而在 `patchCalls()===0 && insertCalls()===0`：
-//   它钉的是"在认得回钱之前，我方不许先动那张单"——一旦哪天有人把它改回"关旧建新"，这几格会红。
-const refused = (b) => [b.code, b.reused]
+// 🔴 8.4–8.11 是 **B3-3 恢复后的前置④**：不能复用 ⇒ 先查单，查得"未付/查无/已关"才关旧建新。
+//   这一族格子的牙齿有两处：① `queryCalls()===1`（**没查过就不许关**——E-14 判乙时的那条边界
+//   现在换成"查过才动"，仍然是同一件事：不许拿"我方口径的关闭"去赌"这单没被付"）；
+//   ② 查单说已付那一支必须**零写库**（既不关也不建，也不能在这里入账）。
+const queryCalls = () => calls.filter((c) => c.url.includes('/xpay/query_order'))
+const PAID_BODY = { errcode: 0, errmsg: 'ok', order: { status: 2, paid_time: 1790000000, wx_order_id: 'wx-1' } }
+const UNPAID_BODY = { errcode: 0, errmsg: 'ok', order: { status: 1 } }
+
 reset()
 stub.pendingRows = [pendingRow({ product_id: 'yearly_mem_android' })]
 r = await run(good())
-check('8.4 换档 ⇒ 拒（不再"关旧建新"，E-14 判乙）', [r.status, refused(r.body)], [409, ['pending_order_open', undefined]])
-check('8.4b 🔴 换档这一支零写库：既不 PATCH 旧单也不 POST 新单', [patchCalls().length, insertCalls().length], [0, 0])
-check('8.4c 文案给得出路（稍后再试 + 客服），不是"系统错误"', r.body.error.includes('联系在线客服'), true)
+check('8.4 换档＋查得查无此单 ⇒ 关旧建新（E-14 的那条拒单已随 B3-3 撤销）', [r.status, r.body.reused, queryCalls().length, patchCalls().length, insertCalls().length], [200, false, 1, 1, 1])
+check('8.4b 🔴 查单打的正是那张旧单号与它的 payer_openid', queryCalls()[0].body.order_id, 'T1727000000000deadbeef')
+check('8.4c 查单 body 带 openid（接口必填）与 env', [queryCalls()[0].body.openid, queryCalls()[0].body.env], [BOUND, 0])
+check('8.4d PATCH 的过滤条件带 status=eq.pending（撞车时不会把已付单改回未付）', patchCalls()[0].url.includes('status=eq.pending'), true)
+check('8.4e 新单是新单号', r.body.outTradeNo !== 'T1727000000000deadbeef', true)
 
 reset()
+stub.pendingRows = [pendingRow({ product_id: 'yearly_mem_android' })]
+stub.queryBody = PAID_BODY
+r = await run(good())
+check('8.5 换档但平台说上一笔已付 ⇒ 409 previous_order_paid', [r.status, r.body.code], [409, 'previous_order_paid'])
+check('8.5b 🔴 零写库：不关旧单、不建新单、也不在这里入账', [patchCalls().length, insertCalls().length], [0, 0])
+check('8.5c 把旧单号回给端上（让轮询去确认它，入账不在下单侧做）', r.body.orderNo, 'T1727000000000deadbeef')
+
+reset()
+stub.pendingRows = [pendingRow({ product_id: 'yearly_mem_android' })]
+stub.queryBody = { errcode: 0, errmsg: 'ok', order: { status: 5 } }
+r = await run(good())
+check('8.5d 平台说上一笔已退款 ⇒ 409 previous_order_refunded，文案不能说"权益正在生效"', [r.status, r.body.code, /正在生效/.test(r.body.error)], [409, 'previous_order_refunded', false])
+check('8.5e 🔴 同样零写：不把"平台已退"的单按我方口径改成 closed（退款状态列是 B4 的）', [patchCalls().length, insertCalls().length], [0, 0])
+
+reset()
+stub.pendingRows = [pendingRow({ product_id: 'yearly_mem_android' })]
+stub.queryBody = { errcode: 268490003, errmsg: '签名错误' }
+r = await run(good())
+check('8.6 🔴 查单本身失败 ⇒ 503 且零写（没查到不等于没付）', [r.status, r.body.code, patchCalls().length, insertCalls().length], [503, 'pro_unavailable', 0, 0])
+
+reset()
+stub.pendingRows = [pendingRow({ product_id: 'yearly_mem_android' })]
+stub.queryBody = { errcode: 0, errmsg: 'ok', order: { status: 99 } }
+r = await run(good())
+check('8.6b 🔴 平台回了个**没见过**的 status ⇒ 同样 503 零写。这一格钉的是归类表里最贵的一格：把"没读懂"归进"未付"，就会把一张可能已付的单 closed 掉', [r.status, r.body.code, patchCalls().length, insertCalls().length], [503, 'pro_unavailable', 0, 0])
+
+reset()
+stub.queryBody = UNPAID_BODY
 stub.pendingRows = [pendingRow({ expires_at: past() })]
 r = await run(good())
-check('8.5 同档但已超 expires_at ⇒ 同样拒（⚠️ 这就是判乙的代价：取消满 15 分钟后再买会被挡）', [r.status, r.body.code, patchCalls().length, insertCalls().length], [409, 'pending_order_open', 0, 0])
+check('8.7 同档但已超 expires_at＋查得未付 ⇒ 关旧建新（✅ 判乙那条"取消满 15 分钟买不了"已解除）', [r.status, queryCalls().length, patchCalls().length, insertCalls().length], [200, 1, 1, 1])
 
 reset()
 stub.pendingRows = [pendingRow({ env: 1 })]
 r = await run(good())
-check('8.6 同档但 env 不同 ⇒ 拒不复用（4.2：沙箱单不能当成现网单）', [r.status, r.body.code], [409, 'pending_order_open'])
+check('8.8 同档但 env 不同 ⇒ 不复用（4.2：沙箱单不能当成现网单）', [r.body.reused, patchCalls().length], [false, 1])
 
 reset()
 stub.pendingRows = [pendingRow({ expires_at: 'not-a-date' })]
 r = await run(good())
-check('8.7 行里读不出 expires_at ⇒ 按已过期处理（更严的一侧：宁可拒也不复用）', [r.status, r.body.code], [409, 'pending_order_open'])
+check('8.9 行里读不出 expires_at ⇒ 按已过期处理（宁可关旧建新，也不复用一张不确定有效期的单）', patchCalls().length, 1)
 
 reset()
 stub.pendingRows = [pendingRow()]
-r = await run(good({ productId: 'yearly_mem_android' }))
-check('8.8 拒单不消耗"复用机会"：同档那张还活着，下一次点同档仍能复用', [r.status, refused(r.body)], [409, ['pending_order_open', undefined]])
-reset()
-stub.pendingRows = [pendingRow()]
-check('8.8b 紧接着同档再点一次 ⇒ 200 且 reused:true（两格合起来才证明"拒"没把用户锁死）', (await run(good())).body.reused, true)
+r = await run(good())
+check('8.10 🔴 能复用时**不打查单**（省一次对外调用，也让确认态更快）', [r.body.reused, queryCalls().length], [true, 0])
 
 reset()
 stub.pendingStatus = 500
@@ -436,8 +475,14 @@ check('11.7 /api/pro/orders 只有一份路由文件（GET 与 POST 同在 order
 // 🔴 这一条是 E-14 判乙的**代码面**：查单没落地 ⇒ 今天全仓不许有任何一处把订单写成 `closed`。
 //   为什么单独钉一条静态门：拒单那三行迟早会被"顺手改成关旧建新"（那是判甲的写法），
 //   而改的人不会先读 §十六——静态门会在当场响，比留一句注释可靠。
-const closeWriters = hits(/status:\s*'closed'/)
-check('11.8 没有任何代码把订单写成 closed（B3-3 查单落地前不许关单）', closeWriters, [])
+// 🔴 这一格原来是"全仓不许出现把订单写成 closed 的代码"（E-14 判乙时的闸门）。B3-3 恢复了
+//   "查得未付 ⇒ 关旧建新"，所以那条**边界换成了下面这条更准的**：关单只许发生在带
+//   `status=eq.pending` 的那一条 PATCH 上（否则撞上推送就把已付单改回未付），且调用点只有一个。
+//   记在这里是因为"撤一条门"必须写清换成了什么，不然下一个人只会看到门不见了。
+const closePatchSites = files.filter((f) => /status=eq\.pending/.test(codeOf.get(f)) && /'closed'/.test(codeOf.get(f))).map(rel)
+check('11.8 关旧单只发生在带 status=eq.pending 的 PATCH 上，且只有一个实现处', closePatchSites, ['functions/_lib/proStore.js'])
+const closeCallers = files.filter((f) => /closePendingOrder/.test(codeOf.get(f))).map(rel).sort()
+check('11.8b closePendingOrder 的调用点只有下单端点（推送侧接上时在这里加第二个）', closeCallers, ['functions/_lib/proStore.js', 'functions/api/pro/orders/index.js'])
 
 let fails = 0
 for (const x of results) {
