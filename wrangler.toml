@@ -30,6 +30,13 @@ PRO_PURCHASE_ENABLED = "false"
 # 但这一列与这道隔离保留——它是"沙箱单发出真实会员"的唯一闸门
 #（anomaly_reason 里的 env_mismatch 是打不到的死分支，别指望它）。
 PRO_ENV = "0"
+# 🔴 测试档（pro_test_day）与内测闸门的 openid 白名单，逗号分隔（§十一·丙 D-10 那条"不能省的守卫"）。
+#   两个方向相反，别混成一个开关（判据在 functions/_lib/proCatalog.js）：
+#     · 空 ＝ 发布形态：正常档人人可见可买，**测试档对谁都不给**（fail-closed）；
+#     · 非空 ＝ 内测形态：正常档也只对名单内可见，测试档同样只给名单内。
+#   名单里放的是 openid（伪匿名串，不是密钥），但它决定"谁能花几分钱买会员"⇒ 改动只走这里，
+#   不许有端上副本、不许从请求里接收（8.3 第 1 条）。
+PRO_TEST_OPENIDS = ""
 # 将来 B3/B4 要加的两把**只进 secret、不进本文件**（选错那把的失败形态长得像"平台没推送"）：
 #   npx wrangler pages secret put WX_PAY_APPKEY_PROD      # 现网 AppKey（签名用）
 #   npx wrangler pages secret put PRO_ADMIN_TOKEN         # 4.6 入口④管理端鉴权

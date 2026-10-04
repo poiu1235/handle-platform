@@ -61,6 +61,13 @@ async function currentWechatOpenid(env, userId) {
   return typeof openid === 'string' && openid !== '' ? openid : null
 }
 
+/**
+ * 本账号**当前那一条** wechat_mp identity 的 openid（导出给下单/商品列表用：测试档白名单守卫
+ * 判的就是它）。🔴 只在服务端内部用，**任何响应体都不许带出去**（4.6 不下发 openid）。
+ * 返回 null ＝ 这个账号没绑微信（纯 Web 账号），是事实不是故障。
+ */
+export const getAccountOpenid = currentWechatOpenid
+
 // 🔴 rpc 唯一调用点。p_now 用调用方传进来的同一个时刻（见 getProView 那条"同源"注释）。
 async function callProCoverage(env, openid, nowIso, proEnv) {
   const res = await serviceRoleFetch(env, '/rest/v1/rpc/pro_coverage', {
