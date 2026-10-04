@@ -181,6 +181,37 @@ from (select o.payer_openid, count(*) as n
 
 
 -- ────────────────────────────────────────────────────────────────────────────
+-- A9 夹具候选账号（pro-fixture.sql 靠这一条挑目标；B2-2 真机两格要用）
+--    一行一个"绑着微信的账号"：有没有账本行、其中是不是已经有真单、此刻判出什么。
+--    🔴 只挑 fixture_ok='OK 可插' 的那几行——'已有真单 夹具会拒' 那些是现网事实，别拿它当测试面。
+--    访客账号的邮箱形如 <id>@guest.invalid（端上 src/api/env.ts 的 GUEST_EMAIL_SUFFIX）。
+--    ⚠️ env 这里写死 0＝与 wrangler 的 PRO_ENV 同值；填 1 看到的是判定**读不到**的那批行（4.2 的隔离）。
+--    ⚠️ 这条与夹具的"非夹具行"定义逐字同口径（order_id 为 null 也算真单），两处不一致就会
+--       出现"A9 说可插、夹具却拒"。
+-- ────────────────────────────────────────────────────────────────────────────
+select
+  i.user_id,
+  u.email                                                      as "邮箱",
+  right(i.openid, 6) || '…'                                    as "openid 尾",
+  (select count(*)
+     from public.pro_ledger l
+    where l.provider = i.provider and l.payer_openid = i.openid and l.env = 0) as "账本行数",
+  (pro_coverage(i.provider, i.openid, 0, now())).is_covered     as "覆盖中",
+  (pro_coverage(i.provider, i.openid, 0, now())).remaining_days as "剩余自然日",
+  case when not exists (
+         select 1 from public.pro_ledger l
+          where l.provider = i.provider and l.payer_openid = i.openid and l.env = 0
+            and (l.order_id is null
+                 or l.order_id not in (select id from public.pro_orders
+                                        where out_trade_no like 'FIXTURE-%')))
+       then 'OK 可插' else '已有真单 夹具会拒' end                as "fixture_ok"
+from public.user_identities i
+left join auth.users u on u.id = i.user_id
+where i.provider = 'wechat_mp'
+order by "账本行数" desc, "邮箱";
+
+
+-- ────────────────────────────────────────────────────────────────────────────
 -- B. 人工解绑（会删行）——不在这份文件里
 --    模板见同目录 pro-manual-unbind.sql：它带两道门（v_who 必填／v_note 必填；openid 自 S-7
 --    起由 identity_unbinds.openid 列本身承载，不用抄进 note），

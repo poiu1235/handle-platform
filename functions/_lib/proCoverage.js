@@ -76,7 +76,10 @@ async function callProCoverage(env, openid, nowIso, proEnv) {
   // ⚠️ PostgREST 对"RETURNS record + OUT 参数"的函数到底回对象还是单元素数组，**没有一手证据**
   //   （B0 的核对文件只证明了 SQL 侧 `(f()).col` 可用，那是另一条路径）。⇒ 两种形状都吃；
   //   首接真单时看清实际形状，再把这一行收紧成一种并在此注明出处（不许留成"以防万一"的双分支）。
+  // 🔴 下面那行就是 R-9 第 ⑯ 项的取证口：第一次真机跑 `GET /api/pro/session` 时看它，
+  //   把实际形状写进正本 4.4、把这两行收成一种，然后**把日志行一起删掉**（留着＝一条没人再读的常驻日志）。
   const row = Array.isArray(res.data) ? res.data[0] : res.data
+  console.log('[pro-coverage] R-9-16 shape:', JSON.stringify({ isArray: Array.isArray(res.data), keys: row && typeof row === 'object' ? Object.keys(row) : null }))
   const d = row && typeof row === 'object' ? row : {}
   const rem = typeof d.remaining_days === 'string' && d.remaining_days !== '' ? Number(d.remaining_days) : d.remaining_days
   return {
