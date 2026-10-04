@@ -128,8 +128,8 @@ end $$;
 
 -- ── 证据（编辑器里唯一看得见的那一条）：库里折叠算出来的三样 ──────────────
 -- 期望：is_covered=true、remaining_days 等于你填的数、valid_until 是北京 23:59:59 那一秒。
--- 🔴 这一条同时是正本 R-9 第 ⑯ 项的**旁证**：它证明 SQL 侧 (f()).col 形状可用；而
---    PostgREST 的 HTTP 回包形状由 CF 侧那行临时取证日志给（functions/_lib/proCoverage.js）。
+-- 🔴 这一条同时是 SQL 侧 `(f()).col` 形状可用的旁证；而 PostgREST 的 HTTP 回包形状**已结案**
+--    （2026-10-04 真机 tail 到的是单个对象 ⇒ 见正本 R-9 ⑯ 与 proCoverage.js 那段注释）。
 select
   (pro_coverage('wechat_mp', i.openid, 0, now())).is_covered    as "是否覆盖",
   (pro_coverage('wechat_mp', i.openid, 0, now())).valid_until   as "到期时刻（展示口径）",
@@ -146,3 +146,13 @@ where i.provider = 'wechat_mp'
   and o.out_trade_no like 'FIXTURE-%'
 order by l.effective_at desc
 limit 5;
+
+
+-- ── 撤除（#61 第⑤步：整段选中执行一次）────────────────────────────────────
+-- 只删 FIXTURE- 前缀的订单与指向它们的账本行 ⇒ 真单（`out_trade_no` 不带这个前缀）一根毛都不碰。
+-- 撤完再跑一次上面那条证据 SELECT：应当返回 **0 行**——空结果就是"已清空"的判据。
+--   delete from public.pro_ledger
+--    where order_id in (select id from public.pro_orders where out_trade_no like 'FIXTURE-%');
+--   delete from public.pro_orders where out_trade_no like 'FIXTURE-%';
+-- ⚠️ 撤完之后端上不会立刻变：`pullPro` 只挂在会话落定点上 ⇒ 要**冷启动**（杀掉小程序重进）
+--    才会看到账户页那一块消失（8.1 那条边界）。

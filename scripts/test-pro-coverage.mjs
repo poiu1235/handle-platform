@@ -7,9 +7,11 @@
 // *.supabase.co 的 TLS 被 SNI 重置（functions/_middleware.js:6-9 有实测记录），
 // 真链路只能等你部署后测，但**判定与开关的形状不必等**。
 //
-// ⚠️ 它证明不了的事：PostgREST 对 `RETURNS record + OUT 参数` 到底回对象还是数组
-//   （callProCoverage 里两种都吃，首接真单后要收紧成一种）；RLS/授权的实际形态；
-//   以及七个写入口的墙（B2 才有）。
+// ✅ 曾经证明不了、现在已结案的一件事：PostgREST 对 `RETURNS record` + OUT 参数回什么形状
+//   ——2026-10-04 真机第一次跑通 `GET /api/pro/session`，`wrangler pages deployment tail` 打到的
+//   实际回包是**单个对象** `{"is_covered":…,"valid_until":…,"remaining_days":…}`（deployment 811c648b）
+//   ⇒ R-9 第 ⑯ 项结案、E-10 的双分支收掉、取证日志一起删。第 4 节现在判"只认这一种、别的算故障"。
+//   仍然证明不了的：RLS/授权的实际形态（走真库那份核对文件），以及七个写入口的墙（B2 另有判据）。
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -70,10 +72,22 @@ v = await getProView(env(), uid)
 check('3.1 过期后判免费', [v.isCovered, v.remainingDays], [false, -300])
 check('3.2 免费档上限', capsForWire(false, true), { notes: 200, balances: 50, cards: 50 })
 
-// 4. PostgREST 单行返回形状不确定 ⇒ 数组形状与对象形状必须同结果
+// 4. ✅ R-9 ⑯ 已结案＝回包是**单个对象** ⇒ 现在判"只认这一种"：对象正常、数组当故障抛错
+//    （抛出去才有日志；静默把会员读成免费档正是 E-10 当初要避免的东西）
 reset(); stub.rpcAsArray = true
+check('4.1 数组形状 ⇒ 抛 pro_coverage_shape_unexpected', await getProView(env(), uid).then(() => 'no-throw', (e) => e.code), 'pro_coverage_shape_unexpected')
+reset(); stub.rpcBody = null
+check('4.2 null 形状 ⇒ 同样抛，不静默判免费', await getProView(env(), uid).then(() => 'no-throw', (e) => e.code), 'pro_coverage_shape_unexpected')
+reset()
 v = await getProView(env(), uid)
-check('4.1 数组形状与对象形状同结果', [v.isCovered, v.remainingDays], [true, 28])
+check('4.3 对象形状（真机实测那一种）正常出结果', [v.isCovered, v.remainingDays], [true, 28])
+reset(); stub.rpcAsArray = true
+const badShapeRes = await onRequestGet({ env: env(), data: { user: { id: uid } }, request: new Request('https://cf/api/pro/session') })
+const badShapeBody = await badShapeRes.json()
+// 🔴 故障时端点仍 200、且明说"此刻没有墙"（wallsEnabled:false）：渲染侧宁可不画也不猜；
+//    写路径不受这里影响（它自己读库，见 proCap 那条 fail-open 方向）
+check('4.4 形状故障⇒200 + 全 null + wallsEnabled:false（不 5xx、不猜）',
+  [badShapeRes.status, badShapeBody.proUntil, badShapeBody.remainingDays, badShapeBody.wallsEnabled], [200, null, null, false])
 
 // 5/6. 报错要抛，不伪装成免费档（伪装＝把故障读成"你没会员"）
 reset(); stub.identityStatus = 500
