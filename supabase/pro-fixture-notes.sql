@@ -24,19 +24,18 @@ do $$
 declare
   -- ▼▼▼ 只改这几行 ▼▼▼
   v_email   text    := 'REPLACE-ME@qq.com';   -- 目标自测账号邮箱
-  v_count   integer := 210;                   -- 灌到多少条（先删后插，是"总数"不是"增量"）
+  v_count   integer := 210;                   -- 灌多少条夹具行（先删后插，是"总数"不是"增量"）
   v_ack     text    := 'REPLACE-ME';          -- 必须逐字改成 FIXTURE-SELFTEST-ONLY
   -- ▲▲▲ 以下不用改 ▲▲▲
   v_user_id uuid;
   v_n       integer;
+  v_existing integer;
 begin
   if v_ack <> 'FIXTURE-SELFTEST-ONLY' then
     raise exception 'pro-fixture-notes 未确认：把 v_ack 逐字改成 FIXTURE-SELFTEST-ONLY 再跑（这道闸挡的是"顺手往一个真账号灌两百条测试数据"）';
   end if;
-  if v_count < 0 or v_count > 480 then
-    -- 上限 480：现网那面单一 500 的墙（关态下仍在）留一点余量给人手工按「+」，
-    -- 一灌就灌到 500 会让"还能不能记进去"这一支没法自己验。
-    raise exception 'v_count=% 超出可用范围 0～480', v_count;
+  if v_count < 0 or v_count > 5000 then
+    raise exception 'v_count=% 不合理（0～5000）', v_count;
   end if;
 
   select id into v_user_id from auth.users where email = v_email;
@@ -44,6 +43,17 @@ begin
     raise exception '找不到账号（v_email=%）', v_email;
   end if;
 
+  -- 🔴 上限判的是**灌完之后的物理行数**，不是 v_count 本身——墙数的就是物理行数（3.4），
+  --   而这个账号里除了夹具还有他自己记的行。卡在 499 是为了留出手工按「+」的路径：
+  --   499 → 按一次成 500 → 再按一次才撞得到那句 409 原文（#60 第③支要的就是它）。
+  --   早先这里写的是"v_count ≤ 480"，那是把两件事混成一件：换个本来就有几十条的账号就误拦。
+  select count(*) into v_existing from public.notes where user_id = v_user_id and content not like 'PROTEST-%';
+  if v_existing + v_count > 499 then
+    raise exception '灌完会是 % 条物理行（已有非夹具 % ＋ 本次 %）＞499 ⇒ 手工按「+」就撞不到 500 那句了。v_count 填 % 以内即可',
+      v_existing + v_count, v_existing, v_count, greatest(499 - v_existing, 0);
+  end if;
+
+  -- ↓ 闸门全部通过之后才动数据：先按前缀清掉本夹具先前留下的行（真单行不受影响）
   delete from public.notes where user_id = v_user_id and content like 'PROTEST-%';
 
   if v_count > 0 then
@@ -60,7 +70,8 @@ begin
     v_n := 0;
   end if;
 
-  raise notice 'pro-fixture-notes：账号 % 现存 PROTEST 行 %（目标 %）', v_user_id, v_n, v_count;
+  raise notice 'pro-fixture-notes：账号 % 灌了 % 条（已有非夹具 % 条 ⇒ 物理行数 %）',
+    v_user_id, v_n, v_existing, v_existing + v_n;
 end $$;
 
 
