@@ -58,6 +58,25 @@ export async function closePendingOrder(env, outTradeNo) {
 }
 
 /**
+ * 订单页的读侧（4.6：🔴 行级策略拦不住列，所以订单表对 anon/authenticated 一条权限都没有，
+ * 用户看自己的单只走这个 CF 只读端点）。
+ * 🔴 键是 `payer_openid` 而不是 `user_id`（4.7"订单页、退款资格按付款微信看，不看账号"）——
+ *   访客合并后 `user_id` 指向已删除的行，按账号查会让刚买完的人在订单页看到空列表。
+ * `select` 显式列名：宁可这里少列，也不把 `callback_raw`／`payer_openid`／`note`／`operator`
+ * 读进 CF 再靠"记得不返回"过滤（那是 4.6 点名的失败形态）。
+ */
+export async function listOrdersByOpenid(env, openid) {
+  const res = await serviceRoleFetch(
+    env,
+    `${ORDERS}?select=out_trade_no,product_id,goods_price,currency_type,env,status,paid_at,created_at,expires_at` +
+      `&provider=eq.${PROVIDER}&payer_openid=eq.${encodeURIComponent(openid)}` +
+      `&order=created_at.desc&limit=50`,
+  )
+  if (!res.ok) throw fail('pro_order_list_failed', res.status, JSON.stringify(res.data))
+  return Array.isArray(res.data) ? res.data : []
+}
+
+/**
  * 建单（落 `pro_orders` 一行 `pending`）。
  * 🔴 行由调用方组装，本模块不校验业务规则（前置①–⑦ 是端点的事）；这里只管一件事：
  *   把库侧的两种"撞号"分开回给调用方，因为它们的用户文案不同：

@@ -1,4 +1,5 @@
 // POST /api/pro/orders —— 下单（PRD v3 4.5 前置①–⑦ ＋ 6.3 签名 ＋ 4.6 入口①）。
+// GET  /api/pro/orders —— 订单页列表（4.6 的只读面 ＋ 8.2 第 11 行）。
 //
 // 🔴 这个端点是全文**唯一**收钱动作的入口，所以它的失败模式只能是"不卖"，不能是"卖了但判不出"：
 //   任何一步判不出来（读不到 identity、读不到 pro_coverage、缺 AppKey）都当场结构化拒绝，
@@ -21,15 +22,71 @@
 // ⚠️ 本端点**不发货**：建单只是把 `pending` 行写好、把签名算出来。发货只认 `/pay/query`
 //   查得已付（6.2 铁律 2 收紧版），那一路是 B3-3，且按 4.5 顶格划线——**R-9 ① 实证前不许动码**。
 //   ⇒ 所以 `PRO_PURCHASE_ENABLED` 在 B3-3 落地前必须保持关（8.3 上线顺序②）。
-import { json } from '../../_lib/supabase.js'
-import { serviceRoleFetch } from '../../_lib/userAuth.js'
-import { readProFlags, getAccountOpenid, getCoverageByOpenid, RENEW_WINDOW_DAYS, PROVIDER } from '../../_lib/proCoverage.js'
-import { catalogEntry, testAllowed, canBuyNormalTier } from '../../_lib/proCatalog.js'
-import { findPendingOrder, closePendingOrder, insertOrder } from '../../_lib/proStore.js'
-import { code2sessionKey, buildPayPayload, makeOutTradeNo, toClientPayParams } from '../../_lib/proPaySign.js'
-import { wxTicketResponse } from '../../_lib/wxTicket.js'
+import { json } from '../../../_lib/supabase.js'
+import { serviceRoleFetch } from '../../../_lib/userAuth.js'
+import { readProFlags, getAccountOpenid, getCoverageByOpenid, RENEW_WINDOW_DAYS, PROVIDER } from '../../../_lib/proCoverage.js'
+import { catalogEntry, sellableProducts, testAllowed, canBuyNormalTier } from '../../../_lib/proCatalog.js'
+import { findPendingOrder, closePendingOrder, insertOrder, listOrdersByOpenid } from '../../../_lib/proStore.js'
+import { code2sessionKey, buildPayPayload, makeOutTradeNo, toClientPayParams } from '../../../_lib/proPaySign.js'
+import { wxTicketResponse } from '../../../_lib/wxTicket.js'
 
 const ORDER_TTL_MS = 15 * 60 * 1000 // 4.2 `expires_at`：下单时写"当前 + 15 分钟"
+
+/**
+ * 订单页（4.6 那个只读面）。三条规矩：
+ * · 🔴 按 `payer_openid` 查，不按 `user_id`（4.7）；没绑微信 ⇒ 空列表（不是"全部订单"，也不是报错）。
+ * · 只回白名单字段＋展示用的名字与期限；🔴 `payer_openid`／`user_id`／`attach`／`callback_raw`／
+ *   `note`／`operator` 一个都不出（`proStore.listOrdersByOpenid` 的 select 列就是白名单，这里不再过滤一遍）。
+ * · 购买入口关着 ⇒ `[]` 且零次数据库（与 products 同一方向；端上此时也没有页面会调它）。
+ * ⚠️ 退款相关字段（`refundable`／`refund_status`／`refund_reject_reason`）**这一批没有**——
+ *   D-11 的 iOS 那一支要等实测，8.2 第 11 行明写"不许当作已定"，退款申请是 B4。
+ */
+export async function onRequestGet(context) {
+  const { env, data } = context
+  const userId = data && data.user ? data.user.id : null
+  if (!userId) return json({ error: '未登录' }, 401)
+
+  const flags = readProFlags(env)
+  if (!flags.purchase) return json({ purchaseEnabled: false, orders: [] })
+
+  let openid = null
+  try {
+    openid = await getAccountOpenid(env, userId)
+  } catch (err) {
+    console.error('[pro/orders:list] openid lookup failed:', (err && err.code) || (err && err.message) || 'unknown')
+    return json({ purchaseEnabled: true, orders: [] })
+  }
+  if (!openid) return json({ purchaseEnabled: true, orders: [] })
+
+  let rows = []
+  try {
+    rows = await listOrdersByOpenid(env, openid)
+  } catch (err) {
+    console.error('[pro/orders:list] list failed:', (err && err.code) || (err && err.message) || 'unknown')
+    return json({ error: '暂时无法读取订单，请稍后再试', code: 'pro_unavailable' }, 503)
+  }
+  // 商品名与期限从这里补（表里没有这两列，而"表只有一份配置来源"这条已经判过＝不建冗余列）；
+  // 道具若已从表里撤下 ⇒ name 退回 id、duration 为 null，至少这单的钱看得见
+  const byId = new Map(sellableProducts(env, openid).map((p) => [p.productId, p]))
+  return json({
+    purchaseEnabled: true,
+    orders: rows.map((r) => {
+      const known = catalogEntry(r.product_id)
+      return {
+        outTradeNo: r.out_trade_no,
+        productId: r.product_id,
+        name: (byId.get(r.product_id) || {}).name || (known && known.name) || r.product_id,
+        goodsPrice: Number(r.goods_price),
+        currency: r.currency_type,
+        durationDays: known ? known.durationDays : null,
+        status: r.status,
+        paidAt: r.paid_at,
+        createdAt: r.created_at,
+        expiresAt: r.expires_at,
+      }
+    }),
+  })
+}
 
 function unavailable(where, err) {
   // 🔴 只打码与消息，不打 openid／凭证片段（4.6 的"响应体不含 openid"要连日志一起成立）

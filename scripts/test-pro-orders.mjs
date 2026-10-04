@@ -21,7 +21,7 @@ const results = []
 const check = (name, got, want) => results.push({ name, ok: JSON.stringify(got) === JSON.stringify(want), got, want })
 const expectHmac = (key, msg) => crypto.createHmac('sha256', key).update(msg, 'utf8').digest('hex')
 
-const { onRequestPost } = await import(pathToFileURL(path.join(root, 'functions/api/pro/orders.js')).href)
+const { onRequestPost, onRequestGet } = await import(pathToFileURL(path.join(root, 'functions/api/pro/orders/index.js')).href)
 
 const UID = 'u-1'
 const BOUND = 'oBound'
@@ -332,7 +332,47 @@ stub.insertError = { code: '23514', message: 'new row violates check constraint'
 r = await run(good())
 check('9.4 其它插入失败 ⇒ 503 pro_unavailable，不返回半套支付参数', [r.status, r.body.code, r.body.pay], [503, 'pro_unavailable', undefined])
 
-// ── 10. 静态门：写面收敛与开关只读部署变量 ─────────────────────────────────
+// ── 10. 订单页只读面（GET）：按 openid 查、只回白名单列 ───────────────────────
+const getCtx = (eover = {}, user = { user: { id: UID } }) => ({ env: env(eover), data: user, request: new Request('https://cf/api/pro/orders') })
+reset()
+r = await onRequestGet(getCtx())
+check('10.1 没有任何单 ⇒ 空列表 + purchaseEnabled:true', [r.status, await r.json().then((b) => [b.purchaseEnabled, b.orders])], [200, [true, []]])
+
+reset()
+stub.pendingRows = [{ out_trade_no: 'T1727000000000000000000aa', product_id: 'monthly_mem_android', goods_price: 333, currency_type: 'CNY', env: 0, status: 'paid', paid_at: '2026-10-04T09:00:00Z', created_at: '2026-10-04T09:00:00Z', expires_at: '2026-10-04T09:15:00Z' }]
+let gb = await (await onRequestGet(getCtx())).json()
+check('10.2 已付单出得来：名字/金额/期限从服务端表补', [gb.orders.length, gb.orders[0].name, gb.orders[0].goodsPrice, gb.orders[0].durationDays, gb.orders[0].status], [1, 'Handle 会员 · 月卡', 333, 30, 'paid'])
+const listUrl = calls.find((c) => c.url.includes('/rest/v1/pro_orders')).url
+// 🔴 4.7 那句"订单页按付款微信看、不看 user_id"在这里是**可执行的**：漏了 openid 条件，
+//    返回的是"读这个人此刻绑着的微信名下的单"——同一个人不会少看自己的单，所以症状是静默的；
+//    真出事在"访客买完合并进邮箱"那一格（`user_id` 指向已删的访客行 ⇒ 订单页变空）。
+check('10.3 查询带 payer_openid＋provider，🔴 不带 user_id', [listUrl.includes('payer_openid=eq.' + BOUND), listUrl.includes('provider=eq.wechat_mp'), listUrl.includes('user_id=eq.')], [true, true, false])
+check('10.4 🔴 select 列里没有 payer_openid／callback_raw／note／operator／attach', /select=([^&]*)/.exec(listUrl)[1].split(',').some((k) => ['payer_openid', 'callback_raw', 'note', 'operator', 'attach', 'user_id', 'payer_unionid'].includes(k)), false)
+check('10.5 响应体里也搜不到 openid 与 unionid', [JSON.stringify(gb).includes(BOUND), JSON.stringify(gb).includes('uBound')], [false, false])
+reset()
+gb = await (await onRequestGet(getCtx({}, {}))).json().catch(() => null)
+check('10.6 没有会话身份 ⇒ 401', (await onRequestGet({ env: env(), data: {}, request: new Request('https://cf/api/pro/orders') })).status, 401)
+reset()
+gb = await (await onRequestGet(getCtx({ PRO_PURCHASE_ENABLED: 'false' }))).json()
+check('10.7 入口关着 ⇒ 空列表且零次数据库', [gb.purchaseEnabled, gb.orders.length, calls.length], [false, 0, 0])
+reset()
+stub.identityRows = []
+gb = await (await onRequestGet(getCtx())).json()
+check('10.8 账号没绑微信 ⇒ 空列表（不是"全部订单"，也不是报错）', [gb.orders.length, calls.filter((c) => c.url.includes('/rest/v1/pro_orders')).length], [0, 0])
+reset()
+stub.identityStatus = 500
+gb = await (await onRequestGet(getCtx())).json()
+check('10.9 identity 读失败 ⇒ 200 + 空列表（读侧收紧方向同 products）', [gb.purchaseEnabled, gb.orders.length], [true, 0])
+reset()
+stub.pendingStatus = 500
+r = await onRequestGet(getCtx())
+check('10.10 列表查询失败 ⇒ 503 结构化，不返回半截列表', [r.status, (await r.json()).code], [503, 'pro_unavailable'])
+reset()
+stub.pendingRows = [{ out_trade_no: 'T1', product_id: 'discontinued_item', goods_price: 100, currency_type: 'CNY', env: 0, status: 'closed', paid_at: null, created_at: 'x', expires_at: 'y' }]
+gb = await (await onRequestGet(getCtx())).json()
+check('10.11 道具已从表里撤下 ⇒ 名字退回 id、期限为 null，钱仍然看得见', [gb.orders[0].name, gb.orders[0].durationDays, gb.orders[0].goodsPrice], ['discontinued_item', null, 100])
+
+// ── 11. 静态门：写面收敛与开关只读部署变量 ─────────────────────────────────
 function stripComments(src) {
   let out = ''
   let i = 0
@@ -368,14 +408,19 @@ const codeOf = new Map(files.map((f) => [f, stripComments(readFileSync(f, 'utf8'
 const rel = (f) => path.relative(root, f).replace(/\\/g, '/')
 const hits = (re) => files.filter((f) => re.test(codeOf.get(f))).map(rel)
 
-check('10.1 🔴 三张会员表的 REST 面只在 proStore.js（4.6"写这三张表的模块只有一个"）', hits(/rest\/v1\/pro_orders|rest\/v1\/pro_ledger|rest\/v1\/pro_refund_requests/), ['functions/_lib/proStore.js'])
-check('10.2 开关标识符仍只在 proCoverage.js（端点走 readProFlags）', hits(/PRO_WALLS_ENABLED|PRO_PURCHASE_ENABLED/), ['functions/_lib/proCoverage.js'])
-check('10.3 没有任何端点从请求里读开关或金额', hits(/searchParams\.get\(\s*['"](PRO_|wallsEnabled|purchase|goodsPrice|price)|headers\.get\(\s*['"]x-pro/i), [])
-check('10.4 判据只经 proCoverage（rpc 调用点仍唯一）', hits(/rpc\/pro_coverage/), ['functions/_lib/proCoverage.js'])
+check('11.1 🔴 三张会员表的 REST 面只在 proStore.js（4.6"写这三张表的模块只有一个"）', hits(/rest\/v1\/pro_orders|rest\/v1\/pro_ledger|rest\/v1\/pro_refund_requests/), ['functions/_lib/proStore.js'])
+check('11.2 开关标识符仍只在 proCoverage.js（端点走 readProFlags）', hits(/PRO_WALLS_ENABLED|PRO_PURCHASE_ENABLED/), ['functions/_lib/proCoverage.js'])
+check('11.3 没有任何端点从请求里读开关或金额', hits(/searchParams\.get\(\s*['"](PRO_|wallsEnabled|purchase|goodsPrice|price)|headers\.get\(\s*['"]x-pro/i), [])
+check('11.4 判据只经 proCoverage（rpc 调用点仍唯一）', hits(/rpc\/pro_coverage/), ['functions/_lib/proCoverage.js'])
 // ✅ 剥注释扫出来的结果比原期望更严：`wxTicket.js` 只在**注释**里提过 session_key
 //   （它的 code2session 刻意不返回这一把），所以代码里真拿着它的只有签名模块一个文件。
-check('10.5 session_key 这个标识符只活在 proPaySign.js 里（下单端点只透传 sessionKey 变量名）', hits(/session_key/), ['functions/_lib/proPaySign.js'])
-check('10.6 折叠算法没有第二处 JS 实现', hits(/prev_last_day|day_start|end_excl/), [])
+check('11.5 session_key 这个标识符只活在 proPaySign.js 里（下单端点只透传 sessionKey 变量名）', hits(/session_key/), ['functions/_lib/proPaySign.js'])
+check('11.6 折叠算法没有第二处 JS 实现', hits(/prev_last_day|day_start|end_excl/), [])
+// 🔴 路由形状也算判据：Pages Functions 里 `orders.js` 与 `orders/index.js` 会争同一个路径，
+//   谁赢没有文档背书 ⇒ 同一路径的 GET/POST 必须待在**同一个文件**里（现在就是），
+//   而目录式路由下不能再出现同名的扁平文件。
+const orderRoutes = files.filter((f) => /functions\/api\/pro\/orders(\.js|\/index\.js)$/.test(f.replace(/\\/g, '/'))).map(rel)
+check('11.7 /api/pro/orders 只有一份路由文件（GET 与 POST 同在 orders/index.js）', orderRoutes, ['functions/api/pro/orders/index.js'])
 
 let fails = 0
 for (const x of results) {
