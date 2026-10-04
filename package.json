@@ -17,7 +17,8 @@
     "test:cap": "node scripts/test-pro-cap.mjs",
     "test:catalog": "node scripts/test-pro-catalog.mjs",
     "test:pay": "node scripts/test-pro-pay.mjs",
-    "test:orders": "node scripts/test-pro-orders.mjs"
+    "test:orders": "node scripts/test-pro-orders.mjs",
+    "test:xpay": "node scripts/test-pro-xpay.mjs"
   },
   "dependencies": {
     "@marsidev/react-turnstile": "^1.6.0",

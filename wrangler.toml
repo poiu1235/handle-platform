@@ -57,3 +57,6 @@ WX_PAY_OFFER_ID = "1450667285"
 #   npx wrangler pages secret put WX_PAY_APPKEY_PROD --project-name=handle-platform
 # 另一把将来要用的：
 #   npx wrangler pages secret put PRO_ADMIN_TOKEN --project-name=handle-platform   # 4.6 入口④管理端鉴权
+# ⚠️ 临时的一把（只为 R-9 ⑱ 那次诊断，跑完连文件带 secret 一起删）：
+#   npx wrangler pages secret put PROBE_TOKEN --project-name=handle-platform
+#   没配它 ⇒ `functions/probe/xpay-query.js` 直接 503（fail-closed：诊断件默认关着）。

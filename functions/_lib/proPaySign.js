@@ -16,7 +16,12 @@
 
 const PAY_URI = 'requestVirtualPayment' // C 端 uri 固定值（6.3 实证）
 
-async function hmacSha256Hex(keyStr, message) {
+/**
+ * 🔴 全仓唯一的 HMAC-SHA256 实现（导出给 `_lib/proXpay.js` 用）：两个签名族（端上拉起、
+ * 服务端 `/xpay/*`）用的是同一个算法与同一条"uri + '&' + post_body"拼法，各写一份
+ * 迟早会漂成两套（而漂了的失败症状是"平台说签名错"，看不出是谁漂了）。
+ */
+export async function hmacSha256Hex(keyStr, message) {
   const enc = new TextEncoder()
   const key = await crypto.subtle.importKey('raw', enc.encode(keyStr), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
   const buf = await crypto.subtle.sign('HMAC', key, enc.encode(message))
