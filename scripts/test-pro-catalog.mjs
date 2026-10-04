@@ -21,7 +21,8 @@ const cat = await import(pathToFileURL(path.join(root, 'functions/_lib/proCatalo
 // ── 1. 配置本体（id 与价格必须与后台发布的道具逐字一致）────────────────────
 const FIVE = ['monthly_mem_android', 'monthly_mem_apple', 'monthly_test', 'yearly_mem_android', 'yearly_mem_apple']
 check('1.1 后台那五个道具都在表里', Object.keys(cat.CATALOG).sort(), FIVE)
-check('1.2 期限＝月 30／年 365（D-6），测试道具按 owner 配的是 30 天', ['monthly_mem_android', 'yearly_mem_apple', 'monthly_test'].map((p) => cat.durationDaysFor(p)), [30, 365, 30])
+check('1.2 期限＝月 30／年 365（D-6）；测试道具按后台文案是 1 天（D-10 原设计）', ['monthly_mem_android', 'yearly_mem_apple', 'monthly_test'].map((p) => cat.durationDaysFor(p)), [30, 365, 1])
+check('1.2b 价格单位已确认：后台显示元、传输用分（0.01 元＝1 分）⇒ R-9 ⑰ 结案', cat.catalogEntry('monthly_test').goodsPrice, 1)
 check('1.3 价格（分）与后台一致：333／388／4990／5990／1', ['monthly_mem_android', 'monthly_mem_apple', 'yearly_mem_android', 'yearly_mem_apple', 'monthly_test'].map((p) => cat.catalogEntry(p).goodsPrice), [333, 388, 4990, 5990, 1])
 check('1.4 iOS 比安卓贵（差价 0.55／10.00 元，Apple 佣金那一侧）', [cat.catalogEntry('monthly_mem_apple').goodsPrice - cat.catalogEntry('monthly_mem_android').goodsPrice, cat.catalogEntry('yearly_mem_apple').goodsPrice - cat.catalogEntry('yearly_mem_android').goodsPrice], [55, 1000])
 check('1.5 测试档 onSale=false（不进在售列表）', cat.catalogEntry('monthly_test').onSale, false)

@@ -16,9 +16,10 @@
 // 2. `productId` 与 `goodsPrice` 都是 **paySig 的组成部分** ⇒ 这张表与后台必须逐字一致；
 //    不一致的症状是"拉起支付被平台直接拒绝"，看起来像平台故障。改价要走后台 + 这里同一批。
 //
-// ⚠️ 价格单位：官方 `goodsPrice` 单位＝**分**（6.3 实证），后台那一列表头写「价格(元)」而测试道具
-//    显示 1 ⇒ 按 owner 口述（月卡 3.33 元／年卡 49.9 元／测试 1 分）读作"分"。🔴 这一条要
-//    在第一次真下单前对着后台编辑页再核一次——单位搞错的表现就是第 2 条那个"被平台拒"。
+// ✅ 价格单位（R-9 ⑰ 已结案，2026-10-04 owner 确认）：**后台那一列填的是「元」，程序里传的是「分」**
+//    ⇒ 后台显示 3.33／49.9／3.88／59.9／0.01，本表写 333／4990／388／5990／1。
+//    两边不一致时表现不是"价格不对"，而是 `goodsPrice` 参与 `paySig` ⇒ 拉起支付被平台直接拒。
+// ✅ 五个道具都已发布到**线上版本**（截图：线上版本／发布时间 2026-10-4）。
 
 export const PLATFORMS = ['android', 'ios']
 
@@ -26,10 +27,11 @@ export const PLATFORMS = ['android', 'ios']
 const TIERS = {
   monthly: { tier: 'monthly', name: 'Handle 会员 · 月卡', durationDays: 30, isTest: false, prices: { android: 333, ios: 388 } },
   yearly: { tier: 'yearly', name: 'Handle 会员 · 年卡', durationDays: 365, isTest: false, prices: { android: 4990, ios: 5990 } },
-  // 测试道具：owner 配的是"30 天测试卡、1 分"（不是正本 3.1 原来写的 1 天）。
+  // 测试道具：owner 2026-10-04 把后台文案改成「1天测试卡」⇒ 期限 **1 天**（回到正本 D-10 的原设计），
+  // id 仍是 `monthly_test`（改 id 要重新发布道具，改文案不用）。价格 1 分＝后台显示的 0.01 元。
   // 它走完全正常的链路（下单→推送→入账→折叠→manual 退款回收），所以不破 7.6 铁律；
   // 但它是 env=0 的**真实收款单** ⇒ 对账与 GMV 要单列（6.5／§十一·丙）。
-  monthly_test: { tier: 'monthly_test', name: '测试道具（30 天）', durationDays: 30, isTest: true, prices: { android: 1, ios: 1 } },
+  monthly_test: { tier: 'monthly_test', name: '测试道具（1 天）', durationDays: 1, isTest: true, prices: { android: 1, ios: 1 } },
 }
 
 /** 后台的道具 id 命名：测试道具不按渠道分（一个 id 两端都用） */
