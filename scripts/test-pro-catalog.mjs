@@ -72,6 +72,9 @@ const reset = () => {
   stub = { identityRows: [{ openid: 'oA' }], identityStatus: 200 }
 }
 const { onRequestGet } = await import(pathToFileURL(path.join(root, 'functions/api/pro/products.js')).href)
+// `memberCaps` 的判据要对着**正本**比，不能对着测试自己抄的一份数字比（那样改 CAPS 时判据会跟着改，
+// 就成了自证）。同一份模块的另一处导出顺带拿过来用。
+const { CAPS: catCaps } = await import(pathToFileURL(path.join(root, 'functions/_lib/proCoverage.js')).href)
 const envOf = (over = {}) => ({ SUPABASE_URL: 'https://fake', SUPABASE_ANON_KEY: 'a', SUPABASE_SERVICE_ROLE_KEY: 'k', PRO_WALLS_ENABLED: 'false', PRO_PURCHASE_ENABLED: 'true', PRO_ENV: '0', PRO_TEST_OPENIDS: '', ...over })
 const ctx = (env) => ({ env, data: { user: { id: 'u-1' } }, request: new Request('https://cf/api/pro/products') })
 const bodyOf = async (res) => res.json()
@@ -91,6 +94,14 @@ reset()
 body = await bodyOf(await onRequestGet(ctx(envOf({ PRO_PURCHASE_ENABLED: 'false' }))))
 check('3.5 购买入口关着 ⇒ 空列表 + purchaseEnabled:false', [body.purchaseEnabled, body.products.length], [false, 0])
 check('3.6 关着时一次数据库都不问（开关只读 env，不必查身份）', calls.length, 0)
+// 3.6b–3.6d 新增的 `memberCaps`：购买页那句"开通之后三档各是多少"的**唯一**数字来源。
+// 🔴 关着也要给（端上拿不到列表时至少不会画出一句编的），且它必须等于 CAPS.member 本身——
+// 端上不许写死这些数（判据在 mp 侧 check:pro 13.3），所以这条链断了就是"购买页开始说谎"。
+check('3.6b memberCaps 就是 CAPS.member 那一份（不是第二处常量）', body.memberCaps, catCaps.member)
+check('3.6c 关态也给 memberCaps（列表是空的但数字仍然只有一个来源）', [body.products.length, !!body.memberCaps], [0, true])
+reset()
+body = await bodyOf(await onRequestGet(ctx(envOf())))
+check('3.6d 开态同样给，且三项齐（缺一端上就整条不画）', [Object.keys(body.memberCaps).sort(), body.memberCaps.notes > body.memberCaps.balances], [['balances', 'cards', 'notes'], true])
 
 reset()
 body = await bodyOf(await onRequestGet(ctx(envOf({ PRO_TEST_OPENIDS: 'oA' }))))
