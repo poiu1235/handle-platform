@@ -83,8 +83,9 @@ export async function insertOrder(env, order) {
 
 /**
  * 入账第 5 步的前半：回填 `paid_at`／`wx_order_id` 并把订单置 `paid`。
- * 🔴 过滤条件 `status=in.('pending','closed')`：已 `paid`/`refunded` 的行改不动——这正是
- *   4.5 第 3 步"拒绝复活"的库侧形态（重放不会把已付单的 `paid_at` 挪后，而那是 7 天窗口起点）。
+ * 🔴 过滤条件 `status=in.(pending,closed)`（🔴 值不加引号，理由见下面那句注释）：已
+ *   `paid`/`refunded` 的行改不动——这正是 4.5 第 3 步"拒绝复活"的库侧形态（重放不会把
+ *   已付单的 `paid_at` 挪后，而那是 7 天窗口起点）。
  *   匹配 0 行**是错误**：🔴 本函数要求 PostgREST 把改到的行回回来（`Prefer: return=representation`），
  *   空数组就抛 `pro_order_mark_paid_no_row`。理由不是洁癖——2026-10-05 真机第一轮出现"账本行写成了、
  *   订单却还是 pending"的形状，而旧写法下 PATCH 改 0 行与改 1 行回的都是 `200 + 空 body`，
@@ -102,11 +103,17 @@ export async function markOrderPaid(env, { outTradeNo, paidAtIso, wxOrderId, not
   if (note) body.note = String(note)
   if (isDuplicate) body.is_duplicate = true
   if (paidAfterClose) body.paid_after_close = true
-  const res = await serviceRoleFetch(env, `${ORDERS}?out_trade_no=eq.${encodeURIComponent(outTradeNo)}&status=in.%28%27pending%27%2C%27closed%27%29`, {
-    method: 'PATCH',
-    body,
-    prefer: 'return=representation',
-  })
+  const res = await serviceRoleFetch(
+    env,
+    // 🔴 值列表**不加引号**：PostgREST 的 `in.()` 走 CSV 解析，官方示例是 `genre=in.(drama,comedy)`。
+    //   原来这里写的是 `in.('pending','closed')`，2026-10-05 真机第一轮实测**匹配 0 行**
+    //   （账本行写进去了、订单还是 pending，见正本 §十六 E-19）。单引号到底是被当成值的一部分
+    //   还是别的机制，我**没有一手文档证据**（postgrest.org 当时抓不下来）⇒ 不当已证根因写。
+    //   成立的是两件事：① 这个写法在他库上确实匹配不到行（同一张表、同一个 `eq` 条件的 SELECT 找得到行）；
+    //   ② 改成 CSV 形态后如果还匹配 0 行，下面那道 representation 判据会**直接抛**，不会再静默。
+    `${ORDERS}?out_trade_no=eq.${encodeURIComponent(outTradeNo)}&status=in.%28pending%2Cclosed%29`,
+    { method: 'PATCH', body, prefer: 'return=representation' },
+  )
   if (!res.ok) throw fail('pro_order_mark_paid_failed', res.status, JSON.stringify(res.data))
   const rows = Array.isArray(res.data) ? res.data : null
   if (rows === null) throw fail('pro_order_mark_paid_unreadable', res.status, 'PATCH 没回 representation（Prefer 被吞？）')

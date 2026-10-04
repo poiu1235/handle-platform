@@ -152,7 +152,11 @@ let res = await credit()
 check('1.1 已付 ⇒ credited', res.outcome, 'credited')
 check('1.2 恰好两次写：一次 PATCH 订单、一次 POST 账本', [orderPatches().length, ledgerPosts().length], [1, 1])
 check('1.3 PATCH 把状态、时刻、平台单号一起回填', [bodyAt(orderPatches()).status, bodyAt(orderPatches()).paid_at, bodyAt(orderPatches()).wx_order_id], ['paid', PAID_ISO, 'wx-1'])
-check('1.4 🔴 PATCH 的过滤条件是 status in (pending,closed)：重放挪不走已付单的 paid_at（7 天窗口起点）', urlAt(orderPatches()).includes('status=in.%28%27pending%27%2C%27closed%27%29'), true)
+check('1.4 🔴 PATCH 的过滤条件是 status in (pending,closed)：重放挪不走已付单的 paid_at（7 天窗口起点）', urlAt(orderPatches()).includes('status=in.%28pending%2Cclosed%29'), true)
+// 🔴 第二格才是这次的真判据：`in.()` 是 CSV 解析，值**不加引号**。上一版写成
+//   `in.%28%27pending%27%2C%27closed%27%29`（带单引号）在真库上匹配 0 行，而当时的判据
+//   恰好把那个错写法逐字钉住了——**判据绿着把 bug 保护了起来**。所以这里正面禁止单引号。
+check('1.4b 🔴 值列表里不许出现单引号（CSV 形态；带引号那一版实测匹配 0 行＝E-19）', /%27|'/.test(urlAt(orderPatches()).split('status=in.')[1] || ''), false)
 check('1.5 🔴 paid_time 是 unix 秒 ⇒ ×1000。忘了乘的症状是"1970 年到期"，零异常日志', bodyAt(orderPatches()).paid_at.slice(0, 4), PAID_ISO.slice(0, 4))
 check('1.6 账本行的七个字段全部来自服务端（没有一样来自端上）', Object.keys(bodyAt(ledgerPosts()) === MISSING ? {} : ledgerPosts()[0].body).sort().join(','), ['buyer_user_id', 'duration_days', 'effective_at', 'env', 'order_id', 'payer_openid', 'provider'].sort().join(','))
 check('1.7 🔴 账本行带 order_id＝订单主键。漏了它：unique 闸门失效（Postgres 允许多行 null）、B4 撤不掉、6.5 算成真单', bodyAt(ledgerPosts()).order_id, OID)
@@ -263,7 +267,7 @@ reset()
 stub.orderRow = orderRow({ status: 'closed' })
 res = await credit()
 check('5.8 我方已 closed、平台说付了 ⇒ 入账，并把 paid_after_close 落列（不落就统计不到）', [res.outcome, bodyAt(orderPatches()).paid_after_close], ['credited', true])
-check('5.9 closed 能进这道闸，靠的是 PATCH 过滤里带着 closed', urlAt(orderPatches()).includes('%27closed%27'), true)
+check('5.9 closed 能进这道闸，靠的是 PATCH 过滤里带着 closed（CSV 形态、不带引号＝E-19 之后）', urlAt(orderPatches()).includes('status=in.%28pending%2Cclosed%29'), true)
 
 // 🔴 E-17 判丙之后 `anomaly` 这一档从"只可能人工写"变成"我方代码会写"（平台已退款而我方未入账），
 //   于是 4.5 第 3 步那句"拒绝复活"第一次有了真实的入口：任何自动触发源都不许把它读成"再查一次就发了"。
