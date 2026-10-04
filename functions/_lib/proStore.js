@@ -40,24 +40,6 @@ export async function findPendingOrder(env, openid) {
 }
 
 /**
- * 把一张 pending 置 `closed`（前置④"换档／过期先关旧单再新建"）。
- * 🔴 过滤条件里带上 `status=eq.pending`：若这一步与支付推送撞上（旧单刚被记成 paid），
- *   这条 PATCH 匹配 0 行 ⇒ 不会把已付单改回未付。匹配 0 行**不是错误**，调用方继续建新单
- *   （库侧那条 partial unique index 会告诉我们到底有没有位置）。
- * ⚠️ 已登记的两处残余（正本 4.5 前置④）：① 关单接口未证（R-9 ⑦），所以"置 closed"只是**我方口径**
- *   的关闭，平台侧那张单可能仍可付 ⇒ 靠 `paid_after_close` 入账 + 折叠接龙 + `duplicate` 退款接住；
- *   ② 因此这里**不许**因为"已经 closed 了"就假设那笔钱不会到账。
- */
-export async function closePendingOrder(env, outTradeNo) {
-  const res = await serviceRoleFetch(env, `${ORDERS}?out_trade_no=eq.${encodeURIComponent(outTradeNo)}&status=eq.pending`, {
-    method: 'PATCH',
-    body: { status: 'closed', updated_at: new Date().toISOString() },
-  })
-  if (!res.ok) throw fail('pro_order_close_failed', res.status, JSON.stringify(res.data))
-  return true
-}
-
-/**
  * 订单页的读侧（4.6：🔴 行级策略拦不住列，所以订单表对 anon/authenticated 一条权限都没有，
  * 用户看自己的单只走这个 CF 只读端点）。
  * 🔴 键是 `payer_openid` 而不是 `user_id`（4.7"订单页、退款资格按付款微信看，不看账号"）——

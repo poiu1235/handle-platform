@@ -281,27 +281,39 @@ const sd2 = JSON.parse(r.body.pay.signData)
 check('8.2 复用也重签一次（session_key 是新的，签名必须贴着这一刻算）', [sd2.outTradeNo, r.body.pay.signature], ['T1727000000000deadbeef', expectHmac(SESSION_KEY, r.body.pay.signData)])
 check('8.3 金额取**订单行里的值**，不重新读价格表', sd2.goodsPrice, 333)
 
+// 🔴 8.4–8.9 按 **E-14 判乙**重写：查单（B3-3）没代码 ⇒ 只要那张 pending 不能原样复用，就**当场拒**，
+//   既不关也不建。这一族格子的牙齿不在"码对不对"，而在 `patchCalls()===0 && insertCalls()===0`：
+//   它钉的是"在认得回钱之前，我方不许先动那张单"——一旦哪天有人把它改回"关旧建新"，这几格会红。
+const refused = (b) => [b.code, b.reused]
 reset()
 stub.pendingRows = [pendingRow({ product_id: 'yearly_mem_android' })]
 r = await run(good())
-check('8.4 🔴 换档 ⇒ 先把旧单置 closed 再新建（4.5 收窄版，月卡 pending 期能改买年卡）', [patchCalls().length, insertCalls().length, r.body.reused], [1, 1, false])
-check('8.5 PATCH 的过滤条件带 status=eq.pending（撞车时不会把已付单改回未付）', patchCalls()[0].url.includes('status=eq.pending'), true)
-check('8.6 新单是新单号（不复用换档那张的 out_trade_no）', r.body.outTradeNo !== 'T1727000000000deadbeef', true)
+check('8.4 换档 ⇒ 拒（不再"关旧建新"，E-14 判乙）', [r.status, refused(r.body)], [409, ['pending_order_open', undefined]])
+check('8.4b 🔴 换档这一支零写库：既不 PATCH 旧单也不 POST 新单', [patchCalls().length, insertCalls().length], [0, 0])
+check('8.4c 文案给得出路（稍后再试 + 客服），不是"系统错误"', r.body.error.includes('联系在线客服'), true)
 
 reset()
 stub.pendingRows = [pendingRow({ expires_at: past() })]
 r = await run(good())
-check('8.7 同档但已超 expires_at ⇒ 关旧建新（🔴 不押"同单号能否二次拉起"＝R-9 ⑩）', [patchCalls().length, r.body.reused], [1, false])
+check('8.5 同档但已超 expires_at ⇒ 同样拒（⚠️ 这就是判乙的代价：取消满 15 分钟后再买会被挡）', [r.status, r.body.code, patchCalls().length, insertCalls().length], [409, 'pending_order_open', 0, 0])
 
 reset()
 stub.pendingRows = [pendingRow({ env: 1 })]
 r = await run(good())
-check('8.8 同档但 env 不同 ⇒ 不复用（4.2：沙箱单不能当成现网单）', r.body.reused, false)
+check('8.6 同档但 env 不同 ⇒ 拒不复用（4.2：沙箱单不能当成现网单）', [r.status, r.body.code], [409, 'pending_order_open'])
 
 reset()
 stub.pendingRows = [pendingRow({ expires_at: 'not-a-date' })]
 r = await run(good())
-check('8.9 行里读不出 expires_at ⇒ 按已过期处理（更严的一侧）', patchCalls().length, 1)
+check('8.7 行里读不出 expires_at ⇒ 按已过期处理（更严的一侧：宁可拒也不复用）', [r.status, r.body.code], [409, 'pending_order_open'])
+
+reset()
+stub.pendingRows = [pendingRow()]
+r = await run(good({ productId: 'yearly_mem_android' }))
+check('8.8 拒单不消耗"复用机会"：同档那张还活着，下一次点同档仍能复用', [r.status, refused(r.body)], [409, ['pending_order_open', undefined]])
+reset()
+stub.pendingRows = [pendingRow()]
+check('8.8b 紧接着同档再点一次 ⇒ 200 且 reused:true（两格合起来才证明"拒"没把用户锁死）', (await run(good())).body.reused, true)
 
 reset()
 stub.pendingStatus = 500
@@ -421,6 +433,11 @@ check('11.6 折叠算法没有第二处 JS 实现', hits(/prev_last_day|day_star
 //   而目录式路由下不能再出现同名的扁平文件。
 const orderRoutes = files.filter((f) => /functions\/api\/pro\/orders(\.js|\/index\.js)$/.test(f.replace(/\\/g, '/'))).map(rel)
 check('11.7 /api/pro/orders 只有一份路由文件（GET 与 POST 同在 orders/index.js）', orderRoutes, ['functions/api/pro/orders/index.js'])
+// 🔴 这一条是 E-14 判乙的**代码面**：查单没落地 ⇒ 今天全仓不许有任何一处把订单写成 `closed`。
+//   为什么单独钉一条静态门：拒单那三行迟早会被"顺手改成关旧建新"（那是判甲的写法），
+//   而改的人不会先读 §十六——静态门会在当场响，比留一句注释可靠。
+const closeWriters = hits(/status:\s*'closed'/)
+check('11.8 没有任何代码把订单写成 closed（B3-3 查单落地前不许关单）', closeWriters, [])
 
 let fails = 0
 for (const x of results) {

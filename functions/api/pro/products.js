@@ -11,7 +11,7 @@
 //
 // ⚠️ 响应体**不含 openid**（4.6）：守卫用的是服务端自己查出来的那一条，端上没有需要它的场景。
 import { json } from '../../_lib/supabase.js'
-import { readProFlags, getAccountOpenid, CAPS } from '../../_lib/proCoverage.js'
+import { readProFlags, getAccountOpenid, memberCapsForWire } from '../../_lib/proCoverage.js'
 import { sellableProducts } from '../../_lib/proCatalog.js'
 
 export async function onRequestGet(context) {
@@ -27,7 +27,7 @@ export async function onRequestGet(context) {
   //   会话那份 `caps` 按人算（免费档就是 200/50/50，墙关着时干脆是 null），拿它写这句就会
   //   在关态/免费态下印出一句错话。数字正本仍然只有 `proCoverage.CAPS` 这一处（3.3 门槛②／
   //   验收 #43）⇒ 端上不许出现 500/100 这种字面量，静态门 13.3 在扫这件事。
-  if (!flags.purchase) return json({ purchaseEnabled: false, products: [], memberCaps: CAPS.member })
+  if (!flags.purchase) return json({ purchaseEnabled: false, products: [], memberCaps: memberCapsForWire() })
 
   let openid = null
   try {
@@ -36,8 +36,8 @@ export async function onRequestGet(context) {
     // 读不到 identity ⇒ 按"谁都不给"处理。这里 fail-closed 的方向是**收紧**，
     // 与展示路径（session 那条按免费档）相反：多给一个可买的档位比少给一个更贵。
     console.error('[pro/products] openid lookup failed:', (err && err.code) || (err && err.message) || 'unknown')
-    return json({ purchaseEnabled: true, products: [], memberCaps: CAPS.member })
+    return json({ purchaseEnabled: true, products: [], memberCaps: memberCapsForWire() })
   }
 
-  return json({ purchaseEnabled: true, products: sellableProducts(env, openid), memberCaps: CAPS.member })
+  return json({ purchaseEnabled: true, products: sellableProducts(env, openid), memberCaps: memberCapsForWire() })
 }

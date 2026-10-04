@@ -121,6 +121,18 @@ export async function getCoverageByOpenid(env, openid, proEnv) {
 }
 
 /**
+ * 会员档的三上限，给**购买页**用（`GET /api/pro/products` 的 `memberCaps`）。
+ * 🔴 为什么不直接把 `CAPS` 交给端点：`test:cap` 7.3／7.5 两格钉的是"端点不许碰 CAPS"——
+ *   那两格是 3.3"档位数值只能有一个来源"唯一的自动防线，为一次转发去放宽它不值。
+ *   返回**副本**：端上（或将来某个中间件）改到手也不会污染全仓那一份真值。
+ * ⚠️ 与 `capsForWire` 是两回事：那一份按人算、且墙关着时回 null；这一份是"开通之后能到多少"，
+ *   与开关无关（购买页在关态本来就不出现，所以不需要那道门）。
+ */
+export function memberCapsForWire() {
+  return { ...CAPS.member }
+}
+
+/**
  * 档位映射。🔴 wallsEnabled=false 时返回 null＝**没有墙**，不是"免费档的新数值"（8.3 关态判据）：
  * 现网今天便利贴是单一 500、余额与卡根本没有行数墙，开关关着就不能凭空造出一面 200 的墙。
  */
