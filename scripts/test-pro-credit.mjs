@@ -80,7 +80,7 @@ globalThis.fetch = async (url, options) => {
   const u = String(url)
   const method = (options && options.method) || 'GET'
   const body = options && options.body ? JSON.parse(options.body) : null
-  calls.push({ url: u, method, body })
+  calls.push({ url: u, method, body, headers: (options && options.headers) || {} })
   const mk = (data, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => data })
   if (u.includes('api.weixin.qq.com/cgi-bin/token')) {
     if (stub.tokenStatus !== 200) return mk({ errcode: 40013, errmsg: 'invalid appid' }, stub.tokenStatus)
@@ -102,7 +102,9 @@ globalThis.fetch = async (url, options) => {
   }
   if (u.includes('/rest/v1/pro_orders') && method === 'PATCH') {
     if (stub.patchStatus !== 200) return mk({ message: 'patch boom' }, stub.patchStatus)
-    return mk({}, 200)
+    // 🔴 `Prefer: return=representation` ⇒ 改到的行会回成数组。桩必须回数组，
+    //   否则 `markOrderPaid` 会按"没匹配到行"抛错（那正是它新加的那道判据在做的事）。
+    return mk(stub.patchRows === undefined ? [{ out_trade_no: NO, status: 'paid' }] : stub.patchRows, 200)
   }
   if (u.includes('/rest/v1/pro_orders') && method === 'GET') {
     if (stub.orderReadStatus !== 200) return mk({ message: 'order read boom' }, stub.orderReadStatus)
@@ -285,6 +287,18 @@ reset()
 stub.patchStatus = 500
 res = await credit()
 check('6.2 订单状态没改成 ⇒ 🔴 账本不写（否则出现"有权益但订单挂着 pending"的形状），留在 pending 等下一轮', [res.outcome, res.stage, ledgerPosts().length], ['query_error', 'mark_paid', 0])
+
+// 6.2b/6.2c 🔴 2026-10-05 真机那一条：**HTTP 200 不等于改到了行**。PostgREST 不带
+//   `Prefer: return=representation` 时，PATCH 改 0 行与改 1 行回的都是空 body ⇒ 旧代码会把
+//   "WHERE 没匹配上"读成"入账成功"，于是出现"账本行写进去了、订单还是 pending"（症状：订单页
+//   永远待支付、7 天退款窗口没有起点、A3/A4 巡检看不见这笔）。现在要求它把行回回来。
+reset()
+stub.patchRows = []
+res = await credit()
+check('6.2b 🔴 PATCH 回 200 但零行 ⇒ 同样按"没改成"处理：query_error、账本零写、订单留在 pending', [res.outcome, res.stage, ledgerPosts().length], ['query_error', 'mark_paid', 0])
+reset()
+await credit()
+check('6.2c 这条 PATCH 确实带了 return=representation（不带就没有 6.2b 那道判据）', bodyAt(orderPatches()) !== MISSING && orderPatches()[0].headers.Prefer, 'return=representation')
 
 reset()
 stub.ledgerInsertStatus = 500

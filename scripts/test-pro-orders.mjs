@@ -69,7 +69,9 @@ globalThis.fetch = async (url, options) => {
     if (stub.insertStatus !== 201) return mk(stub.insertError || { message: 'insert boom' }, stub.insertStatus)
     return mk({}, 201)
   }
-  if (u.includes('/rest/v1/pro_orders') && method === 'PATCH') return mk({}, stub.patchStatus)
+  // PATCH 回**数组**：`markOrderPaid`/`closePendingOrder`/`markOrderAnomaly` 都带
+  // `Prefer: return=representation`，代码会数"改到几行"（0 行＝没改成，要能分开）。
+  if (u.includes('/rest/v1/pro_orders') && method === 'PATCH') return mk([{ status: 'closed' }], stub.patchStatus)
   if (u.includes('/rest/v1/pro_orders')) {
     if (stub.pendingStatus !== 200) return mk({ message: 'select boom' }, stub.pendingStatus)
     return mk(stub.pendingRows)

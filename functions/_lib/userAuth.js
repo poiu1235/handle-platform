@@ -35,7 +35,7 @@ export async function verifyUserBearer(request, env) {
 
 // service_role 调 Supabase REST / Admin API（绝不进客户端、不进日志）。
 // 返回 { ok, status, data }，语义同 _lib/supabase.js 的 supabaseAuthFetch。
-export async function serviceRoleFetch(env, path, { method = 'GET', body } = {}) {
+export async function serviceRoleFetch(env, path, { method = 'GET', body, prefer } = {}) {
   const options = {
     method,
     headers: {
@@ -44,6 +44,11 @@ export async function serviceRoleFetch(env, path, { method = 'GET', body } = {})
       Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
     },
   }
+  // 🔴 `prefer:'return=representation'` ＝ 让 PostgREST 把**被改到的那些行**回给我们。
+  //   不带它时 PATCH 改 0 行与改 1 行回的都是 `200 + 空 body` ⇒ "WHERE 没匹配上"这件事
+  //   在代码里长得和"改成功了"一模一样（2026-10-05 真机第一轮就是靠这条区别查出问题的）。
+  //   只有"必须真的改到行"的写才加它；加了就要判 `Array.isArray(data) && data.length > 0`。
+  if (prefer) options.headers.Prefer = prefer
   // 条件构造而不是 `body: body ? … : undefined`：后者的 `body` 键永远存在，静态判据
   // 读不出 method 的取值，就一直报「GET 不许带 body」。沿用原来的真值判断，行为逐字
   // 不变（现有调用方传的都是对象，或干脆不传）。

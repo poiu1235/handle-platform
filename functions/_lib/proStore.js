@@ -85,7 +85,11 @@ export async function insertOrder(env, order) {
  * 入账第 5 步的前半：回填 `paid_at`／`wx_order_id` 并把订单置 `paid`。
  * 🔴 过滤条件 `status=in.('pending','closed')`：已 `paid`/`refunded` 的行改不动——这正是
  *   4.5 第 3 步"拒绝复活"的库侧形态（重放不会把已付单的 `paid_at` 挪后，而那是 7 天窗口起点）。
- *   匹配 0 行**不算错误**（幂等重放是正常路径）：真正的双入账闸门是 `pro_ledger.order_id` unique。
+ *   匹配 0 行**是错误**：🔴 本函数要求 PostgREST 把改到的行回回来（`Prefer: return=representation`），
+ *   空数组就抛 `pro_order_mark_paid_no_row`。理由不是洁癖——2026-10-05 真机第一轮出现"账本行写成了、
+ *   订单却还是 pending"的形状，而旧写法下 PATCH 改 0 行与改 1 行回的都是 `200 + 空 body`，
+ *   代码根本分不开这两种情况。双入账的闸门仍是 `pro_ledger.order_id` unique，但**状态没改成
+ *   就必须停**：账本行排在后面，抛在这里等于"要么两边都动、两边都不动"。
  * ⚠️ `paidAtIso` 由调用方给（查单 `paid_time × 1000`；拿不到才退到"本次确认时刻"并留 `note`），
  *   🔴 绝不取落库时刻。
  * ⚠️ `isDuplicate`／`paidAfterClose` 只在为真时写：这两列的默认值就是 false，而它们是
@@ -101,9 +105,13 @@ export async function markOrderPaid(env, { outTradeNo, paidAtIso, wxOrderId, not
   const res = await serviceRoleFetch(env, `${ORDERS}?out_trade_no=eq.${encodeURIComponent(outTradeNo)}&status=in.%28%27pending%27%2C%27closed%27%29`, {
     method: 'PATCH',
     body,
+    prefer: 'return=representation',
   })
   if (!res.ok) throw fail('pro_order_mark_paid_failed', res.status, JSON.stringify(res.data))
-  return true
+  const rows = Array.isArray(res.data) ? res.data : null
+  if (rows === null) throw fail('pro_order_mark_paid_unreadable', res.status, 'PATCH 没回 representation（Prefer 被吞？）')
+  if (rows.length === 0) throw fail('pro_order_mark_paid_no_row', res.status, `WHERE 没匹配到行：${outTradeNo}`)
+  return rows[0]
 }
 
 /**
@@ -184,15 +192,19 @@ export async function markOrderAnomaly(env, outTradeNo, { reason, note }) {
   const res = await serviceRoleFetch(env, `${ORDERS}?out_trade_no=eq.${encodeURIComponent(outTradeNo)}&status=eq.pending`, {
     method: 'PATCH',
     body,
+    prefer: 'return=representation',
   })
   if (!res.ok) throw fail('pro_order_mark_anomaly_failed', res.status, JSON.stringify(res.data))
-  return true
+  // 匹配 0 行在这里是**合法**的（与轮询／推送撞车，那行已不是 pending）⇒ 不抛，但要把"没改到"
+  // 这件事交回调用方记日志：静默的"我以为改了"与 markOrderPaid 那次是同一类错，只是这一支后果轻。
+  return { matched: Array.isArray(res.data) && res.data.length > 0 }
 }
 /**
  * 把一张 pending 置 `closed`（4.5 前置④"换档／过期"那一支；✅ E-14 判乙 ⇒ 现在**先查单**、
  * 查得未付才调它，见 `proCredit.queryOrderState` 在下单端点里的那一支）。
  * 🔴 过滤条件必须带 `status=eq.pending`：与推送／轮询撞上时（旧单刚被记成 paid）这条 PATCH
- *   匹配 0 行 ⇒ 不会把已付单改回未付。匹配 0 行不是错误，调用方继续建新单。
+ *   匹配 0 行 ⇒ 不会把已付单改回未付。匹配 0 行不是错误，调用方继续建新单——
+ *   但返回值里带 `matched`，让调用方能把它记进日志（"我以为关掉了"与"确实关掉了"要能分开）。
  * ⚠️ 残余照旧（4.5 前置④残余①）：关单接口未证（R-9 ⑦）⇒ 这只是**我方口径**的关闭，
  *   平台侧那张单可能仍可付 ⇒ 迟到付款由 `closed` 继续分支 ＋ `paid_after_close` 接住。
  */
@@ -200,7 +212,8 @@ export async function closePendingOrder(env, outTradeNo) {
   const res = await serviceRoleFetch(env, `${ORDERS}?out_trade_no=eq.${encodeURIComponent(outTradeNo)}&status=eq.pending`, {
     method: 'PATCH',
     body: { status: 'closed', updated_at: new Date().toISOString() },
+    prefer: 'return=representation',
   })
   if (!res.ok) throw fail('pro_order_close_failed', res.status, JSON.stringify(res.data))
-  return true
+  return { matched: Array.isArray(res.data) && res.data.length > 0 }
 }

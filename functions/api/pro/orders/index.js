@@ -253,10 +253,13 @@ export async function onRequestPost(context) {
       //   （同 openid 至多一行 pending）会直接把新单挡下来 ⇒ 所以它失败时不许继续，回 503。
       //   这也不是退款状态机：不写 `refunded`、不动账本（那是 B4 的 `xpay_refund_notify`，D-22）。
       try {
-        await markOrderAnomaly(env, String(pending.out_trade_no), {
+        const marked = await markOrderAnomaly(env, String(pending.out_trade_no), {
           reason: 'refunded_not_credited',
           note: '主动查单回"平台已退款"而我方未入账；旧单标异常后放行新单（E-17 判丙）',
         })
+        // 没改到行＝那张单在我们查它之后被别人动过（轮询刚记成 paid？）⇒ 不拦新单，但必须留一行日志：
+        // 否则"我以为它被标成 anomaly 了"会变成下一次人工排障时的一条假前提。
+        if (!marked.matched) console.error('[pro/orders] refunded but no row matched the anomaly PATCH:', String(pending.out_trade_no))
       } catch (err) {
         return unavailable('pending-anomaly', err)
       }
@@ -273,7 +276,8 @@ export async function onRequestPost(context) {
     //    但"靠上游状态恰好挡住"不是判据，所以显式跳过。）
     if (st.outcome !== 'refunded') {
       try {
-        await closePendingOrder(env, String(pending.out_trade_no))
+        const closed = await closePendingOrder(env, String(pending.out_trade_no))
+        if (!closed.matched) console.error('[pro/orders] unpaid but no row matched the close PATCH:', String(pending.out_trade_no))
       } catch (err) {
         return unavailable('pending-close', err)
       }
