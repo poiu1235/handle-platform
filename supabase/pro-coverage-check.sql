@@ -23,29 +23,38 @@
 delete from public.pro_ledger where payer_openid like 'PROCHECK%';
 
 -- ---------- fixture（14 行；revoked 行直接用 revoked_at 造，不用 UPDATE，保证可反复重跑） ----------
-insert into public.pro_ledger (provider, payer_openid, env, effective_at, duration_days, revoked_at) values
+insert into public.pro_ledger (provider, payer_openid, env, effective_at, duration_days, revoked_at, order_id) values
   -- 单档月卡：10-03 14:00 买 ⇒ 覆盖 10-03…11-01
-  ('wechat_mp', 'PROCHECK-M',  0, '2026-10-03 14:00+08', 30, null),
+  ('wechat_mp', 'PROCHECK-M',  0, '2026-10-03 14:00+08', 30, null, gen_random_uuid()),
   -- 接龙：11-01 当天续购（旧写法会让两档共用 11-01 ⇒ 合计只推 29 天）
-  ('wechat_mp', 'PROCHECK-J',  0, '2026-10-03 14:00+08', 30, null),
-  ('wechat_mp', 'PROCHECK-J',  0, '2026-11-01 14:00+08', 30, null),
+  ('wechat_mp', 'PROCHECK-J',  0, '2026-10-03 14:00+08', 30, null, gen_random_uuid()),
+  ('wechat_mp', 'PROCHECK-J',  0, '2026-11-01 14:00+08', 30, null, gen_random_uuid()),
   -- 到期之后再买：新周期从**付款时刻**起算（五矩阵"到期"那格），不接龙到 11-02
-  ('wechat_mp', 'PROCHECK-G',  0, '2026-10-03 14:00+08', 30, null),
-  ('wechat_mp', 'PROCHECK-G',  0, '2026-12-01 10:00+08', 30, null),
+  ('wechat_mp', 'PROCHECK-G',  0, '2026-10-03 14:00+08', 30, null, gen_random_uuid()),
+  ('wechat_mp', 'PROCHECK-G',  0, '2026-12-01 10:00+08', 30, null, gen_random_uuid()),
   -- 买两笔退第一笔（#11）：撤销行被排除 ⇒ 第二笔从**它自己的 effective_at** 起算
-  ('wechat_mp', 'PROCHECK-R',  0, '2026-10-03 14:00+08', 30, '2026-11-04 09:00+08'),
-  ('wechat_mp', 'PROCHECK-R',  0, '2026-10-30 14:00+08', 30, null),
+  ('wechat_mp', 'PROCHECK-R',  0, '2026-10-03 14:00+08', 30, '2026-11-04 09:00+08', gen_random_uuid()),
+  ('wechat_mp', 'PROCHECK-R',  0, '2026-10-30 14:00+08', 30, null, gen_random_uuid()),
   -- 同一对行的基线（两笔都在 ⇒ 接龙到 12-01）
-  ('wechat_mp', 'PROCHECK-R2', 0, '2026-10-03 14:00+08', 30, null),
-  ('wechat_mp', 'PROCHECK-R2', 0, '2026-10-30 14:00+08', 30, null),
+  ('wechat_mp', 'PROCHECK-R2', 0, '2026-10-03 14:00+08', 30, null, gen_random_uuid()),
+  ('wechat_mp', 'PROCHECK-R2', 0, '2026-10-30 14:00+08', 30, null, gen_random_uuid()),
   -- 全部撤销 ⇒ 与"无任何行"同形
-  ('wechat_mp', 'PROCHECK-AR', 0, '2026-10-03 14:00+08', 30, '2026-11-04 09:00+08'),
+  ('wechat_mp', 'PROCHECK-AR', 0, '2026-10-03 14:00+08', 30, '2026-11-04 09:00+08', gen_random_uuid()),
   -- env 隔离：同一个人沙箱单与现网单各一行
-  ('wechat_mp', 'PROCHECK-E0', 0, '2026-10-03 14:00+08', 30, null),
-  ('wechat_mp', 'PROCHECK-E1', 1, '2026-10-03 14:00+08', 30, null),
+  ('wechat_mp', 'PROCHECK-E0', 0, '2026-10-03 14:00+08', 30, null, gen_random_uuid()),
+  ('wechat_mp', 'PROCHECK-E1', 1, '2026-10-03 14:00+08', 30, null, gen_random_uuid()),
   -- 并发同秒两笔（D-2 撤锁后的形状：靠 effective_at, id 排序接龙，无双花）
-  ('wechat_mp', 'PROCHECK-S',  0, '2026-10-03 14:00+08', 30, null),
-  ('wechat_mp', 'PROCHECK-S',  0, '2026-10-03 14:00+08', 30, null);
+  ('wechat_mp', 'PROCHECK-S',  0, '2026-10-03 14:00+08', 30, null, gen_random_uuid()),
+  ('wechat_mp', 'PROCHECK-S',  0, '2026-10-03 14:00+08', 30, null, gen_random_uuid());
+
+-- ✅ E-16 判乙（2026-10-05）：`pro_ledger.order_id` 现在是 `not null unique`，上面每行都得自带
+--   `gen_random_uuid()`——**不能改成"插完再 update 补上"**：`INSERT` 在写入那一刻就撞 23502，等不到后面
+--   那句 UPDATE（这条是离线 PGlite 跑出来的，不是我推的：第一版就是这么写的，3.2 那格直接红）。
+--   为什么补假 uuid 而不是给每个夹具配一行真订单：本表按 D-2／4.6 **刻意不建 FK** ⇒ "有没有指向真单"
+--   从来不是库判据；而折叠只读 `effective_at`／`duration_days`／`revoked_at` 三列，`order_id` 对判定
+--   完全中性 ⇒ 夹具要的是"每行一个互不相同的非空值"（好让 unique 也顺带被走到），不是"能 join 回订单"。
+--   🔴 顺带一条自证：owner 2026-10-05 回读这张表时 14 行**全部** `order_id is null`，来源就是本文件
+--   改之前的那句 insert——"漏写"这个形状不是假想，它已经在库里存在过。
 
 -- ---------- 判定 ----------
 with cases(name, provider, openid, env, p_now, exp_covered, exp_until, exp_remaining, why) as (

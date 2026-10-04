@@ -134,10 +134,14 @@ create table if not exists public.pro_orders (
   --   amount_mismatch（无 ActualPrice）与 appid_mismatch／env_mismatch（推送不带这两个字段）
   --   在 R-9 证实前是**死分支**：枚举值保留，但代码里不得写对应判据（验收 #49）。
   --   "防沙箱单发真会员"的真实闸门是 env 列 + PRO_ENV，不是这里。
+  -- ✅ E-17 判丙（owner 2026-10-05）新增第六个**可命中**的值 `refunded_not_credited`：
+  --   主动查单回"平台已退款"而我方这张单从没入过账 ⇒ 既不能按 `closed` 关（那语义是"没付过"），
+  --   也不该把用户永久挡在门外。标这一档 + 建新单，A3 巡检看得见（它不是退款状态机：
+  --   不撤账、不写 `refunded`，那是 B4 的 `xpay_refund_notify` 那一支）。
   anomaly_reason   text        check (anomaly_reason is null or anomaly_reason in (
                                  'amount_mismatch', 'product_mismatch', 'openid_mismatch',
                                  'appid_mismatch', 'env_mismatch', 'sign_invalid',
-                                 'no_such_order', 'orphan')),
+                                 'no_such_order', 'orphan', 'refunded_not_credited')),
 
   "operator"       text,                                          -- 人工把 anomaly 翻成 paid／补写账本必须留痕（引号原因见第 0 节）
   note             text,
@@ -187,7 +191,14 @@ create table if not exists public.pro_ledger (
   payer_openid  text        not null,
 
   -- 🔴 这个 unique 把"已退款的单被回调重放"做成库约束（比"记得判一下 refunded_at"可靠）。
-  order_id      uuid        unique,
+  -- ✅ E-16 判乙（owner 2026-10-05）：从 `uuid null` 改成 **not null**。理由是 Postgres 的
+  --   `unique` 对多行 NULL **不设防** ⇒ "该写没写"这一类失误原形状挡不住，而漏写的后果是
+  --   三样同时失效：双入账闸门、B4 撤账的寻址、6.5 对账口径（`pro-ops.sql` 把 `order_id is null`
+  --   算作真单）。⚠️ 这条约束**只**关"漏写"这一格：本表按 D-2／4.6 刻意不建 FK ⇒
+  --   "写了一个不存在的 order_id"仍然只能靠"只有 `proStore.insertLedgerRow` 能写"这条入口约束兜。
+  --   实证：2026-10-05 回读这张表，14 行**全部** `order_id is null`，来源就是本目录
+  --   `pro-coverage-check.sql` 第 26 行那句没带这一列的 insert——漏写的形状已被自己的核对脚本跑出来过。
+  order_id      uuid        not null unique,
 
   -- 记"当初由哪个账号下的单"。🔴 只用于 4.7 那句"暂未生效"的展示判断，**不参与权益判定**
   -- ——一旦参与就变回邮箱锚。不建 FK。

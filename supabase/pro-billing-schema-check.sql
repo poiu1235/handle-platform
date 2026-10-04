@@ -1,7 +1,7 @@
 -- ============================================================================
 -- pro-billing-schema-check.sql · 只读 · 当前库与 pro-billing.sql 的结构一致性核对
 --
--- 用法：Supabase SQL Editor 整体执行，**一条语句出一份表**（12 行 + 1 行总判定）。
+-- 用法：Supabase SQL Editor 整体执行，**一条语句出一份表**（13 行 + 1 行总判定）。
 --   status = PASS ⇒ 该项与 pro-billing.sql 的设计一致；
 --   status = FAIL ⇒ 看 detail 与 actual 列，actual 给库里现值。
 -- 全部 SELECT，零写入、零 DDL，可随时重跑；不建表 ⇒ 不会触发"Potential issue detected"弹窗。
@@ -174,6 +174,19 @@ s11 as (
   left join information_schema.columns x
     on x.table_schema = 'public' and x.table_name = 'identity_unbinds' and x.column_name = e.c
 ),
+s12 as (
+  -- E-16 判乙／E-17 判丙之后的两条形状（迁移文件＝pro-billing-e16-e17-migration.sql）
+  -- ⚠️ 不用 'x'::regclass（本文件头部那条口径：按名字解析对象缺失时会抛错且不带 LINE）
+  select
+    coalesce((select x.is_nullable from information_schema.columns x
+               where x.table_schema = 'public' and x.table_name = 'pro_ledger' and x.column_name = 'order_id'),
+              '（列不存在）') as nn,
+    (select count(*) from pg_constraint c
+      where c.conname = 'pro_orders_anomaly_reason_check'
+        and c.conrelid = (select oid from pg_class
+                           where relname = 'pro_orders' and relnamespace = 'public'::regnamespace)
+        and pg_get_constraintdef(c.oid) like '%refunded_not_credited%') as has_reason
+),
 s11b as (
   select bool_and(x.conname is not null) as ok,
          coalesce(string_agg(e.c || case when x.conname is null then '（缺）' else '（ok）' end,
@@ -185,7 +198,7 @@ s11b as (
                       where relname = 'identity_unbinds' and relnamespace = 'public'::regnamespace)
 ),
 
--- ── 十二行判定（每行一项，一次全出） ─────────────────────────────────────
+-- ── 十三行判定（每行一项，一次全出） ─────────────────────────────────────
 rows_ as (
   select '01 表存在'::text as item, '三张表都在 public 下'::text as expected,
          coalesce(nullif(s01.got, ''), '三张表都在')::text as actual,
@@ -240,6 +253,13 @@ rows_ as (
   select '11b 留痕约束', '两条 "operator 非空 ⇒ 该项必填" 的 CHECK 都在', s11b.got,
          case when s11b.ok then 'PASS' else 'FAIL' end,
          '抓得住"写了流水但字段空"；抓不住"根本没写流水就删了行"——后者只有 pro-manual-unbind.sql 的模板与 4.8 路径清点能管（验收 #34）' from s11b
+  union all
+  select '12 账本 order_id 必填 ＋ anomaly 枚举含新值',
+         'pro_ledger.order_id 的 is_nullable＝NO，且 CHECK 认 refunded_not_credited',
+         'is_nullable=' || s12.nn || '；新值' || case when s12.has_reason = 1 then '在' else '不在' end,
+         case when s12.nn = 'NO' and s12.has_reason = 1 then 'PASS' else 'FAIL' end,
+         '✅ E-16 判乙／E-17 判丙（2026-10-05）。⚠️ **迁移前这一项本该 FAIL**——那不是回归，是"还没跑 pro-billing-e16-e17-migration.sql"。'
+         || '买到的只有"漏写这一列会被库拒"；没买到"写的 order_id 指向真单"（本表刻意不建 FK，那一半仍是入口约束）' from s12
 )
 
 -- 🔴 UNION 的 ORDER BY 只许用结果列名，不许用表达式（0A000：Only result column names can be
@@ -247,7 +267,7 @@ rows_ as (
 select * from (
   select item, expected, actual, status, detail from rows_
   union all
-  select '99 总判定'::text, '12 项全 PASS'::text,
+  select '99 总判定'::text, '13 项全 PASS'::text,
          ((select count(*)::text from rows_) || ' 项里 FAIL ' ||
           (select count(*)::text from rows_ where status = 'FAIL'))::text,
          (case when (select count(*) from rows_ where status = 'FAIL') = 0
