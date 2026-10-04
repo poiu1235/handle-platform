@@ -23,28 +23,48 @@
 
 -- ① 清掉核对脚本留下的夹具行（它们没有 order_id，会挡住 set not null）。
 --    🔴 只按 PROCHECK 前缀删，不碰 FIXTURE- 那批真账号夹具、更不碰任何有 order_id 的行。
-delete from public.pro_ledger
- where order_id is null and payer_openid like 'PROCHECK%';
+-- 🔴 三条改动包在**一个 DO 块**里（2026-10-05 改的，理由是工具的呈现行为）：
+--   Supabase SQL Editor **只显示最后一条语句的结果** ⇒ 四条独立语句时，中途某条失败，
+--   屏幕上看到的仍是末尾那份证据表，"跑过了"与"跑砸了"长得一样（同 [[supabase-editor-rls-if-not-exists]]
+--   那条：核对脚本要合成一条语句）。DO 块是一条语句 ⇒ 要么三条全成、要么整块回滚并把错误抛给你看。
+--   末尾那句证据 SELECT 保持独立（它是唯一需要"看得见"的输出）。
+do $mig$
+begin
+  -- ① 清掉核对脚本留下的夹具行（它们没有 order_id，会挡住 set not null）。
+  --    🔴 只按 PROCHECK 前缀删，不碰 FIXTURE- 那批真账号夹具、更不碰任何有 order_id 的行。
+  delete from public.pro_ledger
+   where order_id is null and payer_openid like 'PROCHECK%';
 
--- ② E-16 判乙：这一列从此必填。
-alter table public.pro_ledger alter column order_id set not null;
+  -- ② E-16 判乙：这一列从此必填。
+  execute 'alter table public.pro_ledger alter column order_id set not null';
 
--- ③ E-17 判丙：主动查单回"平台已退款"而我方从未入账 ⇒ 旧单标 anomaly（不是 closed、也不是 refunded），
---    所以 CHECK 要认这个值。原约束是列内联定义的，自动名就是 pro_orders_anomaly_reason_check。
-alter table public.pro_orders drop constraint if exists pro_orders_anomaly_reason_check;
-alter table public.pro_orders add constraint pro_orders_anomaly_reason_check
-  check (anomaly_reason is null or anomaly_reason in (
-    'amount_mismatch', 'product_mismatch', 'openid_mismatch',
-    'appid_mismatch', 'env_mismatch', 'sign_invalid',
-    'no_such_order', 'orphan', 'refunded_not_credited'));
+  -- ③ E-17 判丙：主动查单回"平台已退款"而我方从未入账 ⇒ 旧单标 anomaly（不是 closed、也不是 refunded），
+  --    所以 CHECK 要认这个值。原约束是列内联定义的，自动名就是 pro_orders_anomaly_reason_check。
+  execute 'alter table public.pro_orders drop constraint if exists pro_orders_anomaly_reason_check';
+  execute $ddl$
+    alter table public.pro_orders add constraint pro_orders_anomaly_reason_check
+    check (anomaly_reason is null or anomaly_reason in (
+      'amount_mismatch', 'product_mismatch', 'openid_mismatch',
+      'appid_mismatch', 'env_mismatch', 'sign_invalid',
+      'no_such_order', 'orphan', 'refunded_not_credited'))
+  $ddl$;
+end
+$mig$;
 
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 证据（🔴 必须是最后一句：Supabase SQL Editor 只显示最后一条语句的结果）
--- 期望：**六行全 PASS**。任何一行 FAIL 都别往下走（尤其 ③④ 关系着 B4 撤账找不找得到行）。
+-- 期望：**七行里没有一行 FAIL**。任何一行 FAIL 都别往下走（尤其 ③④ 关系着 B4 撤账找不找得到行）。
+-- ⓪ 这一行专门用来回答"上面那块到底跑没跑"：没跑 ⇒ ①②④ 会一起红。
 -- ────────────────────────────────────────────────────────────────────────────
-select '① order_id 已是 not null' as 检查项,
-       case when is_nullable = 'NO' then 'PASS' else 'FAIL 仍是 ' || is_nullable end as 结果
+select '⓪ 迁移到底跑没跑（看形状，不看屏幕有没有报错）' as 检查项,
+       case when (select x.is_nullable from information_schema.columns x
+                   where x.table_schema = 'public' and x.table_name = 'pro_ledger' and x.column_name = 'order_id') = 'NO'
+            then 'PASS 跑了'
+            else 'FAIL 没跑：order_id 仍可空 ⇒ 上面那个 DO 块没执行（或执行失败被回滚）' end as 结果
+union all
+select '① order_id 已是 not null',
+       case when is_nullable = 'NO' then 'PASS' else 'FAIL 仍是 ' || is_nullable end
   from information_schema.columns
  where table_schema = 'public' and table_name = 'pro_ledger' and column_name = 'order_id'
 union all
