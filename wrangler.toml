@@ -36,7 +36,10 @@ PRO_ENV = "0"
 #     · 非空 ＝ 内测形态：正常档也只对名单内可见，测试档同样只给名单内。
 #   名单里放的是 openid（伪匿名串，不是密钥），但它决定"谁能花几分钱买会员"⇒ 改动只走这里，
 #   不许有端上副本、不许从请求里接收（8.3 第 1 条）。
-PRO_TEST_OPENIDS = ""
+# 🔴 下面这两个是**自测账号**（2365352545＝会员夹具号、304738837＝压墙数据号）。
+#   非空＝内测形态：正常档也只对这两个人可见 ⇒ **对外发布前必须清空**（正本 E-13／6.5 上线顺序①）。
+#   值取自 user_identities（Table Editor 可直接看到），不是端上能改的东西。
+PRO_TEST_OPENIDS = "ob9w-3fSO7EjTCQTM2JyHacr2RsU,ob9w-3d6Ok8TsGaNSeu4nEWgzIiA"
 # 虚拟支付的支付应用 ID（signData.offerId，6.3）。🔴 它不是密钥——它会随 signData 出现在端上，
 # 与 AppID 同级（后台「虚拟支付 → 基本配置」那页本来就展示给开发者）。
 # 但也不能填错：`offerId` 与 `goodsPrice` 都是 paySig 的组成部分 ⇒ 与后台发布的道具不一致，
