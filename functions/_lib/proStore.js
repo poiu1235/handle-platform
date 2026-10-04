@@ -156,7 +156,7 @@ export async function getOrderRow(env, outTradeNo) {
   const res = await serviceRoleFetch(
     env,
     `${ORDERS}?select=id,user_id,provider,payer_openid,product_id,goods_price,currency_type,env,` +
-      `buy_quantity,status,paid_at,wx_order_id,out_trade_no,created_at,expires_at,is_duplicate,paid_after_close` +
+      `buy_quantity,status,paid_at,wx_order_id,out_trade_no,created_at,expires_at,is_duplicate,paid_after_close,anomaly_reason` +
       `&out_trade_no=eq.${encodeURIComponent(outTradeNo)}&limit=1`,
   )
   if (!res.ok) throw fail('pro_order_lookup_failed', res.status, JSON.stringify(res.data))
@@ -164,6 +164,30 @@ export async function getOrderRow(env, outTradeNo) {
   return rows[0] || null
 }
 
+/**
+ * 把一张 pending 标成 `anomaly`（✅ E-17 判丙，owner 2026-10-05）。
+ * 目前唯一的使用场景：主动查单回"平台已退款"而我方这张单从没入过账。那一支既不能走 `closed`
+ * （语义是"没付过"，而它付过又退了），也不该把用户永久挡在门外（409 是死循环：那张单永远
+ * 停在 pending、每次查单永远回 refunded）。
+ * 🔴 三条边界：
+ *   · 这**不是**退款状态机：不写 `refunded`、不动账本、不撤权益——那些是 B4 的
+ *     `xpay_refund_notify` 那一支（D-22）。这里只做一件事：把"钱与货对不上"这件事落到
+ *     一个 A3 巡检看得见的状态上（`pro-ops.sql` 的 A3 就是 `where status='anomaly'`）。
+ *   · 过滤条件与 `closePendingOrder` 同形（`status=eq.pending`）：与轮询／推送撞车时匹配 0 行，
+ *     绝不把已付单改成 anomaly。
+ *   · `anomaly_reason` 必须是库侧 CHECK 认的九个值之一（`refunded_not_credited` 是本次新加的，
+ *     见 `supabase/pro-billing-e16-e17-migration.sql`）。写错值不是"日志里看不见"，是 23514 冒出来。
+ */
+export async function markOrderAnomaly(env, outTradeNo, { reason, note }) {
+  const body = { status: 'anomaly', anomaly_reason: String(reason), updated_at: new Date().toISOString() }
+  if (note) body.note = String(note)
+  const res = await serviceRoleFetch(env, `${ORDERS}?out_trade_no=eq.${encodeURIComponent(outTradeNo)}&status=eq.pending`, {
+    method: 'PATCH',
+    body,
+  })
+  if (!res.ok) throw fail('pro_order_mark_anomaly_failed', res.status, JSON.stringify(res.data))
+  return true
+}
 /**
  * 把一张 pending 置 `closed`（4.5 前置④"换档／过期"那一支；✅ E-14 判乙 ⇒ 现在**先查单**、
  * 查得未付才调它，见 `proCredit.queryOrderState` 在下单端点里的那一支）。

@@ -30,7 +30,7 @@ import { json } from '../../../_lib/supabase.js'
 import { serviceRoleFetch } from '../../../_lib/userAuth.js'
 import { readProFlags, getAccountOpenid, getCoverageByOpenid, RENEW_WINDOW_DAYS, PROVIDER } from '../../../_lib/proCoverage.js'
 import { catalogEntry, sellableProducts, testAllowed, canBuyNormalTier } from '../../../_lib/proCatalog.js'
-import { findPendingOrder, closePendingOrder, insertOrder, listOrdersByOpenid } from '../../../_lib/proStore.js'
+import { findPendingOrder, closePendingOrder, markOrderAnomaly, insertOrder, listOrdersByOpenid } from '../../../_lib/proStore.js'
 import { queryOrderState } from '../../../_lib/proCredit.js'
 import { code2sessionKey, buildPayPayload, makeOutTradeNo, toClientPayParams } from '../../../_lib/proPaySign.js'
 import { wxTicketResponse } from '../../../_lib/wxTicket.js'
@@ -245,18 +245,21 @@ export async function onRequestPost(context) {
       )
     }
     if (st.outcome === 'refunded') {
-      // 平台说这单退过了，而我方这边它还是一张 pending（从没入过账）。
-      // 🔴 这里既不关也不建：把一张"平台口径已退款"的单按我方口径置 closed，等于在没有
-      //   退款状态写路径（那是 B4：`markOrderRefunded` + `xpay_refund_notify`）的时候伪造状态列。
-      //   文案也不能沿用上面那句"权益正在生效"——那一支的前提是钱在我们账上，这里恰恰相反。
-      return json(
-        {
-          error: '你上一笔订单已退款，请稍后再试，或联系在线客服确认。',
-          code: 'previous_order_refunded',
-          orderNo: String(pending.out_trade_no),
-        },
-        409,
-      )
+      // ✅ E-17 判丙（owner 2026-10-05）：平台说这单退过了而我方从没入过账 ⇒ 标 `anomaly` 后**继续建新单**。
+      // 为什么不是 409（我上一版的落地）：那张单会永远停在 pending、每次查单永远回 refunded ⇒
+      //   这个人在这个微信上再也买不了任何东西，出路只剩人工进库。
+      // 为什么不是 `closed`：`closed` 的语义是"没付过"，而它付过又退了——那是伪造状态列。
+      // 🔴 这一步是**建新单的前置**而不是"顺手记一笔"：旧单不改掉，partial unique index
+      //   （同 openid 至多一行 pending）会直接把新单挡下来 ⇒ 所以它失败时不许继续，回 503。
+      //   这也不是退款状态机：不写 `refunded`、不动账本（那是 B4 的 `xpay_refund_notify`，D-22）。
+      try {
+        await markOrderAnomaly(env, String(pending.out_trade_no), {
+          reason: 'refunded_not_credited',
+          note: '主动查单回"平台已退款"而我方未入账；旧单标异常后放行新单（E-17 判丙）',
+        })
+      } catch (err) {
+        return unavailable('pending-anomaly', err)
+      }
     }
     if (st.outcome === 'query_error') {
       // 判不出 ⇒ 既不关也不建（与 4.5 三态表同源：**没查到不等于没付**）
@@ -264,10 +267,16 @@ export async function onRequestPost(context) {
     }
     // unpaid / closed / not_found ⇒ 可以关旧建新。PATCH 带 `status=eq.pending`：
     // 与轮询撞上时（旧单刚被记成 paid）匹配 0 行 ⇒ 不会把已付单改回未付。
-    try {
-      await closePendingOrder(env, String(pending.out_trade_no))
-    } catch (err) {
-      return unavailable('pending-close', err)
+    // 🔴 `refunded` 那一支**不进这里**：它上面已经把旧单标成 anomaly 了，再关一次等于
+    //   先写"这单有问题、要人看"、又写"这单没付过"——两个互相矛盾的状态。
+    //   （真跑到这里也不会改到行：过滤是 status=eq.pending，而那行已是 anomaly ⇒ 匹配 0 次。
+    //    但"靠上游状态恰好挡住"不是判据，所以显式跳过。）
+    if (st.outcome !== 'refunded') {
+      try {
+        await closePendingOrder(env, String(pending.out_trade_no))
+      } catch (err) {
+        return unavailable('pending-close', err)
+      }
     }
   }
 

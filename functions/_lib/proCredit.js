@@ -26,6 +26,7 @@ import { getCoverageByOpenid, readProFlags, RENEW_WINDOW_DAYS, PROVIDER } from '
  * @returns {outcome, ...} —— outcome 是**给调用方决定应答用的枚举**，不是布尔：
  *   `credited` 本次入账｜`already` 早就入过（幂等成功）｜`unpaid` 平台说没付｜
  *   `closed` 平台说这单已关闭｜`refunded` 平台说已退款（而我们没入账 ⇒ 异常）｜
+ *   `anomaly_held` 这张单在我方已是 `anomaly` ⇒ 🔴 拒绝复活（4.5 第 3 步），出边只有人工；
  *   `not_found` 平台查无此单｜`no_local_order` 我方库里没这单｜
  *   `query_error` 查单本身没成功（含网络）｜`product_missing` 道具期限查不到｜`bad_order` 行数据不可用
  */
@@ -44,6 +45,11 @@ export async function creditOrder(env, outTradeNo, { fetchImpl } = {}) {
   if (row.status === 'paid' || row.status === 'refunded') {
     return await ensureLedgerForPaidRow(env, row, { queried: false })
   }
+  // 🔴 4.5 第 3 步"拒绝复活"：`anomaly` 的单不许由任何自动触发源入账（它的出边只有人工，
+  //   且必须留 `operator`／`note`）。这一支从今天起是**可达**的：E-17 判丙之后，
+  //   "平台已退款而我方未入账"的旧单会被标成 `anomaly`——如果这里不挡，下一次轮询就会
+  //   拿一张人工还没看过的单去查平台、查得已付便直接发权益，把 4.5 第 7 步那条出边规则绕过。
+  if (row.status === 'anomaly') return { outcome: 'anomaly_held', reason: row.anomaly_reason || null }
 
   if (!row.payer_openid) return { outcome: 'bad_order', reason: 'no_payer_openid' }
   // 🔴 读不到主键 ⇒ 不入账。缺 order_id 的账本行是**三样东西同时失效**：unique 闸门（Postgres 的

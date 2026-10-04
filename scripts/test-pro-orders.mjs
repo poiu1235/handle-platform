@@ -109,6 +109,11 @@ const writes = () => calls.filter((c) => c.url.includes('/rest/v1/pro_orders') &
 const insertCalls = () => calls.filter((c) => c.url.includes('/rest/v1/pro_orders') && c.method === 'POST')
 const patchCalls = () => calls.filter((c) => c.url.includes('/rest/v1/pro_orders') && c.method === 'PATCH')
 const codeConsumed = () => calls.filter((c) => c.url.includes('jscode2session')).length
+// 🔴 与 test-pro-credit 同一条纪律：取"第 N 次调用"要给一个**看得见的缺调用哨兵**，
+//   否则"那次写根本没发生"会把整个脚本崩掉（红格一个都看不见），而不是让那一格红。
+const MISSING = '‹没有那次调用›'
+const bodyAt = (list, i = 0) => (list[i] ? list[i].body : MISSING)
+const urlAt = (list, i = 0) => (list[i] ? list[i].url : MISSING)
 
 // ── 1. 关态与脏请求：零次数据库、零次出网（8.3 第 1 条＋探测四笔账）──────────
 reset()
@@ -318,8 +323,17 @@ reset()
 stub.pendingRows = [pendingRow({ product_id: 'yearly_mem_android' })]
 stub.queryBody = { errcode: 0, errmsg: 'ok', order: { status: 5 } }
 r = await run(good())
-check('8.5d 平台说上一笔已退款 ⇒ 409 previous_order_refunded，文案不能说"权益正在生效"', [r.status, r.body.code, /正在生效/.test(r.body.error)], [409, 'previous_order_refunded', false])
-check('8.5e 🔴 同样零写：不把"平台已退"的单按我方口径改成 closed（退款状态列是 B4 的）', [patchCalls().length, insertCalls().length], [0, 0])
+check('8.5d ✅ E-17 判丙：平台说已退款 ⇒ 旧单标 anomaly 后**放行新单**（不再 409 把人永久挡死）', [r.status, r.body.reused, queryCalls().length, patchCalls().length, insertCalls().length], [200, false, 1, 1, 1])
+check('8.5e 🔴 标的值是 anomaly + refunded_not_credited，绝不是 closed（closed 的语义是"没付过"）', [bodyAt(patchCalls()).status, bodyAt(patchCalls()).anomaly_reason], ['anomaly', 'refunded_not_credited'])
+check('8.5f 留痕写进 note（A3 巡检那一条要能看出这是谁、为什么）', String(bodyAt(patchCalls()).note).includes('未入账'), true)
+check('8.5g 与关旧建新同一条过滤：status=eq.pending（撞车时匹配 0 行，不改已付单）', urlAt(patchCalls()).includes('status=eq.pending'), true)
+check('8.5h 🔴 这一支不许出现第二次写、更不许出现 status:closed（先标 anomaly 再关＝两个互相矛盾的状态）', [patchCalls().length, patchCalls().some((c) => c.body && c.body.status === 'closed')], [1, false])
+reset()
+stub.pendingRows = [pendingRow({ product_id: 'yearly_mem_android' })]
+stub.queryBody = { errcode: 0, errmsg: 'ok', order: { status: 5 } }
+stub.patchStatus = 500
+r = await run(good())
+check('8.5i 🔴 标 anomaly 失败 ⇒ 503 且**不建新单**（旧单还是 pending，partial unique 会把它挡下来；先改旧再建新不是"顺手记一笔"）', [r.status, r.body.code, insertCalls().length], [503, 'pro_unavailable', 0])
 
 reset()
 stub.pendingRows = [pendingRow({ product_id: 'yearly_mem_android' })]

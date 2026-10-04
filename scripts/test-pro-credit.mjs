@@ -263,6 +263,17 @@ res = await credit()
 check('5.8 我方已 closed、平台说付了 ⇒ 入账，并把 paid_after_close 落列（不落就统计不到）', [res.outcome, bodyAt(orderPatches()).paid_after_close], ['credited', true])
 check('5.9 closed 能进这道闸，靠的是 PATCH 过滤里带着 closed', urlAt(orderPatches()).includes('%27closed%27'), true)
 
+// 🔴 E-17 判丙之后 `anomaly` 这一档从"只可能人工写"变成"我方代码会写"（平台已退款而我方未入账），
+//   于是 4.5 第 3 步那句"拒绝复活"第一次有了真实的入口：任何自动触发源都不许把它读成"再查一次就发了"。
+reset()
+stub.orderRow = orderRow({ status: 'anomaly', anomaly_reason: 'refunded_not_credited' })
+res = await credit()
+check('5.10 anomaly 单 ⇒ anomaly_held：不查平台、不写库（出边只有人工，且必须留 operator/note）', [res.outcome, res.reason, queryCalls().length, writes().length], ['anomaly_held', 'refunded_not_credited', 0, 0])
+reset()
+stub.orderRow = orderRow({ status: 'anomaly', anomaly_reason: null })
+res = await credit()
+check('5.11 没有 anomaly_reason 的 anomaly 行同样拒绝复活（reason 回 null，不猜）', [res.outcome, res.reason], ['anomaly_held', null])
+
 // ── 6. 幂等与半失败 ────────────────────────────────────────────────────────
 reset()
 stub.ledgerInsertStatus = 409
