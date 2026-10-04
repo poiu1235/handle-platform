@@ -135,6 +135,17 @@ check('5.8 268490001 原样透出（rid 留着，报给微信排障要用）', [
 check('5.9 meaning 把它归到"签名与凭证已过"那一层，而不是笼统"失败"', pb.meaning.includes('access_token 都已通过'), true)
 check('5.10 同一支里写明"主体权限仍未判死"（防下一轮过度解读）', pb.meaning.includes('仍未判死'), true)
 
+// 5.11–5.13 🔴 第二跑（真 openid）：`268490002 数据不存在` ⇒ ⑱ 的答案。
+// ⚠️ 顺手记一条与文档不符的事实：错误码表把 268490002 写成"请求参数字段错误"，
+//    实测回的 errmsg 是"数据不存在"⇒ 这一码的语义按 errmsg 读，别按文档读（判据 5.13 钉的就是这句）。
+calls = []
+wxErr = { errcode: 268490002, errmsg: '数据不存在 rid: 6ac26837' }
+pb = await (await probe.onRequestGet({ request: req('?key=right&openid=ob9w-real'), env: { ...env, PROBE_TOKEN: 'right' } })).json()
+check('5.11 真 openid 不再报 268490001（openid 归属那一关过了）', pb.errcode, 268490002)
+check('5.12 meaning 把它读成"查无此单"，并给出"接口对个人主体可用"的结论', [pb.meaning.includes('查无此单'), pb.meaning.includes('个人主体可用')], [true, true])
+check('5.13 meaning 里明写"文档把这一码说成参数字段错，与实测不符"（防我按文档实现）', pb.meaning.includes('与实测不符'), true)
+check('5.14 传进来的 openid 原样出现在 sent 里（探针可指定，不用改代码再部署）', JSON.parse(pb.sent).openid, 'ob9w-real')
+
 // ── 6. 静态门：HMAC 只有一份、诊断件必须带守卫 ──────────────────────────────
 const fnDir = path.join(root, 'functions')
 const walk = (d, out = []) => {
