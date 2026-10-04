@@ -115,7 +115,7 @@ calls = []
 wxErr = { errcode: 0, errmsg: 'ok', order: { order_id: 'x', status: 4, paid_time: 1, paid_fee: 1 } }
 pr = await probe.onRequestGet({ request: req('?key=right'), env: { ...env, PROBE_TOKEN: 'right' } })
 let pb = await pr.json()
-check('5.4 口令对 ⇒ 200，判读字段齐', [pr.status, pb.verdict, pb.errcode, Array.isArray(pb.orderKeys)], [200, 'callable', 0, true])
+check('5.4 口令对 ⇒ 200，判读字段齐（含 meaning）', [pr.status, pb.verdict, pb.errcode, Array.isArray(pb.orderKeys), typeof pb.meaning], [200, 'callable', 0, true, 'string'])
 check('5.5 🔴 回包里没有 access_token 与 AppKey 的值', [JSON.stringify(pb).includes('TOKEN-abc'), JSON.stringify(pb).includes('"k1"')], [false, false])
 check('5.6 假单号与真单号同形（T+13位+8hex）⇒ 查不到才是"查无此单"，不是"格式错"', /^T\d{13}[0-9a-f]{8}$/.test(JSON.parse(pb.sent).order_id), true)
 
@@ -123,6 +123,17 @@ calls = []
 wxErr = { errcode: 48001, errmsg: 'api unauthorized' }
 pb = await (await probe.onRequestGet({ request: req('?key=right'), env: { ...env, PROBE_TOKEN: 'right' } })).json()
 check('5.7 48001 原样透出（⑱ 的"不可用"那一支就是靠它判）', [pb.verdict, pb.errcode], ['see errcode', 48001])
+check('5.7b meaning 归到"接口没权限"那一层，并指回 4.5 重判', pb.meaning.includes('重判 4.5'), true)
+
+// 5.8–5.10 🔴 现网 2026-10-04 真回过的那一支：`268490001 openid错误`。
+// 判据的重点不是"错了"，而是**错在哪一层**：能报 openid 错，说明 access_token 与 pay_sig 都过了
+// ——这一条要是被读成"探针失败"，就等于白扔了一次已经证到"签名算法正确"的调用。
+calls = []
+wxErr = { errcode: 268490001, errmsg: 'openid错误 rid: 6ac25f67-10929f10-11872562' }
+pb = await (await probe.onRequestGet({ request: req('?key=right'), env: { ...env, PROBE_TOKEN: 'right' } })).json()
+check('5.8 268490001 原样透出（rid 留着，报给微信排障要用）', [pb.errcode, pb.errmsg.includes('rid:')], [268490001, true])
+check('5.9 meaning 把它归到"签名与凭证已过"那一层，而不是笼统"失败"', pb.meaning.includes('access_token 都已通过'), true)
+check('5.10 同一支里写明"主体权限仍未判死"（防下一轮过度解读）', pb.meaning.includes('仍未判死'), true)
 
 // ── 6. 静态门：HMAC 只有一份、诊断件必须带守卫 ──────────────────────────────
 const fnDir = path.join(root, 'functions')

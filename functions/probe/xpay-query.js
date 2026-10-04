@@ -9,12 +9,10 @@
 // 如果这个接口对我们根本不可用，那条规则就没有实现路径，要回来重判入账依据——
 // 这件事比字段形状大得多，不该等到 B3-3 写到一半才发现。
 //
-// 判读（把回包贴回对话即可，别只说"失败了"）：
-//   · `errcode:0` 且带 `order`（哪怕是假单号查出来的空/错）⇒ **接口可用**，签名也对 ⇒ 直接进 B3-3
-//   · `268490003 签名错误` ⇒ 接口可用但我们的 `pay_sig` 算法/uri 形状不对（`sent` 字段能看出签的是什么串）
-//   · `48001`／`48002`／errmsg 里出现 "no authority"/"api unauthorized" ⇒ **个人主体调不了** ⇒ 回来重判 4.5
-//   · `token_40164` ⇒ IP 白名单问题（去后台加 CF 出口段），与接口权限无关，别误读成上一条
-//   · `token_40013/40125` ⇒ WX_APPID/WX_SECRET 配错
+// 判读：见下面 `MEANINGS` 那张表（2026-10-04 现网跑过第一次之后补的：当时回 `268490001 openid错误`，
+// 我原先的注释里没有这一支，很容易把"签名与凭证都过了"这条重要信息读成"失败了"）。
+// 🔴 回包请整包贴回对话（含 `rid`），别只说"失败了"——错误码出自哪一层，决定了下一步是改签名、
+//   改配置还是重判 4.5。
 //
 // 守卫：只有一个——`?key=` 必须等于 secret `PROBE_TOKEN`。没配这个 secret ⇒ 本路由直接 503，
 // 也就是"默认关着"（fail-closed，与 `wxTicket.js` 那条"配置缺失只能是拒绝"同一族）。
@@ -28,6 +26,29 @@ import { xpayQueryOrder } from '../_lib/proXpay.js'
 // 为什么要同形：只有"格式合法的单号查不到"才等于"查无此单"那一档；随手写个 `PROBE-XXX`
 // 会先撞 `268490002 请求参数字段错误`，于是这一趟探针什么也没判出来（还看起来像判到了）。
 const FAKE_ORDER_ID = 'T1700000000000ffffffff'
+
+// 判读表（2026-10-04 现网第一次跑之后加的——那一趟回的是 `268490001 openid错误`，
+// 而我原来的注释里没有这一支，差点把"签名与凭证都过了"这条重要信息读丢）。
+// 🔴 关键是分清**错误出自哪一层**：网关层（token／权限）→ 签名层 → 业务参数层 → 业务规则层。
+//   越往里走，证明的东西越多：能报"openid 错"就说明前两关都过了。
+const MEANINGS = {
+  0: '接口可用，签名与凭证都对（order 为 null 也属正常：假单号查不到东西）',
+  268490001: '🟢 **签名与 access_token 都已通过**，错在最外层的业务参数（openid）⇒ 接口对我们这个 appid 有路由；但"个人主体是否被允许"仍未判死（openid 校验可能在权限校验之前）⇒ 用**真 openid** 再打一次',
+  268490002: '🟢 同上（参数字段错）⇒ 签名/凭证已过，是字段名或取值不对：把 sent 贴回来对文档',
+  268490003: '🔴 签名错 ⇒ 算法或 uri 形状不对（sent 就是我们签出去的那个串，逐字对一下）',
+  268490015: '频率限制 ⇒ 别连打，隔一会儿再试',
+  48001: '🔴 api unauthorized ⇒ 个人主体调不了这个接口，回来重判 4.5 的入账依据',
+  48002: '🔴 同上（接口权限类）',
+  40001: 'access_token 无效（token_ 前缀那一支）⇒ 检查刚取到的 token 是否被别的调用顶掉了',
+  42001: 'access_token 过期 ⇒ 重新取一次',
+}
+function meaningOf(errcode) {
+  if (MEANINGS[errcode]) return MEANINGS[errcode]
+  if (typeof errcode === 'string' && errcode.startsWith('token_')) {
+    return '🔴 没打到接口：access_token 那一步就失败了（40164＝去后台加 CF 出口 IP 白名单；40013/40125＝WX_APPID/WX_SECRET 配错）——这一支**不能**读成"接口没权限"'
+  }
+  return '未列出的错误码 ⇒ 原样贴回 errmsg（含 rid）由人判，别猜'
+}
 
 function timingSafeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false
@@ -75,6 +96,7 @@ export async function onRequestGet(context) {
     errcode: r.errcode,
     errmsg: r.errmsg,
     httpStatus: r.status,
+    meaning: meaningOf(r.errcode),
     sent: r.sent,
     orderKeys: order ? Object.keys(order) : null,
     orderSample: order,
