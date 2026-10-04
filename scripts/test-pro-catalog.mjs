@@ -18,13 +18,24 @@ const check = (name, got, want) => results.push({ name, ok: JSON.stringify(got) 
 
 const cat = await import(pathToFileURL(path.join(root, 'functions/_lib/proCatalog.js')).href)
 
-// ── 1. 配置本体 ─────────────────────────────────────────────────────────────
-check('1.1 三档都在表里', Object.keys(cat.CATALOG).sort(), ['pro_month', 'pro_test_day', 'pro_year'])
-check('1.2 期限＝30／365／1（D-6 已判维持 30/365）', ['pro_month', 'pro_year', 'pro_test_day'].map((p) => cat.durationDaysFor(p)), [30, 365, 1])
-check('1.3 测试档 onSale=false（不进在售列表）', cat.catalogEntry('pro_test_day').onSale, false)
-check('1.4 正常档 onSale=true', [cat.catalogEntry('pro_month').onSale, cat.catalogEntry('pro_year').onSale], [true, true])
-check('1.5 未知 productId ⇒ null（下单侧据此拒，不许兜底成月卡）', [cat.catalogEntry('pro_week'), cat.durationDaysFor('nope')], [null, null])
-check('1.6 价格单位＝分且是整数（6.3 实证 goodsPrice 单位）', Object.values(cat.CATALOG).every((e) => Number.isInteger(e.goodsPrice) && e.goodsPrice > 0), true)
+// ── 1. 配置本体（id 与价格必须与后台发布的道具逐字一致）────────────────────
+const FIVE = ['monthly_mem_android', 'monthly_mem_apple', 'monthly_test', 'yearly_mem_android', 'yearly_mem_apple']
+check('1.1 后台那五个道具都在表里', Object.keys(cat.CATALOG).sort(), FIVE)
+check('1.2 期限＝月 30／年 365（D-6），测试道具按 owner 配的是 30 天', ['monthly_mem_android', 'yearly_mem_apple', 'monthly_test'].map((p) => cat.durationDaysFor(p)), [30, 365, 30])
+check('1.3 价格（分）与后台一致：333／388／4990／5990／1', ['monthly_mem_android', 'monthly_mem_apple', 'yearly_mem_android', 'yearly_mem_apple', 'monthly_test'].map((p) => cat.catalogEntry(p).goodsPrice), [333, 388, 4990, 5990, 1])
+check('1.4 iOS 比安卓贵（差价 0.55／10.00 元，Apple 佣金那一侧）', [cat.catalogEntry('monthly_mem_apple').goodsPrice - cat.catalogEntry('monthly_mem_android').goodsPrice, cat.catalogEntry('yearly_mem_apple').goodsPrice - cat.catalogEntry('yearly_mem_android').goodsPrice], [55, 1000])
+check('1.5 测试档 onSale=false（不进在售列表）', cat.catalogEntry('monthly_test').onSale, false)
+check('1.6 正常档 onSale=true', FIVE.filter((p) => p !== 'monthly_test').every((p) => cat.catalogEntry(p).onSale), true)
+check('1.7 未知 productId ⇒ null（下单侧据此拒，不许兜底成月卡）', [cat.catalogEntry('pro_month'), cat.durationDaysFor('nope')], [null, null])
+check('1.8 价格都是正整数（单位＝分，6.3 实证）', Object.values(cat.CATALOG).every((e) => Number.isInteger(e.goodsPrice) && e.goodsPrice > 0), true)
+check('1.9 档位与渠道都挂在行上（订单页要按档位说"月卡"，按渠道说价）', [cat.catalogEntry('yearly_mem_android').tier, cat.catalogEntry('yearly_mem_android').platform], ['yearly', 'android'])
+
+// 1.10~ 选品：端上只能报"档位 + 渠道"，价格由服务端查表
+check('1.10 月卡 + 安卓 ⇒ monthly_mem_android／333', (() => { const e = cat.productFor('monthly', 'android'); return [e.productId, e.goodsPrice] })(), ['monthly_mem_android', 333])
+check('1.11 月卡 + iOS ⇒ monthly_mem_apple／388', (() => { const e = cat.productFor('monthly', 'ios'); return [e.productId, e.goodsPrice] })(), ['monthly_mem_apple', 388])
+check('1.12 渠道缺失 ⇒ null（宁可拒单，也不"默认按安卓价"）', [cat.productFor('monthly', ''), cat.productFor('monthly', null), cat.productFor('monthly', 'unknown'), cat.productFor('monthly', 'devtools')], [null, null, null, null])
+check('1.13 档位不存在 ⇒ null', cat.productFor('weekly', 'android'), null)
+check('1.14 测试道具不分渠道（两端同一个 id）', [cat.productFor('monthly_test', 'android').productId, cat.productFor('monthly_test', 'ios').productId], ['monthly_test', 'monthly_test'])
 
 // ── 2. 白名单解析与两道守卫的方向 ──────────────────────────────────────────
 check('2.1 缺失＝空集合（不是"不限制"）', cat.testWhitelist({}), [])
@@ -37,10 +48,10 @@ check('2.7 名单为空＝发布形态（正常档全量）', cat.canBuyNormalTi
 check('2.8 内测形态下名单外的人买不到正常档', cat.canBuyNormalTier({ PRO_TEST_OPENIDS: 'oA' }, 'oZ'), false)
 
 const ids = (env, openid) => cat.sellableProducts(env, openid).map((p) => p.productId).sort()
-check('2.9 发布态列表＝两档正常，🔴 绝不含测试档', ids({ PRO_TEST_OPENIDS: '' }, 'oA'), ['pro_month', 'pro_year'])
-check('2.10 内测态名单内＝三档', ids({ PRO_TEST_OPENIDS: 'oA' }, 'oA'), ['pro_month', 'pro_test_day', 'pro_year'])
+check('2.9 发布态列表＝四个正常道具，🔴 绝不含测试档', ids({ PRO_TEST_OPENIDS: '' }, 'oA'), ['monthly_mem_android', 'monthly_mem_apple', 'yearly_mem_android', 'yearly_mem_apple'])
+check('2.10 内测态名单内＝五个', ids({ PRO_TEST_OPENIDS: 'oA' }, 'oA'), FIVE)
 check('2.11 内测态名单外＝空列表', ids({ PRO_TEST_OPENIDS: 'oA' }, 'oZ'), [])
-check('2.12 列表项字段齐（价格/期限/币种/isTest）', Object.keys(cat.sellableProducts({}, 'oA')[0]).sort(), ['currency', 'durationDays', 'goodsPrice', 'isTest', 'name', 'productId'])
+check('2.12 列表项字段齐（档位/渠道/价格/期限/币种/isTest）', Object.keys(cat.sellableProducts({}, 'oA')[0]).sort(), ['currency', 'durationDays', 'goodsPrice', 'isTest', 'name', 'platform', 'productId', 'tier'])
 
 // ── 3. 端点：fetch 打桩（只有一条 identity 路由）───────────────────────────
 let calls = []
@@ -68,12 +79,12 @@ reset()
 let res = await onRequestGet(ctx(envOf()))
 let body = await bodyOf(res)
 check('3.1 购买开着 ⇒ 200 + purchaseEnabled:true', [res.status, body.purchaseEnabled], [200, true])
-check('3.2 发布态两档', body.products.map((p) => p.productId).sort(), ['pro_month', 'pro_year'])
+check('3.2 发布态四个正常道具', body.products.map((p) => p.productId).sort(), ['monthly_mem_android', 'monthly_mem_apple', 'yearly_mem_android', 'yearly_mem_apple'])
 check('3.3 🔴 响应里不含 openid／user_id', ['openid', 'user_id', 'oA'].some((k) => JSON.stringify(body).includes(k)), false)
 
 reset(); stub.identityRows = []
 body = await bodyOf(await onRequestGet(ctx(envOf())))
-check('3.4 纯 Web 账号（没绑微信）⇒ 正常档照给、测试档不给', body.products.map((p) => p.productId).sort(), ['pro_month', 'pro_year'])
+check('3.4 纯 Web 账号（没绑微信）⇒ 正常档照给、测试档不给', body.products.map((p) => p.productId).sort(), ['monthly_mem_android', 'monthly_mem_apple', 'yearly_mem_android', 'yearly_mem_apple'])
 
 reset()
 body = await bodyOf(await onRequestGet(ctx(envOf({ PRO_PURCHASE_ENABLED: 'false' }))))
@@ -82,7 +93,7 @@ check('3.6 关着时一次数据库都不问（开关只读 env，不必查身�
 
 reset()
 body = await bodyOf(await onRequestGet(ctx(envOf({ PRO_TEST_OPENIDS: 'oA' }))))
-check('3.7 内测态名单内 ⇒ 三档（含测试道具）', body.products.map((p) => p.productId).sort(), ['pro_month', 'pro_test_day', 'pro_year'])
+check('3.7 内测态名单内 ⇒ 五个（含测试道具）', body.products.map((p) => p.productId).sort(), FIVE)
 
 reset(); stub.identityStatus = 500
 res = await onRequestGet(ctx(envOf({ PRO_TEST_OPENIDS: 'oA' })))
@@ -92,7 +103,7 @@ check('3.8 identity 读失败 ⇒ 200 + 空列表（收紧方向，不 5xx、不
 reset()
 const sneaky = { env: envOf({ PRO_TEST_OPENIDS: 'oA' }), data: { user: { id: 'u-1' } }, request: new Request('https://cf/api/pro/products?PRO_TEST_OPENIDS=oZ&purchase=true') }
 body = await bodyOf(await onRequestGet(sneaky))
-check('3.9 请求里塞开关/白名单 ⇒ 无效（只认部署变量：名单 oA + 身份 oA ⇒ 三档照给）', body.products.map((p) => p.productId).sort(), ['pro_month', 'pro_test_day', 'pro_year'])
+check('3.9 请求里塞开关/白名单 ⇒ 无效（只认部署变量：名单 oA + 身份 oA ⇒ 五个照给）', body.products.map((p) => p.productId).sort(), FIVE)
 
 // ── 4. 静态门 ───────────────────────────────────────────────────────────────
 const jsFiles = []
