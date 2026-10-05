@@ -105,7 +105,12 @@ function isExpired(row, nowMs) {
   return !Number.isFinite(t) || t <= nowMs
 }
 
-/** 前置④的复用条件：同 `product_id` ＋ 同 `env` ＋ 未过期（✅ 收窄版，第二十轮评审第 6 条） */
+/**
+ * 前置④的**复用必要条件**：同 `product_id` ＋ 同 `env` ＋ 未过期（✅ 收窄版，第二十轮评审第 6 条）。
+ * 🔴 E-21 判乙之后这一句只是**必要条件**：形状对还要平台答"这张单还开着"才真复用（见调用点）。
+ *   留着它而不是删掉，是因为"换档／换 env／已过期"这三种形状差已经足够让我们**不必问平台**就
+ *   知道要建新单——问平台只是为了那一格"形状对但单已死"的情况（探针实测：取消后 10 秒平台就关单）。
+ */
 function canReuse(pending, productId, proEnv, nowMs) {
   return Boolean(pending) && String(pending.product_id) === productId && Number(pending.env) === proEnv && !isExpired(pending, nowMs)
 }
@@ -215,21 +220,27 @@ export async function onRequestPost(context) {
   //   不落库、不进响应、不进日志（U-7 判 ⓐ；proPaySign.js 顶部那三条纪律）。
   //   签名**贴着这次响应算**，不提前算好放着（6.3 末段那条"静默重新登录会让签名失效"的暴露面靠这个收窄）。
 
-  // 前置④：同 `product_id` ＋ 同 `env` ＋ 未过期 ⇒ 复用原单重签一次；否则**先查单再决定**。
-  // ✅ E-14 判乙时这里只有"不能复用就当场拒"（因为查单还没代码）；B3-3 把查单接上之后，
-  //   恢复成正本那句："先查单确认未付 ⇒ 把旧单置 closed ⇒ 再建新单号"。
-  //   🔴 顺序不能反：不查就关＝拿"我方口径的关闭"（关单接口未证＝R-9 ⑦）去赌"这单没被付"。
+  // 前置④（✅ **E-21 判乙＝复用之前必须先查单**，owner 2026-10-05）：形状对（同 `product_id`＋同 `env`
+  //   ＋未过期）**并且平台答"这张单还开着"**才复用；否则查单决定"关旧建新"。
+  // 🔴 为什么原来那句"形状对就复用"是坏的：探针 2026-10-05 实测——用户关掉收银台后平台约 **10 秒**
+  //   就把单置 `status 6 已关闭`（`update_time − create_time = 10`），而我们在 15 分钟内仍会把那个
+  //   死单号复用回去 ⇒ 第二次点"拉不起收银台"，端上只会显示"确认中"，**整个失败是静默的**。
+  //   ⇒ R-9 ⑩ 由此结案：取消后的单号不可复用（官方那句"不可复用"是真的）。
+  //   ⚠️ 代价照实记：凡是"名下有未付单"的点击，都要多两次出网（一次 token、一次 query_order）。
+  //   省掉它的唯一办法是回到"猜"——而这里猜错的方向是"给用户一张付不了款的单"。
+  //   ⚠️ 顺序仍然不能反：不查就关＝拿"我方口径的关闭"（关单接口未证＝R-9 ⑦）去赌"这单没被付"。
   if (pending) {
-    if (canReuse(pending, productId, flags.proEnv, nowMs)) {
-      // 复用不重算金额：签的是**行里的值**（这张单成立时的价格，同时是 paySig 的输入）；
-      // 但 `session_key` 可能是新的（冷启动／ensureAuth 刷新／切前台）⇒ 同一份 post_body 重签一次
-      return await respond({ env, order: pending, sessionKey: wx.sessionKey, userId, reused: true })
-    }
+    const shapeMatches = canReuse(pending, productId, flags.proEnv, nowMs)
     let st = null
     try {
       st = await queryOrderState(env, pending)
     } catch (err) {
       return unavailable('pending-query', err)
+    }
+    if (st.outcome === 'query_error') {
+      // 🔴 判不出 ⇒ **不复用、不关、也不建**（与 4.5 三态表同源：没查到不等于没付）。
+      //   复用可能递出一张死单号；关掉可能压掉一张其实已付的单——两边都是拿未知当已知。
+      return json({ error: '暂时无法开通，请稍后再试', code: 'pro_unavailable' }, 503)
     }
     if (st.outcome === 'paid') {
       // 上一笔其实付过了 ⇒ 不建新单，把那张单号回给端上让它去确认。
@@ -268,10 +279,16 @@ export async function onRequestPost(context) {
       // 判不出 ⇒ 既不关也不建（与 4.5 三态表同源：**没查到不等于没付**）
       return json({ error: '暂时无法开通，请稍后再试', code: 'pro_unavailable' }, 503)
     }
-    // unpaid / closed / not_found ⇒ 可以关旧建新。PATCH 带 `status=eq.pending`：
-    // 与轮询撞上时（旧单刚被记成 paid）匹配 0 行 ⇒ 不会把已付单改回未付。
-    // 🔴 `refunded` 那一支**不进这里**：它上面已经把旧单标成 anomaly 了，再关一次等于
-    //   先写"这单有问题、要人看"、又写"这单没付过"——两个互相矛盾的状态。
+    // ✅ E-21 判乙：形状对 ＋ 平台答"这张单还开着"（status 0/1 ⇒ `via === 'unpaid'`）才复用。
+    //   复用不重算金额：签的是**行里的值**（这张单成立时的价格，同时是 paySig 的输入）；
+    //   但 `session_key` 可能是新的（冷启动／ensureAuth 刷新／切前台）⇒ 同一份 post_body 重签一次。
+    if (shapeMatches && st.outcome === 'unpaid' && st.via === 'unpaid') {
+      return await respond({ env, order: pending, sessionKey: wx.sessionKey, userId, reused: true })
+    }
+    // 平台答"已关闭"(6)／"查无此单"(268490002)／形状不对（换档、换 env、已过期）⇒ 关旧建新。
+    // PATCH 带 `status=eq.pending`：与轮询撞上时（旧单刚被记成 paid）匹配 0 行 ⇒ 不会把已付单改回未付。
+    // 🔴 `refunded` 那一支**不进这里**：上面已把旧单标成 anomaly，再关一次等于先写
+    //   "这单有问题、要人看"、又写"这单没付过"——两个互相矛盾的状态。
     //   （真跑到这里也不会改到行：过滤是 status=eq.pending，而那行已是 anomaly ⇒ 匹配 0 次。
     //    但"靠上游状态恰好挡住"不是判据，所以显式跳过。）
     if (st.outcome !== 'refunded') {
@@ -314,6 +331,9 @@ export async function onRequestPost(context) {
     if (ins.conflict === 'pending_exists') {
       // 库侧 partial unique index 挡住了双击／并发（4.2 那行：应用层的"有则复用"挡不住两张 pending）。
       // 重读一次：现在它就是我们那张单——同商品同渠道未过期就复用它，否则如实说"稍后再试"。
+      // ⚠️ 这一支**刻意不再查平台**（与上面前置④那一支不同）：能撞到这个约束，说明那张单是
+      //   几毫秒前另一个请求刚建的（不是十几秒前被用户关掉的那张），此时复用是对的；
+      //   而这里多查一次会让"双击"这种最常见的情形每次都翻倍出网。
       let fresh = null
       try {
         fresh = await findPendingOrder(env, payerOpenid)

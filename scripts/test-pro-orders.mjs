@@ -276,7 +276,7 @@ check('7.8 🔴 响应体里搜不到 session_key 的任何一段', JSON.stringi
 check('7.9 响应体里没有 openid（4.6）', JSON.stringify(r.body).includes(BOUND), false)
 check('7.10 reused:false', r.body.reused, false)
 
-// ── 8. 前置④状态机：同档同 env 未过期才复用 ─────────────────────────────────
+// ── 8. 前置④状态机（✅ E-21 判乙：复用＝形状对 **且** 平台答"还开着"）──────────
 const pendingRow = (over = {}) => ({
   out_trade_no: 'T1727000000000deadbeef',
   payer_openid: BOUND,
@@ -288,21 +288,25 @@ const pendingRow = (over = {}) => ({
   attach: UID,
   ...over,
 })
+const queryCalls = () => calls.filter((c) => c.url.includes('/xpay/query_order'))
+const PAID_BODY = { errcode: 0, errmsg: 'ok', order: { status: 2, paid_time: 1790000000, wx_order_id: 'wx-1' } }
+const UNPAID_BODY = { errcode: 0, errmsg: 'ok', order: { status: 1 } } // 平台侧"还开着"
+const CLOSED_BODY = { errcode: 0, errmsg: 'ok', order: { status: 6 } } // 平台侧"已关闭"（探针实测：取消后 ~10 秒）
+
 reset()
 stub.pendingRows = [pendingRow()]
+stub.queryBody = UNPAID_BODY
 r = await run(good())
-check('8.1 同商品同 env 未过期 ⇒ 复用原单，不再插、不关', [r.body.reused, r.body.outTradeNo, insertCalls().length, patchCalls().length], [true, 'T1727000000000deadbeef', 0, 0])
+check('8.1 同商品同 env 未过期＋平台说还开着 ⇒ 复用原单，不再插、不关', [r.body.reused, r.body.outTradeNo, insertCalls().length, patchCalls().length], [true, 'T1727000000000deadbeef', 0, 0])
+check('8.1b 🔴 复用之前**必须问过平台**（E-21 判乙的全部代价＝这一格从 0 变 1）', queryCalls().length, 1)
 const sd2 = JSON.parse(r.body.pay.signData)
 check('8.2 复用也重签一次（session_key 是新的，签名必须贴着这一刻算）', [sd2.outTradeNo, r.body.pay.signature], ['T1727000000000deadbeef', expectHmac(SESSION_KEY, r.body.pay.signData)])
 check('8.3 金额取**订单行里的值**，不重新读价格表', sd2.goodsPrice, 333)
 
-// 🔴 8.4–8.11 是 **B3-3 恢复后的前置④**：不能复用 ⇒ 先查单，查得"未付/查无/已关"才关旧建新。
+// 🔴 8.4–8.13 是 **B3-3 恢复后的前置④**：不能复用 ⇒ 先查单，查得"未付/查无/已关"才关旧建新。
 //   这一族格子的牙齿有两处：① `queryCalls()===1`（**没查过就不许关**——E-14 判乙时的那条边界
 //   现在换成"查过才动"，仍然是同一件事：不许拿"我方口径的关闭"去赌"这单没被付"）；
 //   ② 查单说已付那一支必须**零写库**（既不关也不建，也不能在这里入账）。
-const queryCalls = () => calls.filter((c) => c.url.includes('/xpay/query_order'))
-const PAID_BODY = { errcode: 0, errmsg: 'ok', order: { status: 2, paid_time: 1790000000, wx_order_id: 'wx-1' } }
-const UNPAID_BODY = { errcode: 0, errmsg: 'ok', order: { status: 1 } }
 
 reset()
 stub.pendingRows = [pendingRow({ product_id: 'yearly_mem_android' })]
@@ -365,15 +369,31 @@ stub.pendingRows = [pendingRow({ expires_at: 'not-a-date' })]
 r = await run(good())
 check('8.9 行里读不出 expires_at ⇒ 按已过期处理（宁可关旧建新，也不复用一张不确定有效期的单）', patchCalls().length, 1)
 
+// 🔴 8.10–8.12 是 E-21 判乙换进来的三格。原来那格"能复用时不打查单（省一次对外调用）"
+//   已经被**反向**了：省下来的那一次调用，代价是把一个已死单号发给用户（探针实测取消后
+//   平台 10 秒就关单）。判据的方向因此从"少打一次"改成"没问过平台就不许说复用"。
 reset()
 stub.pendingRows = [pendingRow()]
+stub.queryBody = CLOSED_BODY
 r = await run(good())
-check('8.10 🔴 能复用时**不打查单**（省一次对外调用，也让确认态更快）', [r.body.reused, queryCalls().length], [true, 0])
+check('8.10 🔴 形状全对（同档同 env 未过期）但平台答"已关闭" ⇒ **不复用**，关旧建新（新单号）', [r.body.reused, r.body.outTradeNo !== 'T1727000000000deadbeef', queryCalls().length, patchCalls().length, insertCalls().length], [false, true, 1, 1, 1])
+
+reset()
+stub.pendingRows = [pendingRow({ product_id: 'yearly_mem_android' })]
+stub.queryBody = UNPAID_BODY
+r = await run(good())
+check('8.11 平台说"还开着"但形状不对（换档）⇒ 照样关旧建新（复用只在两件事同时成立时发生）', [r.body.reused, patchCalls().length, insertCalls().length], [false, 1, 1])
+
+reset()
+stub.pendingRows = [pendingRow()]
+stub.queryBody = { errcode: 268490003, errmsg: '签名错误' }
+r = await run(good())
+check('8.12 🔴 形状全对＋查单判不出 ⇒ 503、零写、**也不复用**（旧代码在这里会直接复用那张单；把"不知道"当"还开着"就是 E-21 要堵的那个洞）', [r.status, r.body.code, r.body.reused, queryCalls().length, writes().length], [503, 'pro_unavailable', undefined, 1, 0])
 
 reset()
 stub.pendingStatus = 500
 r = await run(good())
-check('8.10 pending 查不到 ⇒ 503 拒、零写（不"当没有单"直接建）', [r.status, r.body.code, writes().length], [503, 'pro_unavailable', 0])
+check('8.13 pending 查不到 ⇒ 503 拒、零写（不"当没有单"直接建）', [r.status, r.body.code, writes().length], [503, 'pro_unavailable', 0])
 
 // ── 9. 库侧 partial unique index 挡双击 ────────────────────────────────────
 reset()
