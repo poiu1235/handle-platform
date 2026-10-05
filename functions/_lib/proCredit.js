@@ -249,7 +249,9 @@ export async function refundOrder(env, outTradeNo, { fetchImpl, pushOpenid, refu
     console.error('[proCredit] ledger revoked but order row not matched:', JSON.stringify({ outTradeNo, revokedRows: rv.matched }))
     return { outcome: 'query_error', stage: 'mark_refunded_no_row' }
   }
-  console.error('[proCredit] external refund revoked:', JSON.stringify({ outTradeNo, revokedRows: rv.matched }))
+  // ⚠️ 这一条是**成功路径**（2026-10-05 真机 tail 第一次自动撤账成功，却被 `console.error` 报成故障，
+  //   owner 读作"platform 收到错误"）。上面那条 `but order row not matched` 才是真异常，级别留着。
+  console.log('[proCredit] external refund revoked:', JSON.stringify({ outTradeNo, revokedRows: rv.matched }))
   return { outcome: 'refunded_revoked', revokedRows: rv.matched }
 }
 
