@@ -67,7 +67,7 @@ const defaultStub = () => ({
   patchStatus: 200,
   tokenBody: { access_token: 'TOKEN-x', expires_in: 7200 },
   tokenStatus: 200,
-  queryBody: { errcode: 0, errmsg: 'ok', order: { status: 4, paid_time: PAID_SEC, wx_order_id: 'wx-1' } },
+  queryBody: { errcode: 0, errmsg: 'ok', order: { status: 4, paid_time: PAID_SEC, wx_order_id: 'VPO-1', wxpay_order_id: '4500-1', channel_order_id: '2026-1' } },
   queryThrows: false,
   notifyBody: { errcode: 0, errmsg: 'ok' },
   notifyStatus: 200,
@@ -163,7 +163,7 @@ reset()
 let res = await credit()
 check('1.1 已付 ⇒ credited', res.outcome, 'credited')
 check('1.2 恰好两次写：一次 PATCH 订单、一次 POST 账本', [orderPatches().length, ledgerPosts().length], [1, 1])
-check('1.3 PATCH 把状态、时刻、平台单号一起回填', [bodyAt(orderPatches()).status, bodyAt(orderPatches()).paid_at, bodyAt(orderPatches()).wx_order_id], ['paid', PAID_ISO, 'wx-1'])
+check('1.3 PATCH 把状态、时刻、平台单号一起回填', [bodyAt(orderPatches()).status, bodyAt(orderPatches()).paid_at, bodyAt(orderPatches()).wx_order_id], ['paid', PAID_ISO, 'VPO-1'])
 check('1.4 🔴 PATCH 的过滤条件是 status in (pending,closed)：重放挪不走已付单的 paid_at（7 天窗口起点）', urlAt(orderPatches()).includes('status=in.%28pending%2Cclosed%29'), true)
 // 🔴 第二格才是这次的真判据：`in.()` 是 CSV 解析，值**不加引号**。上一版写成
 //   `in.%28%27pending%27%2C%27closed%27%29`（带单引号）在真库上匹配 0 行，而当时的判据
@@ -177,6 +177,21 @@ check('1.9 effective_at ＝ 支付时刻，与订单行的 paid_at 同值', body
 check('1.10 env／payer_openid／buyer_user_id 都抄自订单行', [bodyAt(ledgerPosts()).env, bodyAt(ledgerPosts()).payer_openid, bodyAt(ledgerPosts()).buyer_user_id], [0, OPENID, UID])
 check('1.11 时刻读得出来时**不**写 note（note 只留给异常）', bodyAt(orderPatches()).note, undefined)
 check('1.12 durationDays 也回给调用方（端上确认态要显示"30 天"）', res.durationDays, 30)
+
+// 1.13–1.15 🔴 E-23 判甲：三个单号各归各列。一手依据＝2026-10-05 那笔已付单的回包里
+//   `wx_order_id`(VPO…)／`channel_order_id`(2026…)／`wxpay_order_id`(4500…) **同时存在且值不同**，
+//   而后台"交易单号"那一列是第三个。旧代码那条 `wx_order_id ‖ channel_order_id ‖ wxpay_order_id`
+//   回退链会在缺第一个时把**渠道单号**写进"平台侧订单号"那一列（它还挂着 partial unique）⇒ 撤掉。
+check('1.13 🔴 交易单号落到自己那一列（不是塞进 wx_order_id、也不是不落）', bodyAt(orderPatches()).wxpay_order_id, '4500-1')
+reset()
+stub.queryBody = { errcode: 0, order: { status: 2, paid_time: PAID_SEC, channel_order_id: '2026-1', wxpay_order_id: '4500-9' } }
+res = await credit()
+check('1.14 🔴 缺 wx_order_id 时**不拿 channel_order_id 顶替**（那一列上不许出现语义不同的值）', ['wx_order_id' in bodyAt(orderPatches()), 'channel_order_id' in bodyAt(orderPatches())], [false, false])
+check('1.15 同一次回包里 wxpay_order_id 照样落（两列各读各的字段，互不兜底）', bodyAt(orderPatches()).wxpay_order_id, '4500-9')
+reset()
+stub.queryBody = { errcode: 0, order: { status: 2, paid_time: PAID_SEC, wx_order_id: 'VPO-1' } }
+res = await credit()
+check('1.16 回包没有交易单号 ⇒ body 里干脆不出现这一列（不写 null 去覆盖已有值）', 'wxpay_order_id' in bodyAt(orderPatches()), false)
 
 // ── 2. paid_time 的四种形状（换算错了不报错，只是权益短一大截）──────────────
 reset()

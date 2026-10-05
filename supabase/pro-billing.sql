@@ -108,10 +108,18 @@ create table if not exists public.pro_orders (
   -- 幂等键①：我方单号（官方 outTradeNo，8–32 位、不以 _ 开头、不可复用）
   out_trade_no     text        not null unique,
 
-  -- 幂等键②：微信侧单号。⚠ 官方推送只列 MchOrderNo（＝商户单号＝我们的 out_trade_no），
-  -- 所以这一列很可能要由 /pay/query 回填而非取自推送＝⏸ R-9 ③。
+  -- ✅ E-22 改口径（owner 2026-10-05）：这一列**不是**微信支付流水号，而是**平台侧订单号——下单即分配**
+  --   （一手：未付的单上就已经有 `wx_order_id:VPO…`）。⇒ 它只能证明"同一个平台订单"，
+  --   不能证明"同一笔钱处理了两次"⇒ 幂等键②的语义降级，真正防双入账的是 pro_ledger.order_id。
   -- 别叫 transaction_id，那是普通微信支付商户体系的名。
   wx_order_id      text,
+
+  -- ✅ E-23 判甲（owner 2026-10-05）：**微信支付交易单号**（回包里的 `wxpay_order_id`，`4500…` 打头，
+  --   与小程序后台「交易订单」那一列"交易单号"同源）。它只在**付款之后**才存在，是三个单号里
+  --   唯一能对上后台那一屏、也是客服与对账实际会报给我们的那一个 ⇒ 不落库就只能靠后台截图。
+  --   🔴 **刻意不加 unique**：它由查单回填，而回填撞唯一约束会让 `markOrderPaid` 抛 ⇒ 一笔已付的钱
+  --     入不了账（比"两个单号重复"更坏）。要不要拿它当真正的幂等键，等 B4 见过两笔同交易号的单再说。
+  wxpay_order_id   text,
 
   product_id       text        not null,
   goods_price      integer     not null check (goods_price > 0),  -- 单位＝分（官方 goodsPrice 就是分，零换算）
@@ -169,6 +177,11 @@ create index if not exists pro_orders_status_expires_at_idx
 create unique index if not exists pro_orders_wx_order_uk
   on public.pro_orders (wx_order_id)
   where wx_order_id is not null;
+
+-- E-23：客服／对账拿到的是"交易单号"（`4500…`）⇒ 要能按它反查这一行。普通索引，不是唯一（理由见列注释）。
+create index if not exists pro_orders_wxpay_order_idx
+  on public.pro_orders (wxpay_order_id)
+  where wxpay_order_id is not null;
 
 -- 🔴 挡双击／并发重复下单要落到库：应用层"有则复用"在并发两下时会留两张 pending 单。
 -- 连带效果（实施须知）：这条索引使 4.5 前置④的"换档位必须先查单确认未付、把旧单置

@@ -111,6 +111,7 @@ export async function creditOrder(env, outTradeNo, { fetchImpl } = {}) {
       outTradeNo: String(row.out_trade_no),
       paidAtIso: paid.iso,
       wxOrderId: wxOrderIdOf(q),
+      wxpayOrderId: wxpayOrderIdOf(q),
       isDuplicate,
       // 我方已把这张置 closed、钱后来才回来 ⇒ 4.5 的"复活"那一支，必须落列（默认 false 就统计不到）
       paidAfterClose: row.status === 'closed',
@@ -269,8 +270,24 @@ function paidTimeOf(q) {
 }
 
 function wxOrderIdOf(q) {
-  const o = q && q.data && q.data.order ? q.data.order : null
+  const o = orderOf(q)
   if (!o) return null
-  const v = o.wx_order_id || o.channel_order_id || o.wxpay_order_id
+  // 🔴 E-23 之后**只认这一个字段名**：2026-10-05 的已付回包证实 `wx_order_id`／`channel_order_id`／
+  //   `wxpay_order_id` 三个值同时存在且语义不同（VPO…／2026…／4500…）⇒ 旧的那条
+  //   `wx_order_id ‖ channel_order_id ‖ wxpay_order_id` 回退链会在缺字段时把**渠道单号**写进"平台侧
+  //   订单号"这一列，而那一列上还挂着 partial unique。缺就是缺，不猜。
+  const v = o.wx_order_id
   return typeof v === 'string' && v !== '' ? v : null
+}
+
+/** 微信支付交易单号（`4500…`，后台"交易单号"那一列）＝E-23 判甲新增的那一列 */
+function wxpayOrderIdOf(q) {
+  const o = orderOf(q)
+  if (!o) return null
+  const v = o.wxpay_order_id
+  return typeof v === 'string' && v !== '' ? v : null
+}
+
+function orderOf(q) {
+  return q && q.data && q.data.order ? q.data.order : null
 }

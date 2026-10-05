@@ -96,10 +96,15 @@ export async function insertOrder(env, order) {
  * ⚠️ `isDuplicate`／`paidAfterClose` 只在为真时写：这两列的默认值就是 false，而它们是
  *   4.2 点名"不落字段就统计不到"的那两个位——`is_duplicate` 决定 B4 里这单算不算
  *   duplicate 类（不耗退款额度），`paid_after_close` 是"我方已关单后钱才回来"的唯一体现。
+ * ⚠️ `wxOrderId`／`wxpayOrderId` 是两个**不同的东西**（E-22＋E-23，都由一手回包读出来）：前者＝平台侧
+ *   订单号（`VPO…`，**未付的单上就有**）、后者＝微信支付交易单号（`4500…`，付款之后才有，与后台
+ *   「交易订单」那一列"交易单号"同源）。🔴 别互相赋值；也**别给后者加唯一约束**——回填撞唯一会让
+ *   这笔 PATCH 抛错，按 4.5 的形状就是"账本也不写"＝一笔已付的钱入不了账（见 `pro-billing-e23-migration.sql` 文件头）。
  */
-export async function markOrderPaid(env, { outTradeNo, paidAtIso, wxOrderId, note, isDuplicate, paidAfterClose }) {
+export async function markOrderPaid(env, { outTradeNo, paidAtIso, wxOrderId, wxpayOrderId, note, isDuplicate, paidAfterClose }) {
   const body = { status: 'paid', paid_at: paidAtIso, updated_at: new Date().toISOString() }
   if (wxOrderId) body.wx_order_id = String(wxOrderId)
+  if (wxpayOrderId) body.wxpay_order_id = String(wxpayOrderId)
   if (note) body.note = String(note)
   if (isDuplicate) body.is_duplicate = true
   if (paidAfterClose) body.paid_after_close = true
@@ -171,7 +176,7 @@ export async function getOrderRow(env, outTradeNo) {
   const res = await serviceRoleFetch(
     env,
     `${ORDERS}?select=id,user_id,provider,payer_openid,product_id,goods_price,currency_type,env,` +
-      `buy_quantity,status,paid_at,wx_order_id,out_trade_no,created_at,expires_at,is_duplicate,paid_after_close,anomaly_reason` +
+      `buy_quantity,status,paid_at,wx_order_id,wxpay_order_id,out_trade_no,created_at,expires_at,is_duplicate,paid_after_close,anomaly_reason` +
       `&out_trade_no=eq.${encodeURIComponent(outTradeNo)}&limit=1`,
   )
   if (!res.ok) throw fail('pro_order_lookup_failed', res.status, JSON.stringify(res.data))

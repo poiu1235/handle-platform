@@ -212,11 +212,39 @@ order by "账本行数" desc, "邮箱";
 
 
 -- ────────────────────────────────────────────────────────────────────────────
+-- A10 客服反查：用户／后台报来的**任一个号**都要能定位到那一行
+--    🔴 三个号语义不同、别混（2026-10-05 一手回包，正本附录甲）：
+--      `out_trade_no`＝我方单号（T…）／`wx_order_id`＝平台侧订单号（VPO…，**未付就有**）／
+--      `wxpay_order_id`＝微信支付交易单号（4500…，＝后台「交易订单」那一列"交易单号"，付款之后才有）。
+--    E-23 判甲之前只有第一个能查 ⇒ 用户报"交易单号"时只能翻后台截图。
+--    ⚠️ 把 REPLACE-ME 换成手里那一个号（任一个都行）；🔴 别把真实单号提交回这份文件。
+--    ⚠️ 这一列从本次部署起才有值 ⇒ 历史已付单可能是 null，那不代表"没这笔钱"，去后台看那一屏。
+-- ────────────────────────────────────────────────────────────────────────────
+select
+  o.out_trade_no                                               as "我方单号",
+  o.status                                                     as "我方状态",
+  o.payer_openid                                               as "付款微信 openid",
+  o.product_id, o.goods_price                                  as "单价(分)",
+  o.paid_at, o.expires_at, o.wx_order_id, o.wxpay_order_id,
+  o.is_duplicate, o.paid_after_close, o.anomaly_reason, o."operator", o.note,
+  (select l.duration_days from public.pro_ledger l where l.order_id = o.id limit 1)          as "天数(账本行)",
+  (select count(*) from public.pro_ledger l where l.order_id = o.id)                          as "账本行数",
+  (select count(*) from public.pro_ledger l where l.order_id = o.id and l.revoked_at is not null) as "未撤销账本行"
+from (
+  select x.id, x.out_trade_no, x.status, x.payer_openid, x.product_id, x.goods_price, x.paid_at, x.expires_at,
+         x.wx_order_id, x.wxpay_order_id, x.is_duplicate, x.paid_after_close, x.anomaly_reason, x."operator", x.note
+    from public.pro_orders x
+   where x.out_trade_no = 'REPLACE-ME' or x.wx_order_id = 'REPLACE-ME' or x.wxpay_order_id = 'REPLACE-ME'
+) o
+order by o.paid_at desc nulls last;
+
+
+-- ────────────────────────────────────────────────────────────────────────────
 -- B. 人工解绑（会删行）——不在这份文件里
 --    模板见同目录 pro-manual-unbind.sql：它带两道门（v_who 必填／v_note 必填；openid 自 S-7
 --    起由 identity_unbinds.openid 列本身承载，不用抄进 note），
 --    核实判据是 7.6 末节那句"客服会话 openid ＝ 订单 payer_openid"（⏸ R-9 ⑭）。
---    为什么值得单独成文件：这份 A1–A8 是"每 1–2 天坐下扫一遍"的只读库，
+--    为什么值得单独成文件：这份 A1–A10 是"每 1–2 天坐下扫一遍"的只读库，
 --    而解绑是**一次一个账号、要先把四个值改对**的动作，两者混在一份脚本里迟早出事。
 -- ────────────────────────────────────────────────────────────────────────────
 

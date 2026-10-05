@@ -32,7 +32,7 @@
 with
 -- ── 预期形状（一处列全，下面各段只算现值） ──────────────────────────────
 tbls(t)                     as (values ('pro_orders'), ('pro_ledger'), ('pro_refund_requests')),
-expect_cols(t, n)           as (values ('pro_orders', 25), ('pro_ledger', 10), ('pro_refund_requests', 10)),
+expect_cols(t, n)           as (values ('pro_orders', 26), ('pro_ledger', 10), ('pro_refund_requests', 10)),
 expect_chk(t, n)            as (values ('pro_orders', 6), ('pro_ledger', 2), ('pro_refund_requests', 2)),
 expect_idx(i, t)            as (values ('pro_orders_wx_order_uk',              'pro_orders'),
                                 ('pro_orders_one_pending_per_openid',          'pro_orders'),
@@ -187,6 +187,31 @@ s12 as (
                            where relname = 'pro_orders' and relnamespace = 'public'::regnamespace)
         and pg_get_constraintdef(c.oid) like '%refunded_not_credited%') as has_reason
 ),
+s13 as (
+  -- E-23 判甲（owner 2026-10-05）：`pro_orders.wxpay_order_id`＝微信支付交易单号（后台"交易单号"那一列）。
+  -- 迁移文件＝pro-billing-e23-migration.sql。这一项判的是**形状与"没有 unique"这两件事**：
+  -- 加了唯一约束会让回填撞库的那笔 PATCH 抛错 ⇒ 按 4.5 的形状账本也不写＝一笔已付的钱入不了账。
+  select
+    coalesce((select x.data_type from information_schema.columns x
+               where x.table_schema = 'public' and x.table_name = 'pro_orders' and x.column_name = 'wxpay_order_id'),
+              '（列不存在）') as typ,
+    coalesce((select x.is_nullable from information_schema.columns x
+               where x.table_schema = 'public' and x.table_name = 'pro_orders' and x.column_name = 'wxpay_order_id'),
+              '∅') as nn,
+    (select count(*) from pg_indexes
+      where schemaname = 'public' and tablename = 'pro_orders' and indexname = 'pro_orders_wxpay_order_idx'
+        and lower(indexdef) like '%where%wxpay_order_id%') as has_idx,
+    -- 🔴 两种"唯一"都要数：`add unique` 落 pg_constraint，`create unique index` **不落**（partial 的尤其容易漏）
+    (select count(*) from pg_constraint c
+      join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+     where c.contype = 'u' and a.attname = 'wxpay_order_id'
+       and c.conrelid = (select oid from pg_class
+                          where relname = 'pro_orders' and relnamespace = 'public'::regnamespace))
+    + (select count(*) from pg_indexes i
+        where i.schemaname = 'public' and i.tablename = 'pro_orders'
+          and lower(i.indexdef) like '%unique%'
+          and lower(i.indexdef) like '%wxpay_order_id%') as uniq
+),
 s11b as (
   select bool_and(x.conname is not null) as ok,
          coalesce(string_agg(e.c || case when x.conname is null then '（缺）' else '（ok）' end,
@@ -198,14 +223,14 @@ s11b as (
                       where relname = 'identity_unbinds' and relnamespace = 'public'::regnamespace)
 ),
 
--- ── 十三行判定（每行一项，一次全出） ─────────────────────────────────────
+-- ── 十四行判定（每行一项，一次全出） ─────────────────────────────────────
 rows_ as (
   select '01 表存在'::text as item, '三张表都在 public 下'::text as expected,
          coalesce(nullif(s01.got, ''), '三张表都在')::text as actual,
          case when s01.n = 3 then 'PASS' else 'FAIL' end::text as status,
          '缺表＝pro-billing.sql 没跑或跑在别的 schema'::text as detail from s01
   union all
-  select '02 列数', 'pro_orders 25／pro_ledger 10／pro_refund_requests 10', s02.got,
+  select '02 列数', 'pro_orders 26／pro_ledger 10／pro_refund_requests 10', s02.got,
          case when s02.ok then 'PASS' else 'FAIL' end,
          '⚠ create table if not exists 重跑不会补列 ⇒ 改过结构要 drop 重建（自测库）或写增量文件' from s02
   union all
@@ -260,6 +285,13 @@ rows_ as (
          case when s12.nn = 'NO' and s12.has_reason = 1 then 'PASS' else 'FAIL' end,
          '✅ E-16 判乙／E-17 判丙（2026-10-05）。⚠️ **迁移前这一项本该 FAIL**——那不是回归，是"还没跑 pro-billing-e16-e17-migration.sql"。'
          || '买到的只有"漏写这一列会被库拒"；没买到"写的 order_id 指向真单"（本表刻意不建 FK，那一半仍是入口约束）' from s12
+  union all
+  select '13 交易单号列在、可空、且没有 unique',
+         'pro_orders.wxpay_order_id 是 text／is_nullable＝YES／带一条 partial 非唯一索引',
+         'type=' || s13.typ || '；is_nullable=' || s13.nn || '；partial 索引 ' || case when s13.has_idx = 1 then '在' else '不在' end || '；unique 约束 ' || s13.uniq || ' 条',
+         case when s13.typ = 'text' and s13.nn = 'YES' and s13.has_idx = 1 and s13.uniq = 0 then 'PASS' else 'FAIL' end,
+         '✅ E-23 判甲（2026-10-05）。⚠️ **迁移前这一项本该 FAIL**——那不是回归，是"还没跑 pro-billing-e23-migration.sql"。'
+         || '🔴 最后那一判（uniq＝0）钉的是这次决定本身：这列由查单回填，撞唯一会让那笔 PATCH 抛 ⇒ 账本也不写＝一笔已付的钱入不了账' from s13
 )
 
 -- 🔴 UNION 的 ORDER BY 只许用结果列名，不许用表达式（0A000：Only result column names can be
@@ -267,7 +299,7 @@ rows_ as (
 select * from (
   select item, expected, actual, status, detail from rows_
   union all
-  select '99 总判定'::text, '13 项全 PASS'::text,
+  select '99 总判定'::text, '14 项全 PASS'::text,
          ((select count(*)::text from rows_) || ' 项里 FAIL ' ||
           (select count(*)::text from rows_ where status = 'FAIL'))::text,
          (case when (select count(*) from rows_ where status = 'FAIL') = 0
