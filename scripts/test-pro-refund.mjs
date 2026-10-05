@@ -10,6 +10,7 @@
 import path from 'node:path'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
+import { pickToSelect, readsRowFieldsOf, selectColsOf } from './_lib/producerShape.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const results = []
@@ -46,6 +47,20 @@ const row = (over = {}) => ({
   is_duplicate: false,
   ...over,
 })
+// 🔴 E-31 那一族的**申请端点侧**判据（2026-10-05 夜第二次撞到）：`getOrderRow` 的 select 原来漏了
+//   `platform`，而 E-28 判丙之后 `evaluateRefund` 的 revokeNow 读的就是它 ⇒ 安卓的单也永远判成
+//   "不当场撤"。桩里喂的行是手写的、带着那一列 ⇒ 判据必须**按真实 select 裁一遍**再进端点。
+const storeSrc = readFileSync(path.join(root, 'functions/_lib/proStore.js'), 'utf8')
+const refundSrc = readFileSync(path.join(root, 'functions/_lib/proRefund.js'), 'utf8')
+const asStoredRow = (r) => pickToSelect(selectColsOf(storeSrc, 'getOrderRow'), r)
+{
+  const needs = readsRowFieldsOf(refundSrc)
+  const missing = ['getOrderRow', 'listOrdersByOpenid'].map((fn) => [fn, needs.filter((c) => !selectColsOf(storeSrc, fn).includes(c))])
+  check('2.0b 🔴 资格函数读的每个 row.X 必须在**两个生产者**的 select 里（一条读路漏列＝那一侧的判定恒假）',
+    [needs, missing],
+    [['env', 'id', 'is_duplicate', 'paid_at', 'payer_openid', 'platform', 'status'], [['getOrderRow', []], ['listOrdersByOpenid', []]]])
+}
+
 const ev = (over = {}) => evaluateRefund({ row: row(), payerOpenid: OPENID, kind: 'no_reason', nowMs: NOW, requestsForPayer: [], ...over })
 
 // ── 1. 资格判据（纯函数）────────────────────────────────────────────────────
@@ -97,7 +112,7 @@ globalThis.fetch = async (url, options) => {
     return mk(stub.revokeRows)
   }
   if (u.includes('/rest/v1/pro_orders') && u.includes('select=id&')) return mk(stub.ids.map((id) => ({ id })))
-  if (u.includes('/rest/v1/pro_orders')) return mk([stub.orderRow])
+  if (u.includes('/rest/v1/pro_orders')) return mk([asStoredRow(stub.orderRow)])
   throw new Error('未预期的出网目标：' + u)
 }
 const env = (over = {}) => ({
@@ -309,7 +324,7 @@ globalThis.fetch = async (url, options) => {
     return mk(stub3.requests)
   }
   if (u.includes('/rest/v1/pro_orders') && u.includes('select=id&')) return mk(stub3.ids.map((id) => ({ id })))
-  if (u.includes('/rest/v1/pro_orders')) return mk([stub3.orderRow])
+  if (u.includes('/rest/v1/pro_orders')) return mk([asStoredRow(stub3.orderRow)])
   throw new Error('未预期的出网目标：' + u)
 }
 const list = async () => {

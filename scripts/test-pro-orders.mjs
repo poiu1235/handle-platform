@@ -16,6 +16,7 @@ import crypto from 'node:crypto'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { pickToSelect, readsRowFieldsOf, selectColsOf } from './_lib/producerShape.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const results = []
@@ -115,15 +116,11 @@ const run = async (payload, over = {}, eover = {}) => {
 }
 const writes = () => calls.filter((c) => c.url.includes('/rest/v1/pro_orders') && (c.method === 'POST' || c.method === 'PATCH'))
 
-// 🔴 生产者侧的形状（10.4b 与 10.12…10.16 共用同一份解析，别抄两遍）：`listOrdersByOpenid` 的 select 列。
+// 🔴 生产者侧的形状（10.4b 与 10.12…10.16 共用同一份解析）：`listOrdersByOpenid` 的 select 列。
 //   打桩喂的行原来是手写的、永远带着 `payer_openid` ⇒ 生产者漏列这种事在桩里看不出来
 //   （2026-10-05 真机：订单页那颗「申请退款」按钮不出现，而这一段全绿）。
-const listSelectColumns = () => {
-  const src = readFileSync(path.join(root, 'functions/_lib/proStore.js'), 'utf8')
-  const m = /listOrdersByOpenid[\s\S]{0,900}\?select=([a-z_,0-9]+)/.exec(src)
-  if (!m) throw new Error('取不到 listOrdersByOpenid 的 select 列（这一族的形状改了，判据要跟着改）')
-  return m[1].split(',')
-}
+//   解析器住在 `scripts/_lib/producerShape.mjs`——两个测试文件都要用它，抄两遍就会有两份不同的 bug。
+const listSelectColumns = () => selectColsOf(readFileSync(path.join(root, 'functions/_lib/proStore.js'), 'utf8'), 'listOrdersByOpenid')
 const insertCalls = () => calls.filter((c) => c.url.includes('/rest/v1/pro_orders') && c.method === 'POST')
 const patchCalls = () => calls.filter((c) => c.url.includes('/rest/v1/pro_orders') && c.method === 'PATCH')
 const codeConsumed = () => calls.filter((c) => c.url.includes('jscode2session')).length
@@ -460,12 +457,10 @@ check('10.4 🔴 响应体的每一行里不许出现这些键（select 读得�
 // 🔴 这一格是 10.4 改口径之后**补上的牙**：静态要求"资格函数读的每一个 `row.X` 都在这条 select 里"。
 //   打桩喂的行是手写的，漏列这种事在桩里看不出来；只有把两份源码对起来才抓得住"生产者没喂、消费者在读"。
 {
-  const refundSrc = readFileSync(path.join(root, 'functions/_lib/proRefund.js'), 'utf8')
-    .split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+  const needs = readsRowFieldsOf(readFileSync(path.join(root, 'functions/_lib/proRefund.js'), 'utf8'))
   const selectCols = listSelectColumns()
-  const needs = [...new Set([...refundSrc.matchAll(/\brow\.([a-z_0-9]+)/g)].map((x) => x[1]))]
   check('10.4b 🔴 `evaluateRefund` 读的每个 `row.X` 必须在列表 select 的列里（缺一个＝按钮恒不出现）',
-    [needs.slice().sort(), needs.filter((c) => !selectCols.includes(c)).sort()],
+    [needs, needs.filter((c) => !selectCols.includes(c))],
     [['env', 'id', 'is_duplicate', 'paid_at', 'payer_openid', 'platform', 'status'], []])
 }
 check('10.5 响应体里也搜不到 openid 与 unionid', [JSON.stringify(gb).includes(BOUND), JSON.stringify(gb).includes('uBound')], [false, false])
@@ -498,12 +493,7 @@ check('10.11 道具已从表里撤下 ⇒ 名字退回 id、期限为 null，钱
 // ── 10.12…10.15 那颗「申请退款」按钮的**行为**判据（原来整段都没算过一次 refundable，见 10.4 那段）──
 // 🔴 把桩里的行**按生产者的 select 裁一遍**：这样 select 漏列时 10.12 会跟着红（不然打桩喂的
 //   手写行永远带着那一列，就又是"判据绿着、按钮不存在"——2026-10-05 那次翻车的根因形状）。
-const asProductionRow = (row) => {
-  const cols = listSelectColumns()
-  const out = {}
-  for (const k of Object.keys(row)) if (cols.includes(k)) out[k] = row[k]
-  return out
-}
+const asProductionRow = (row) => pickToSelect(listSelectColumns(), row)
 const hoursAgo = (h) => new Date(Date.now() - h * 3600_000).toISOString()
 const refundableRow = (over = {}) => ({
   id: 'ord-1',

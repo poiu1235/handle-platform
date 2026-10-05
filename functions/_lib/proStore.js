@@ -186,8 +186,12 @@ export async function insertLedgerRow(env, row) {
 export async function getOrderRow(env, outTradeNo) {
   const res = await serviceRoleFetch(
     env,
+    // 🔴 `platform` 必须在列里：E-28 判丙之后它进了判定（`evaluateRefund` 的 `revokeNow`），
+    //   漏了它 ⇒ 安卓的单也永远判成"不当场撤"，2026-10-05 夜真机就是这么撞的（与 E-31 同一族：
+    //   另一条读路 `listOrdersByOpenid` 有这一列，所以"申请端点能跑"证明不了它读得全）。
+    //   判据＝`test:refund` 2.0b（两个生产者的 select 都要覆盖资格函数读的每个 `row.X`）。
     `${ORDERS}?select=id,user_id,provider,payer_openid,product_id,goods_price,currency_type,env,` +
-      `buy_quantity,status,paid_at,wx_order_id,wxpay_order_id,out_trade_no,created_at,expires_at,is_duplicate,paid_after_close,anomaly_reason` +
+      `buy_quantity,status,paid_at,wx_order_id,wxpay_order_id,out_trade_no,created_at,expires_at,is_duplicate,paid_after_close,anomaly_reason,platform` +
       `&out_trade_no=eq.${encodeURIComponent(outTradeNo)}&limit=1`,
   )
   if (!res.ok) throw fail('pro_order_lookup_failed', res.status, JSON.stringify(res.data))
