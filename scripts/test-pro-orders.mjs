@@ -43,6 +43,11 @@ const defaultStub = () => ({
   insertStatus: 201,
   insertError: null, // { code, message } ⇒ 撞库侧约束
   patchStatus: 200,
+  // 🔴 订单页那颗退款按钮要读申请行（额度与进度都从它算）。这一路原来**没桩** ⇒ 端点里那句 catch
+  //   把"没桩"吞成 `requests=null` ⇒ `refundInfoUnavailable:true`、每行 `refundable:false`，
+  //   于是 10.x 那一段从来没算出过一次真的 `refundable`（这正是"判据绿着、按钮不存在"的形状）。
+  refundRows: [],
+  refundStatus: 200,
   wxBody: { openid: BOUND, session_key: SESSION_KEY, unionid: 'uBound' },
   wxOk: true,
   // 🔴 B3-3 之后**下单路径也会打 xpay**（前置④"换档先查单"）⇒ 桩里必须有这两条路由，
@@ -76,6 +81,7 @@ globalThis.fetch = async (url, options) => {
     if (stub.pendingStatus !== 200) return mk({ message: 'select boom' }, stub.pendingStatus)
     return mk(stub.pendingRows)
   }
+  if (u.includes('/rest/v1/pro_refund_requests')) return mk(stub.refundRows, stub.refundStatus)
   throw new Error('未预期的出网目标：' + u)
 }
 
@@ -108,6 +114,16 @@ const run = async (payload, over = {}, eover = {}) => {
   return { status: res.status, body: await res.json() }
 }
 const writes = () => calls.filter((c) => c.url.includes('/rest/v1/pro_orders') && (c.method === 'POST' || c.method === 'PATCH'))
+
+// 🔴 生产者侧的形状（10.4b 与 10.12…10.16 共用同一份解析，别抄两遍）：`listOrdersByOpenid` 的 select 列。
+//   打桩喂的行原来是手写的、永远带着 `payer_openid` ⇒ 生产者漏列这种事在桩里看不出来
+//   （2026-10-05 真机：订单页那颗「申请退款」按钮不出现，而这一段全绿）。
+const listSelectColumns = () => {
+  const src = readFileSync(path.join(root, 'functions/_lib/proStore.js'), 'utf8')
+  const m = /listOrdersByOpenid[\s\S]{0,900}\?select=([a-z_,0-9]+)/.exec(src)
+  if (!m) throw new Error('取不到 listOrdersByOpenid 的 select 列（这一族的形状改了，判据要跟着改）')
+  return m[1].split(',')
+}
 const insertCalls = () => calls.filter((c) => c.url.includes('/rest/v1/pro_orders') && c.method === 'POST')
 const patchCalls = () => calls.filter((c) => c.url.includes('/rest/v1/pro_orders') && c.method === 'PATCH')
 const codeConsumed = () => calls.filter((c) => c.url.includes('jscode2session')).length
@@ -434,7 +450,24 @@ const listUrl = calls.find((c) => c.url.includes('/rest/v1/pro_orders')).url
 //    返回的是"读这个人此刻绑着的微信名下的单"——同一个人不会少看自己的单，所以症状是静默的；
 //    真出事在"访客买完合并进邮箱"那一格（`user_id` 指向已删的访客行 ⇒ 订单页变空）。
 check('10.3 查询带 payer_openid＋provider，🔴 不带 user_id', [listUrl.includes('payer_openid=eq.' + BOUND), listUrl.includes('provider=eq.wechat_mp'), listUrl.includes('user_id=eq.')], [true, true, false])
-check('10.4 🔴 select 列里没有 payer_openid／callback_raw／note／operator／attach', /select=([^&]*)/.exec(listUrl)[1].split(',').some((k) => ['payer_openid', 'callback_raw', 'note', 'operator', 'attach', 'user_id', 'payer_unionid'].includes(k)), false)
+// 🔴 10.4 原来钉的是 **select 列**，而 `payer_openid` 是退款资格判据的输入（`evaluateRefund` 拿它比
+//   归属）——把它挡在 select 外面，端点就永远算出 `refundable:false`，订单页那颗按钮永远不出现
+//   （2026-10-05 真机撞到的正是这一条，而这一格当时是绿的）。白名单**从来都是响应侧**的事，
+//   所以判据挪到这里：读得到不等于回得出。
+const FORBIDDEN_KEYS = ['payer_openid', 'callback_raw', 'note', 'operator', 'attach', 'user_id', 'payer_unionid']
+check('10.4 🔴 响应体的每一行里不许出现这些键（select 读得到 ≠ 回得出，白名单钉在响应上）',
+  Object.keys(gb.orders[0]).filter((k) => FORBIDDEN_KEYS.includes(k)), [])
+// 🔴 这一格是 10.4 改口径之后**补上的牙**：静态要求"资格函数读的每一个 `row.X` 都在这条 select 里"。
+//   打桩喂的行是手写的，漏列这种事在桩里看不出来；只有把两份源码对起来才抓得住"生产者没喂、消费者在读"。
+{
+  const refundSrc = readFileSync(path.join(root, 'functions/_lib/proRefund.js'), 'utf8')
+    .split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+  const selectCols = listSelectColumns()
+  const needs = [...new Set([...refundSrc.matchAll(/\brow\.([a-z_0-9]+)/g)].map((x) => x[1]))]
+  check('10.4b 🔴 `evaluateRefund` 读的每个 `row.X` 必须在列表 select 的列里（缺一个＝按钮恒不出现）',
+    [needs.slice().sort(), needs.filter((c) => !selectCols.includes(c)).sort()],
+    [['env', 'id', 'is_duplicate', 'paid_at', 'payer_openid', 'platform', 'status'], []])
+}
 check('10.5 响应体里也搜不到 openid 与 unionid', [JSON.stringify(gb).includes(BOUND), JSON.stringify(gb).includes('uBound')], [false, false])
 reset()
 gb = await (await onRequestGet(getCtx({}, {}))).json().catch(() => null)
@@ -462,7 +495,66 @@ stub.pendingRows = [{ out_trade_no: 'T1', product_id: 'discontinued_item', goods
 gb = await (await onRequestGet(getCtx())).json()
 check('10.11 道具已从表里撤下 ⇒ 名字退回 id、期限为 null，钱仍然看得见', [gb.orders[0].name, gb.orders[0].durationDays, gb.orders[0].goodsPrice], ['discontinued_item', null, 100])
 
+// ── 10.12…10.15 那颗「申请退款」按钮的**行为**判据（原来整段都没算过一次 refundable，见 10.4 那段）──
+// 🔴 把桩里的行**按生产者的 select 裁一遍**：这样 select 漏列时 10.12 会跟着红（不然打桩喂的
+//   手写行永远带着那一列，就又是"判据绿着、按钮不存在"——2026-10-05 那次翻车的根因形状）。
+const asProductionRow = (row) => {
+  const cols = listSelectColumns()
+  const out = {}
+  for (const k of Object.keys(row)) if (cols.includes(k)) out[k] = row[k]
+  return out
+}
+const hoursAgo = (h) => new Date(Date.now() - h * 3600_000).toISOString()
+const refundableRow = (over = {}) => ({
+  id: 'ord-1',
+  out_trade_no: 'T1727000000000000000000rb',
+  product_id: 'pro_test_day',
+  goods_price: 1,
+  currency_type: 'CNY',
+  env: 0,
+  status: 'paid',
+  paid_at: hoursAgo(2),
+  created_at: hoursAgo(2),
+  expires_at: hoursAgo(2),
+  platform: 'android',
+  is_duplicate: false,
+  payer_openid: BOUND,
+  ...over,
+})
+reset()
+stub.pendingRows = [asProductionRow(refundableRow())]
+gb = await (await onRequestGet(getCtx())).json()
+check('10.12 🔴 已付、现网、2 小时前、这个微信没用过额度 ⇒ 列表把 `refundable` 算成 true（按钮的唯一判据）',
+  [gb.refundInfoUnavailable, gb.orders[0].refundable, gb.orders[0].refundStatus], [false, true, 'none'])
+
+reset()
+stub.pendingRows = [asProductionRow(refundableRow())]
+stub.refundRows = [{ order_id: 'ord-1', kind: 'no_reason', status: 'pending', requested_at: hoursAgo(1), executed_at: null, note: null }]
+gb = await (await onRequestGet(getCtx())).json()
+check('10.13 已经申请过（pending）⇒ 进度看得见、按钮不能再点（6.1 ⑦＋额度只一次）',
+  [gb.orders[0].refundStatus, gb.orders[0].refundable], ['pending', false])
+
+reset()
+stub.pendingRows = [asProductionRow(refundableRow())]
+stub.refundRows = [{ order_id: 'ord-1', kind: 'no_reason', status: 'rejected', requested_at: hoursAgo(1), executed_at: null, note: null }]
+gb = await (await onRequestGet(getCtx())).json()
+check('10.14 被拒过 ⇒ 额度归还 ⇒ 又能申请（#68 后半的那道额度账）', [gb.orders[0].refundStatus, gb.orders[0].refundable], ['rejected', true])
+
+reset()
+stub.pendingRows = [refundableRow({ payer_openid: undefined })] // 反向复现：生产者漏喂这一列
+gb = await (await onRequestGet(getCtx())).json()
+check('10.15 🔴 反向复现：select 少给 `payer_openid` ⇒ refundable 必须当场变 false（证明 10.12 不是恒真）',
+  gb.orders[0].refundable, false)
+
+reset()
+stub.pendingRows = [asProductionRow(refundableRow())]
+stub.refundStatus = 500
+gb = await (await onRequestGet(getCtx())).json()
+check('10.16 申请行读不到 ⇒ `refundInfoUnavailable:true` 且每行 refundable 收着 false（读不到不许画成"能退"）',
+  [gb.refundInfoUnavailable, gb.orders[0].refundable], [true, false])
+
 // ── 11. 静态门：写面收敛与开关只读部署变量 ─────────────────────────────────
+
 function stripComments(src) {
   let out = ''
   let i = 0

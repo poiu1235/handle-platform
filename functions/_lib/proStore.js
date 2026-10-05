@@ -45,15 +45,24 @@ export async function findPendingOrder(env, openid) {
  * 用户看自己的单只走这个 CF 只读端点）。
  * 🔴 键是 `payer_openid` 而不是 `user_id`（4.7"订单页、退款资格按付款微信看，不看账号"）——
  *   访客合并后 `user_id` 指向已删除的行，按账号查会让刚买完的人在订单页看到空列表。
- * `select` 显式列名：宁可这里少列，也不把 `callback_raw`／`payer_openid`／`note`／`operator`
- * 读进 CF 再靠"记得不返回"过滤（那是 4.6 点名的失败形态）。
+ * `select` 显式列名：纪律落在**回给端上的那些键**上（4.6 点名的失败形态是"读进 CF 再靠记得不返回"），
+ * 而判定要用的列必须读得到——`payer_openid` 两条读路都要（`getOrderRow` 一直是这么读的，
+ * 这一条原来漏了 ⇒ 同族两个函数形状不一致，正是订单页那颗按钮不出现的原因，见函数体里那段）。
+ * 🔴 真正一律不许读进来的是 `callback_raw`／`note`／`operator`／`attach`：那些不是判定输入。
  */
 export async function listOrdersByOpenid(env, openid) {
   const res = await serviceRoleFetch(
     env,
-    // 🔴 读回来的列比回给端上的多：`id`（join 申请行）、`platform`＋`is_duplicate`（退款资格判据，
-    //   E-28 之后 `platform` 第一次进入判定）。白名单是**响应侧**的事，见端点里那格 10.4 的判据。
-    `${ORDERS}?select=id,out_trade_no,product_id,goods_price,currency_type,env,status,paid_at,created_at,expires_at,platform,is_duplicate` +
+    // 🔴 读回来的列比**回给端上的**多：`id`（join 申请行）、`platform`＋`is_duplicate`＋`payer_openid`
+    //   都是退款资格判据的输入（E-28 之后 `platform` 第一次进入判定）。
+    //   ⚠️ 2026-10-05 真机踩过：这一列原来漏了 `payer_openid` ⇒ `evaluateRefund` 里那句
+    //   `String(row.payer_openid) !== String(f.payerOpenid)` 恒成立 ⇒ 每行都判成 `openid_mismatch`
+    //   ⇒ 订单页那颗「申请退款」按钮**永远不出现**。离线判据抓不到，因为打桩喂的行是手写的、带着这一列。
+    //   ⇒ 判据挪到对得上的那一层：`test:orders` 10.4b 静态要求"资格函数读的每个 `row.X` 必须在这条 select 里"，
+    //   10.4 只钉**响应体**的键白名单（白名单从来都是响应侧的事）。
+    //   ⚠️ 读 `payer_openid` 不构成外泄：它就是本次查询的过滤值（由调用方自己的 identity 换来），
+    //   而响应侧仍然一个字都不回（10.4／10.5）。真正不许读进来的是 `callback_raw`／`note`／`operator`／`attach`。
+    `${ORDERS}?select=id,out_trade_no,product_id,goods_price,currency_type,env,status,paid_at,created_at,expires_at,platform,is_duplicate,payer_openid` +
       `&provider=eq.${PROVIDER}&payer_openid=eq.${encodeURIComponent(openid)}` +
       `&order=created_at.desc&limit=50`,
   )

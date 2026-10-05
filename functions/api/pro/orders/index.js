@@ -42,10 +42,12 @@ const ORDER_TTL_MS = 15 * 60 * 1000 // 4.2 `expires_at`：下单时写"当前 + 
  * 订单页（4.6 那个只读面）。三条规矩：
  * · 🔴 按 `payer_openid` 查，不按 `user_id`（4.7）；没绑微信 ⇒ 空列表（不是"全部订单"，也不是报错）。
  * · 只回白名单字段＋展示用的名字与期限；🔴 `payer_openid`／`user_id`／`attach`／`callback_raw`／
- *   `note`／`operator` 一个都不出（`proStore.listOrdersByOpenid` 的 select 列就是白名单，这里不再过滤一遍）。
+ *   `note`／`operator` 一个都不出——但白名单**不是**"select 列"（select 还要带判定输入，见
+ *   `proStore.listOrdersByOpenid`），白名单是下面 `rows.map` 逐个列出来的那几个键，判据＝`test:orders` 10.4。
  * · 购买入口关着 ⇒ `[]` 且零次数据库（与 products 同一方向；端上此时也没有页面会调它）。
- * ⚠️ 退款相关字段（`refundable`／`refund_status`／`refund_reject_reason`）**这一批没有**——
- *   D-11 的 iOS 那一支要等实测，8.2 第 11 行明写"不许当作已定"，退款申请是 B4。
+ * ⚠️ 退款相关字段（`refundable`／`refundStatus`）自 B4 起**有了**，而它们的输入全在那条 select 里——
+ *   🔴 `payer_openid` 曾漏列过（2026-10-05 真机：那颗「申请退款」按钮永远不出现，而离线判据全绿），
+ *   判据见 `test:orders` 10.4b。`refund_reject_reason` 仍没有：它需要一个枚举列，那句承诺记在 E-29。
  */
 export async function onRequestGet(context) {
   const { env, data } = context
