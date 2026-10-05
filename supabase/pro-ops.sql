@@ -183,11 +183,13 @@ from (select o.payer_openid, count(*) as n
 -- ────────────────────────────────────────────────────────────────────────────
 -- A9 夹具候选账号（pro-fixture.sql 靠这一条挑目标；B2-2 真机两格要用）
 --    一行一个"绑着微信的账号"：有没有账本行、其中是不是已经有真单、此刻判出什么。
---    🔴 只挑 fixture_ok='OK 可插' 的那几行——'已有真单 夹具会拒' 那些是现网事实，别拿它当测试面。
+--    🔴 只挑 fixture_ok='OK 可插' 的那几行——'有未到期真单 夹具会拒' 那些是现网事实，别拿它当测试面。
 --    访客账号的邮箱形如 <id>@guest.invalid（端上 src/api/env.ts 的 GUEST_EMAIL_SUFFIX）。
 --    ⚠️ env 这里写死 0＝与 wrangler 的 PRO_ENV 同值；填 1 看到的是判定**读不到**的那批行（4.2 的隔离）。
---    ⚠️ 这条与夹具的"非夹具行"定义逐字同口径（order_id 为 null 也算真单），两处不一致就会
---       出现"A9 说可插、夹具却拒"。
+--    ⚠️ 这条与夹具的"非夹具行"定义逐字同口径（`order_id` 为 null 也算真单；🔴 且两处都只数
+--       `revoked_at is null` **且那一档还没过完期**的行——已撤账或已到期的历史行不参与折叠、夹具接不上龙 ⇒ 不拦；
+--       到期那条用 `+1 day` 的上界，因为 4.3 对齐到北京自然日、绝对时刻最多差一天），两处不一致就会出现
+--       "A9 说可插、夹具却拒"。
 -- ────────────────────────────────────────────────────────────────────────────
 select
   i.user_id,
@@ -201,10 +203,12 @@ select
   case when not exists (
          select 1 from public.pro_ledger l
           where l.provider = i.provider and l.payer_openid = i.openid and l.env = 0
+            and l.revoked_at is null
+            and l.effective_at + make_interval(days => l.duration_days + 1) > now()
             and (l.order_id is null
                  or l.order_id not in (select id from public.pro_orders
                                         where out_trade_no like 'FIXTURE-%')))
-       then 'OK 可插' else '已有真单 夹具会拒' end                as "fixture_ok"
+       then 'OK 可插' else '有未到期真单 夹具会拒' end             as "fixture_ok"
 from public.user_identities i
 left join auth.users u on u.id = i.user_id
 where i.provider = 'wechat_mp'
