@@ -13,9 +13,11 @@
 //   别"顺手"往这里加 session_key 相关的东西，那会把一条干净的服务器到服务器调用拖回一次性凭证的坑里。
 //
 // ⚠️ 四笔账（这是探测类代码，按纪律先算清）：
-//   触发时机＝只有显式调用（探针路由／将来 B3-3 的入账事务），没有任何自动方；
-//   单次成本＝两次对外 HTTP（一次取 access_token、一次打接口）；
-//   频次上限＝探针手工跑；B3-3 里是"确认态每轮一次、进站一次"⇒ 一次购买最多 6×2 次调用；
+//   触发时机＝查单有三处（确认态轮询／进站补查／下单前置④）＋入账成功那一次打发货告知（E-20①）；
+//     除此之外没有任何自动方——尤其**列表与搜索不调它**；
+//   单次成本＝两次对外 HTTP（一次取 access_token、一次打接口）⇒ 一次成功入账＝查单 2 ＋ 发货 2 ＝ 4 次；
+//   频次上限＝轮询次数（6）× 每笔，且只查 `pending` 且 24 小时内的单；🔴 **发货告知每笔至多一次**
+//     （只在"本次真写成了账本行"那两支打，`already` 不打），否则轮询会把它放大成每轮一次；
 //   平台自带 `268490015 频率限制`，而 `cgi-bin/token` 另有**每日获取上限**（微信通则，具体数值
 //   未逐字复核）⇒ 真撞上限时的两条路是"缓存 token"或改走**稳定版 token 接口**，
 //   别到时候先想到的是把用户的轮询缩短。
@@ -149,4 +151,35 @@ export async function xpayQueryOrder({ env, openid, orderId, wxOrderId, envFlag 
   if (orderId) body.order_id = String(orderId)
   if (wxOrderId) body.wx_order_id = String(wxOrderId)
   return xpayServerPost({ env, uri: '/xpay/query_order', body, accessToken: tok.token, fetchImpl })
+}
+
+/**
+ * 发货告知（E-20①，owner 2026-10-05：「调，最好是支付成功后马上自动调用发货」）。
+ *
+ * 🔴 形状来源＝通用文档树 `api_notify_provide_goods` 页的**工具抓取**，尚未逐字复核（R-9 ⑥）：
+ *   `POST https://api.weixin.qq.com/xpay/notify_provide_goods?access_token=…`，
+ *   body 三项 `order_id`（"下单时传的单号"＝我方 `out_trade_no`）／`wx_order_id`（"与 order_id 二选一"）／`env`。
+ *   ⇒ 这里只发 `order_id`＋`env`：那两个字段是"二选一"，而我们永远有下单时的那个号；
+ *     同时发两个的行为未证，不在第一次真跑里引入这个变量。
+ *   ⚠️ 那一页**没写**要 `pay_sig`，但通道照发（`query_order` 实测发它是被接受的）；
+ *     若它其实不许带，症状会是一条业务错误码 ⇒ 由这一支的返回值记账，不影响入账。
+ *
+ * 🔴 页面「返回参数：无」⇒ 空 body／`{}`／HTTP 2xx 都按"成功"读，**只有明确的非 0 errcode 才算失败**。
+ *   反过来说：这一支回 `ok:true` 只证明"平台没拒绝"，不证明后台那一格翻成了"已发货"——
+ *   后者是一手事实，只有 owner 在后台看一眼才算（验收 #71②）。
+ */
+export async function xpayNotifyProvideGoods({ env, orderId, envFlag = 0, fetchImpl = fetch }) {
+  if (!orderId) return { ok: false, status: 0, errcode: 'no_order_id', errmsg: 'notify_provide_goods 要带下单时传的单号', data: null, sent: null }
+  const tok = await getMiniAccessToken(env, fetchImpl)
+  if (!tok.ok) return { ok: false, status: 0, errcode: `token_${tok.errcode}`, errmsg: tok.errmsg, data: null, sent: null }
+  const r = await xpayServerPost({
+    env,
+    uri: '/xpay/notify_provide_goods',
+    body: { order_id: String(orderId), env: envFlag },
+    accessToken: tok.token,
+    fetchImpl,
+  })
+  const httpOk = r.status >= 200 && r.status < 300
+  // `xpayServerPost` 只在"body 里没有 errcode 字段"时打 'unparseable' ⇒ 这一档按成功读
+  return { ...r, ok: httpOk && (r.errcode === 0 || r.errcode === 'unparseable') }
 }

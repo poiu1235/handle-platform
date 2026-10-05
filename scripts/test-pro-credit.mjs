@@ -7,9 +7,11 @@
 // 这三件事的共同点是：出错都不抛异常，症状是"用户付了钱看不到会员"或"一个人白拿两份权益"。
 // 只有打桩能看到"几次 POST 到 pro_ledger、body 里有没有 order_id、paid_at 是哪一年"。
 //
-// ⚠️ 它证明不了的：`order.status` 的数值含义是不是文档那套 0–10（附录甲记的是读文档＋两次假单号
-//   探针；真单回来的形状只能等 #64 那笔真机购买）、PostgREST 是否真按 `status=in.(...)` 过滤
-//   （那是 test:pro 与 B0 核对脚本的活）、以及推送那一路的验签（还欠文档，见 R-9）。
+// ⚠️ 它证明不了的：`in.(pending,closed)` 在真 PostgREST 上到底匹配几行（那是 B0 核对脚本与真机的活）、
+//   推送那一路的验签（还欠文档，见 R-9），以及 🔴 **`notify_provide_goods` 的请求形状**——
+//   第 6b 节判的是"该打的时候打一次、不该打的时候一次都不打"，接口收到 `order_id` 之后怎么处理
+//   只有真单能证（形状来自通用文档树的工具抓取，尚未逐字复核＝R-9 ⑥；取证格＝验收 #71）。
+//   ✅ 已经由真机结案的：`paid_time`＝unix 秒、已付的单回 `status:3`（2026-10-05 两轮，附录甲）。
 
 import path from 'node:path'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -20,6 +22,7 @@ const results = []
 const check = (name, got, want) => results.push({ name, ok: JSON.stringify(got) === JSON.stringify(want), got, want })
 
 const { creditOrder, queryOrderState } = await import(pathToFileURL(path.join(root, 'functions/_lib/proCredit.js')).href)
+const { xpayNotifyProvideGoods } = await import(pathToFileURL(path.join(root, 'functions/_lib/proXpay.js')).href)
 const { insertLedgerRow } = await import(pathToFileURL(path.join(root, 'functions/_lib/proStore.js')).href)
 const { onRequestGet } = await import(pathToFileURL(path.join(root, 'functions/api/pro/orders/[no].js')).href)
 
@@ -66,6 +69,9 @@ const defaultStub = () => ({
   tokenStatus: 200,
   queryBody: { errcode: 0, errmsg: 'ok', order: { status: 4, paid_time: PAID_SEC, wx_order_id: 'wx-1' } },
   queryThrows: false,
+  notifyBody: { errcode: 0, errmsg: 'ok' },
+  notifyStatus: 200,
+  notifyThrows: false,
   coverageBody: { is_covered: false, valid_until: null, remaining_days: null },
   coverageStatus: 200,
   identityRows: [{ openid: OPENID }],
@@ -89,6 +95,11 @@ globalThis.fetch = async (url, options) => {
   if (u.includes('/xpay/query_order')) {
     if (stub.queryThrows) throw new Error('socket hang up')
     return mk(stub.queryBody)
+  }
+  if (u.includes('/xpay/notify_provide_goods')) {
+    if (stub.notifyThrows) throw new Error('socket hang up')
+    if (stub.notifyBody === null) return { ok: stub.notifyStatus === 200, status: stub.notifyStatus, json: async () => { throw new Error('not json') } }
+    return mk(stub.notifyBody, stub.notifyStatus)
   }
   if (u.includes('/rest/v1/rpc/pro_coverage')) return mk(stub.coverageBody, stub.coverageStatus)
   if (u.includes('/rest/v1/user_identities')) return mk(stub.identityRows, stub.identityStatus)
@@ -130,6 +141,7 @@ const env = (over = {}) => ({
 const ledgerPosts = () => calls.filter((c) => c.url.includes('/rest/v1/pro_ledger') && c.method === 'POST')
 const orderPatches = () => calls.filter((c) => c.url.includes('/rest/v1/pro_orders') && c.method === 'PATCH')
 const queryCalls = () => calls.filter((c) => c.url.includes('/xpay/query_order'))
+const notifyCalls = () => calls.filter((c) => c.url.includes('/xpay/notify_provide_goods'))
 // 🔴 "零写"只数**对库的** POST/PATCH。第一次跑这张表时这条漏了：`/xpay/query_order` 也是 POST，
 //   于是"查单判不出⇒零写"那几格永远红——而红的原因跟业务无关。判据写宽了比写窄更坏：
 //   它会把人训练成"这格红了是正常的"，等真漏写时就没人看了。同理 `/rpc/pro_coverage` 是**只读**
@@ -337,6 +349,95 @@ try {
 }
 check('6.8 🔴 写入口自己拦：少 order_id 直接抛，不出网（四个调用方不可能都记得）', [threw, ledgerPosts().length], ['pro_ledger_row_incomplete', 0])
 
+// ── 6b. 发货告知（E-20①：入账成功当场把"货已发"推给平台）────────────────────
+// 这一节钉的是**调用时机**，不是接口形状（形状只能等真单，见验收 #71）。两个方向的失误都 real：
+// 多打＝每一轮轮询都多两次出网；少打＝平台侧长期挂"未发货"（2026-10-05 真机第一轮正是这一格空着，
+// 那一笔付成功的单在后台一直显示未发货，而 owner 就是从那一屏发现我们能被后台直接退款的）。
+reset()
+res = await credit()
+{
+  const ledgerIdx = calls.findIndex((c) => c.url.includes('/rest/v1/pro_ledger') && c.method === 'POST')
+  const notifyIdx = calls.findIndex((c) => c.url.includes('/xpay/notify_provide_goods'))
+  check('6b.1 入账成功 ⇒ 恰好一次发货告知', [res.outcome, notifyCalls().length], ['credited', 1])
+  check('6b.2 🔴 它在账本写成功**之后**（反过来＝把没发成的权益报告成已发货，平台那边就再也看不出这是笔要追的单）', [ledgerIdx >= 0, notifyIdx > ledgerIdx], [true, true])
+}
+check('6b.3 body 只有 order_id＋env，order_id＝我方下单时的单号（不是 wx_order_id：页面写的是"下单时传的单号"）', [Object.keys(bodyAt(notifyCalls())).sort().join(','), bodyAt(notifyCalls()).order_id], ['env,order_id', NO])
+check('6b.4 走的是同一条签名通道（URL 里有 pay_sig ⇒ 不是另起一份不签名的出网代码）', urlAt(notifyCalls()).includes('pay_sig=') && urlAt(notifyCalls()).includes('access_token='), true)
+check('6b.5 发的 env＝接口的 0/1（0 现网），不是库里的 env_type 1/2', bodyAt(notifyCalls()).env, 0)
+reset()
+stub.notifyBody = { errcode: 48001, errmsg: 'api unauthorized' }
+res = await credit()
+check('6b.6 🔴 平台拒了这次发货 ⇒ 入账结论仍是 credited，且零额外写（权益由我方账本决定，不靠平台那一格）', [res.outcome, orderPatches().length, ledgerPosts().length, notifyCalls().length], ['credited', 1, 1, 1])
+reset()
+stub.notifyThrows = true
+res = await credit()
+check('6b.7 告知这一步网络抛错 ⇒ 仍 credited、不回滚（creditOrder 绝不因它变成 500——500 会让端上再买一次）', [res.outcome, writes().length], ['credited', 2])
+check('6b.8 失败**不重试**（四笔账：一次购买对平台的发货调用上限就是 1 次；补做交后台，不在支付路径里加出网）', notifyCalls().length, 1)
+reset()
+stub.orderRow = orderRow({ status: 'paid', paid_at: PAID_ISO })
+stub.ledgerRows = [{ id: 'l-1' }]
+res = await credit()
+check('6b.9 🔴 already（第二次问到同一笔已付单）⇒ 不打发货，否则 6 轮轮询＝6 次无谓出网', [res.outcome, notifyCalls().length], ['already', 0])
+reset()
+stub.orderRow = orderRow({ status: 'paid', paid_at: PAID_ISO })
+stub.ledgerRows = []
+res = await credit()
+check('6b.10 补写成功（两步写被打断后补上那一行）⇒ 同样打一次：权益当场成立，发货就该跟上', [res.outcome, res.repaired, notifyCalls().length], ['credited', true, 1])
+reset()
+stub.orderRow = orderRow({ status: 'refunded', paid_at: PAID_ISO })
+stub.ledgerRows = []
+res = await credit()
+check('6b.11 已退的单即便补了账本也**不**打发货（给退回来的钱点"已发货"，方向与 B4 的撤账口径相反）', [res.outcome, notifyCalls().length], ['credited', 0])
+reset()
+stub.orderRow = orderRow({ status: 'anomaly', anomaly_reason: 'refunded_not_credited' })
+res = await credit()
+check('6b.12 anomaly ⇒ 不打（拒绝复活那条规矩在发货这一侧同样成立）', [res.outcome, notifyCalls().length], ['anomaly_held', 0])
+const notifyFor = async (queryBody) => {
+  reset()
+  stub.queryBody = queryBody
+  const out = await credit()
+  return [out.outcome, notifyCalls().length]
+}
+check('6b.13 查得未付 ⇒ 不打', await notifyFor({ errcode: 0, order: { status: 1 } }), ['unpaid', 0])
+check('6b.14 查得已关 ⇒ 不打', await notifyFor({ errcode: 0, order: { status: 6 } }), ['closed', 0])
+check('6b.15 查得已退 ⇒ 不打', await notifyFor({ errcode: 0, order: { status: 5 } }), ['refunded', 0])
+check('6b.16 查无此单 ⇒ 不打', await notifyFor({ errcode: 268490002, errmsg: '数据不存在' }), ['not_found', 0])
+check('6b.17 判不出（签名错）⇒ 不打', await notifyFor({ errcode: 268490003, errmsg: '签名错误' }), ['query_error', 0])
+reset()
+stub.ledgerInsertStatus = 500
+stub.ledgerInsertError = { message: 'ledger boom' }
+res = await credit()
+check('6b.18 🔴 账本没写成 ⇒ 不打发货（6b.2 那格只有在这一支也红时才算真的有牙）', [res.outcome, notifyCalls().length], ['query_error', 0])
+reset()
+stub.patchRows = []
+res = await credit()
+check('6b.19 订单状态没改成（200 但零行＝E-19 那一格）⇒ 不打发货', [res.outcome, res.stage, notifyCalls().length], ['query_error', 'mark_paid', 0])
+reset()
+stub.orderRow = orderRow({ env: 1 })
+res = await credit()
+check('6b.20 沙箱行（env=1）⇒ 查单与发货都按接口的 env=1 发（不拿现网凭证去发沙箱货，也不反过来）', [bodyAt(queryCalls()).env, bodyAt(notifyCalls()).env], [1, 1])
+// 以下四格直接打 `xpayNotifyProvideGoods`：接口页写「返回参数：无」⇒ **"成功"的判据形状**必须自己定，
+// 而严格判 `errcode === 0` 会把每一次真发货都记成失败（回的是空 body 时 errcode 根本不存在）。
+reset()
+stub.notifyBody = null // HTTP 200＋body 不是 JSON
+let n = await xpayNotifyProvideGoods({ env: env(), orderId: NO })
+check('6b.21 200＋空/非 JSON body ⇒ 按成功读（页面「返回参数：无」那一档）', [n.status, n.ok], [200, true])
+reset()
+stub.notifyBody = {}
+n = await xpayNotifyProvideGoods({ env: env(), orderId: NO })
+check('6b.22 200＋`{}`（没有 errcode 字段）⇒ 同样按成功读', n.ok, true)
+reset()
+stub.notifyStatus = 500
+n = await xpayNotifyProvideGoods({ env: env(), orderId: NO })
+check('6b.23 HTTP 500（哪怕 body 里还写着 errcode 0）⇒ 按失败读：status 与 errcode 要同时成立', [n.ok, n.errcode], [false, 0])
+reset()
+stub.tokenStatus = 400
+n = await xpayNotifyProvideGoods({ env: env(), orderId: NO })
+check('6b.24 取不到 token ⇒ 失败且根本没打到接口', [n.ok, notifyCalls().length], [false, 0])
+reset()
+n = await xpayNotifyProvideGoods({ env: env(), orderId: '' })
+check('6b.25 缺单号 ⇒ 不出网（接口必填"下单时传的单号"）', [n.ok, notifyCalls().length], [false, 0])
+
 // ── 7. queryOrderState：下单前置④用，只读平台、一律不写 ─────────────────────
 reset()
 res = await queryOrderState(env(), orderRow())
@@ -452,6 +553,7 @@ check('9.4 🔴 proCredit 不 import 签名模块⇒入账这条链上不碰 ses
 check('9.5 creditOrder 只在 proCredit 里定义一次', JS.filter((p) => /export async function creditOrder/.test(read(p))).length, 1)
 check('9.6 🔴 打 `/xpay/*` 的调用点只有 proXpay.js 一处（别人不许绕过分类器自己发、自己读 status）', outside(/uri:\s*'\/xpay\//, 'proXpay.js'), [])
 check('9.7 "已付/未付"的数值判定只发生在 classifyQueryResult 里一处', JS.filter((p) => /Number\(order\.status\)/.test(read(p))).map((p) => path.relative(root, p)), ['functions\\_lib\\proXpay.js'])
+check('9.8 🔴 发货告知只有一个调用方（proCredit）⇒ 端点里不许出现第二个"我认为该发货了"的实现', JS.filter((p) => /xpayNotifyProvideGoods/.test(read(p))).map((p) => path.relative(root, p)).sort(), ['functions\\_lib\\proCredit.js', 'functions\\_lib\\proXpay.js'])
 
 const failed = results.filter((x) => !x.ok)
 for (const x of failed) console.log(`✗ ${x.name}\n    got  ${JSON.stringify(x.got)}\n    want ${JSON.stringify(x.want)}`)

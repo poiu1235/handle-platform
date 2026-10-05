@@ -16,7 +16,7 @@
 // ⚠️ 幂等的两道闸：`markOrderPaid` 的 PATCH 只吃 `pending|closed`（已付单的 `paid_at` 不会被挪），
 //   而**真正的双入账闸门是 `pro_ledger.order_id` 那条 unique** ⇒ 并发两路同时进来时
 //   第二条会拿到 `already_credited`，那是**成功**不是错误（见下面的分支注释）。
-import { xpayQueryOrder, classifyQueryResult } from './proXpay.js'
+import { xpayQueryOrder, xpayNotifyProvideGoods, classifyQueryResult } from './proXpay.js'
 import { getOrderRow, markOrderPaid, ledgerExistsForOrder, insertLedgerRow } from './proStore.js'
 import { durationDaysFor } from './proCatalog.js'
 import { getCoverageByOpenid, readProFlags, RENEW_WINDOW_DAYS, PROVIDER } from './proCoverage.js'
@@ -43,7 +43,7 @@ export async function creditOrder(env, outTradeNo, { fetchImpl } = {}) {
   // "改了状态、没写成账本"这个两步写是可能被打断的，缺的那一行在这里补上（数据全从行里取，
   // 不接受调用方传值 ⇒ 与 4.6 对补写入口的那条要求同形）。
   if (row.status === 'paid' || row.status === 'refunded') {
-    return await ensureLedgerForPaidRow(env, row, { queried: false })
+    return await ensureLedgerForPaidRow(env, row, { queried: false, fetchImpl })
   }
   // 🔴 4.5 第 3 步"拒绝复活"：`anomaly` 的单不许由任何自动触发源入账（它的出边只有人工，
   //   且必须留 `operator`／`note`）。这一支从今天起是**可达**的：E-17 判丙之后，
@@ -144,6 +144,9 @@ export async function creditOrder(env, outTradeNo, { fetchImpl } = {}) {
     // 订单已被标 paid 而账本没写成 ⇒ 下一次轮询/推送会走 `ensureLedgerForPaidRow` 补上
     return { outcome: 'query_error', stage: 'ledger_insert', code: ins.status }
   }
+  // E-20①：钱已收、权益已落账 ⇒ 当场告诉平台"货发了"。不调的话平台侧会一直挂"未发货"
+  //   （2026-10-05 真机第一轮实证：付成功的那一笔在后台就是"未发货／待结算"）。
+  await notifyProvided(env, row, { fetchImpl, stage: 'credit' })
   return { outcome: 'credited', paidAt: paid.iso, durationDays, isDuplicate, platformStatus: statusOf(q) }
 }
 
@@ -167,7 +170,7 @@ export async function queryOrderState(env, row, { fetchImpl } = {}) {
 }
 
 /** 已付/已退的行缺账本时补上（数据全部从订单行取，不接受调用方传值） */
-async function ensureLedgerForPaidRow(env, row, { queried }) {
+async function ensureLedgerForPaidRow(env, row, { queried, fetchImpl }) {
   if (!row.id || !row.payer_openid) return { outcome: 'bad_order', reason: row.id ? 'no_payer_openid' : 'no_order_id' }
   let exists = false
   try {
@@ -196,7 +199,36 @@ async function ensureLedgerForPaidRow(env, row, { queried }) {
   if (ins.conflict === 'already_credited') return { outcome: 'already', paidAt: row.paid_at, repaired: false, queried }
   if (!ins.ok) return { outcome: 'query_error', stage: 'ledger_insert', code: ins.status }
   console.error('[proCredit] repaired missing ledger row for a paid order:', JSON.stringify({ outTradeNo: row.out_trade_no }))
+  // 补写成功＝权益当场成立 ⇒ 同一件事（发货告知）在这里也要做一次。🔴 已退的行不打：
+  //   给一笔退回来的钱点"已发货"，方向与我方 B4 的撤账口径相反。
+  if (String(row.status) === 'paid') await notifyProvided(env, row, { fetchImpl, stage: 'repair' })
   return { outcome: 'credited', paidAt: row.paid_at, durationDays, repaired: true, queried }
+}
+
+/**
+ * 发货告知（E-20①）。🔴 三条设计约束都写在这里，因为它们**不是纪律而是这段代码的形状**：
+ * 1. **只在"本次真的写成了账本行"之后打**（`credited`／补写成功两支）——`already` 不打，
+ *    否则 6 轮轮询＋每次进站都会多两次出网（四笔账里那条频次上限）；
+ * 2. **失败不改变入账结论、不回滚、不重试**：权益由我方账本决定，平台那个"未发货"标记只影响
+ *    平台侧的展示与结算流程；在这里抛出去会把一笔成功的付款在端上读成"没到账"，而那才是真伤害；
+ * 3. **我方库里没有"发过货没有"这一列** ⇒ 这一支失败的唯一痕迹就是下面那行日志，
+ *    补不回来（残余与补做口径见正本 E-20① 那行）。
+ */
+async function notifyProvided(env, row, { fetchImpl, stage }) {
+  try {
+    const r = await xpayNotifyProvideGoods({
+      env,
+      orderId: String(row.out_trade_no),
+      envFlag: Number(row.env) === 1 ? 1 : 0,
+      fetchImpl,
+    })
+    // ⚠️ `sent` 是实际签出去的那个字符串——第一次真跑要靠它对出"平台到底收到了什么"（R-9 ⑥ 未逐字复核）
+    console.log('[proCredit] notify_provide_goods:', JSON.stringify({ outTradeNo: String(row.out_trade_no), stage, ok: r.ok, errcode: r.errcode, errmsg: r.errmsg, sent: r.sent }))
+    return r.ok
+  } catch (err) {
+    console.error('[proCredit] notify_provide_goods threw:', JSON.stringify({ outTradeNo: String(row.out_trade_no), stage, err: (err && err.message) || 'unknown' }))
+    return false
+  }
 }
 
 /**
