@@ -1,7 +1,11 @@
 -- ============================================================================
 -- pro-billing-schema-check.sql · 只读 · 当前库与 pro-billing.sql 的结构一致性核对
 --
--- 用法：Supabase SQL Editor 整体执行，**一条语句出一份表**（13 行 + 1 行总判定）。
+-- 用法：Supabase SQL Editor 整体执行，**一条语句出一份表**（15 行 + 1 行总判定）。
+--   ⚠️ 这一句原来写的是"13 行"，而那时表里已经有 14 项——**头里的数是抄的，没人对过**，
+--   加第 15 项时顺手改掉了。`99 总判定` 那格的 actual 是动态数出来的，所以库里看得见 15，
+--   只有这份文件的注释会骗人。⇒ 本地自证（`scripts/_scratch/verify-e29.mjs` A.2 那一格）
+--   把"行数＝总判定里那个字面量"钉住，改项数不改字面量就会红。
 --   status = PASS ⇒ 该项与 pro-billing.sql 的设计一致；
 --   status = FAIL ⇒ 看 detail 与 actual 列，actual 给库里现值。
 -- 全部 SELECT，零写入、零 DDL，可随时重跑；不建表 ⇒ 不会触发"Potential issue detected"弹窗。
@@ -33,7 +37,7 @@ with
 -- ── 预期形状（一处列全，下面各段只算现值） ──────────────────────────────
 tbls(t)                     as (values ('pro_orders'), ('pro_ledger'), ('pro_refund_requests')),
 expect_cols(t, n)           as (values ('pro_orders', 26), ('pro_ledger', 10), ('pro_refund_requests', 10)),
-expect_chk(t, n)            as (values ('pro_orders', 6), ('pro_ledger', 2), ('pro_refund_requests', 2)),
+expect_chk(t, n)            as (values ('pro_orders', 6), ('pro_ledger', 2), ('pro_refund_requests', 4)),
 expect_idx(i, t)            as (values ('pro_orders_wx_order_uk',              'pro_orders'),
                                 ('pro_orders_one_pending_per_openid',          'pro_orders'),
                                 ('pro_refund_requests_order_active_uk',        'pro_refund_requests')),
@@ -212,6 +216,17 @@ s13 as (
           and lower(i.indexdef) like '%unique%'
           and lower(i.indexdef) like '%wxpay_order_id%') as uniq
 ),
+s14 as (
+  -- E-29 判甲（owner 2026-10-05）：人工终态的留痕原来**只写在代码里**（`functions/admin/pro-refunds.js`
+  -- 那三道门），现在要库侧也拦得住。数的是 contype='c' 的两条具名 CHECK——🔴 不许拿"列存在"当判据，
+  -- 那一维在 E-16 上已经付过一次学费（可空列上的约束等于没加）。
+  select
+    count(*) filter (where c.conname = 'pro_refund_requests_manual_traceable' and c.contype = 'c') as has_manual,
+    count(*) filter (where c.conname = 'pro_refund_requests_done_has_receipt' and c.contype = 'c')  as has_receipt
+  from pg_constraint c
+  where c.conrelid = (select oid from pg_class
+                       where relname = 'pro_refund_requests' and relnamespace = 'public'::regnamespace)
+),
 s11b as (
   select bool_and(x.conname is not null) as ok,
          coalesce(string_agg(e.c || case when x.conname is null then '（缺）' else '（ok）' end,
@@ -259,7 +274,7 @@ rows_ as (
          case when s07.ok then 'PASS' else 'FAIL' end,
          'order_active_uk 的语义＝"一笔单不能被撤两次账"，不是"一笔单只能有一条退款记录"（4.5 触发表）' from s07
   union all
-  select '08 CHECK 条数', 'pro_orders 6／pro_ledger 2／pro_refund_requests 2', s08.got,
+  select '08 CHECK 条数', 'pro_orders 6／pro_ledger 2／pro_refund_requests 4', s08.got,
          case when s08.ok then 'PASS' else 'FAIL' end,
          '定义原文：' || s08.defs from s08
   union all
@@ -292,6 +307,15 @@ rows_ as (
          case when s13.typ = 'text' and s13.nn = 'YES' and s13.has_idx = 1 and s13.uniq = 0 then 'PASS' else 'FAIL' end,
          '✅ E-23 判甲（2026-10-05）。⚠️ **迁移前这一项本该 FAIL**——那不是回归，是"还没跑 pro-billing-e23-migration.sql"。'
          || '🔴 最后那一判（uniq＝0）钉的是这次决定本身：这列由查单回填，撞唯一会让那笔 PATCH 抛 ⇒ 账本也不写＝一笔已付的钱入不了账' from s13
+  union all
+  select '14 人工终态留痕的两条 CHECK 在',
+         'pro_refund_requests 上 manual_traceable 与 done_has_receipt 都是 contype＝c',
+         '留痕 ' || case when s14.has_manual = 1 then '在' else '不在' end
+         || '；回执 ' || case when s14.has_receipt = 1 then '在' else '不在' end,
+         case when s14.has_manual = 1 and s14.has_receipt = 1 then 'PASS' else 'FAIL' end,
+         '✅ E-29 判甲（2026-10-05）。⚠️ **迁移前这一项本该 FAIL**——没跑 pro-billing-e29-migration.sql 而已。'
+         || '买到的是"代码里那三道门之外还有库侧一道"：换个管理端点、加个批量脚本、在 SQL Editor 手改一行，都拦得住。'
+         || '没买到的是"留痕的内容是真的"——operator／note 仍是自由文本，6.5 对账要靠它的人得自己去后台核' from s14
 )
 
 -- 🔴 UNION 的 ORDER BY 只许用结果列名，不许用表达式（0A000：Only result column names can be
@@ -299,7 +323,7 @@ rows_ as (
 select * from (
   select item, expected, actual, status, detail from rows_
   union all
-  select '99 总判定'::text, '14 项全 PASS'::text,
+  select '99 总判定'::text, '15 项全 PASS'::text,
          ((select count(*)::text from rows_) || ' 项里 FAIL ' ||
           (select count(*)::text from rows_ where status = 'FAIL'))::text,
          (case when (select count(*) from rows_ where status = 'FAIL') = 0

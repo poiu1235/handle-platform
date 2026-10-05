@@ -246,10 +246,12 @@ create table if not exists public.pro_refund_requests (
   id           uuid primary key default gen_random_uuid(),
   order_id     uuid not null,
 
-  -- 🔴 external 是第二十轮评审第 2 条新增：退款由外部发起（Apple／微信投诉／管理员
-  --   直接在支付后台退）时，xpay_refund_notify 到达而本表没有申请行 ⇒ 补一行
-  --   kind='external'、status='done'、operator='platform'。这是"钱已退、我方没有申请
-  --   记录"唯一的留痕处，也是 4.5 撤账事务的入口凭据。
+  -- 🔴 external＝退款由外部发起（Apple／微信投诉／管理员直接在支付后台退）。
+  --   ✅ E-30 判甲（owner 2026-10-05）：**接收器不写这一张表**——`xpay_refund_notify` 只撤账、
+  --   把订单标成 `refunded`、回执号进 `pro_orders.note`。这一行留给**人工登记**（`pro-ops.sql` A6
+  --   那条巡检），代价写在正本 6.1：钱与申请行之间没有自动留痕。原来这一段写着"通知到达 ⇒ 补一行
+  --   kind='external'、operator='platform'"，那是二十轮评审时的设计，实施没有做、也不再补做
+  --   （自动写进来的行没有申请人、没有会话身份，而这张表将来是 6.5 对账口径的输入）。
   kind         text not null check (kind in ('no_reason', 'duplicate', 'manual', 'external')),
 
   -- pending＝已申请、权益已撤、待管理员执行（点了就撤，U-11 已判）。
@@ -262,6 +264,21 @@ create table if not exists public.pro_refund_requests (
   wx_refund_id text,
   "operator"   text,   -- 人工执行必留（与 note 一起；引号原因见第 0 节）
   note         text,
+
+  -- 🔴 ✅ E-29 判甲（owner 2026-10-05）：人工终态必须留痕。这一条原来**只写在代码里**
+  --   （`functions/admin/pro-refunds.js` 那三道门），而写在代码里的门会被下一次重构删掉。
+  --   ① 任何非 pending 的行都要 operator＋note——`rejected` 是"把权益还回去"这个动作的凭据，
+  --      没有留痕的还原等于谁都能把自己撤掉的账还回来；② `done` 还必须有 `wx_refund_id`——
+  --      D-22 之后我方不发起退款，那个号只能来自后台，是"钱真退了"的唯一外部凭据。
+  --   ⚠️ 两道都不许改成 nullable-default：它们拦的是**写入时刻**，不是读取时刻。
+  --   ⚠️ 老库要跑 `pro-billing-e29-migration.sql`（`create table if not exists` 重跑不会补约束）。
+  constraint pro_refund_requests_manual_traceable check (
+    status = 'pending'
+    or ("operator" is not null and "operator" <> '' and note is not null and note <> '')
+  ),
+  constraint pro_refund_requests_done_has_receipt check (
+    status <> 'done' or (wx_refund_id is not null and wx_refund_id <> '')
+  ),
 
   created_at   timestamptz not null default now()
 );
