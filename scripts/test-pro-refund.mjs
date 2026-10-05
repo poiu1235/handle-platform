@@ -129,7 +129,7 @@ const ledgerPatches = () => calls.filter((c) => c.url.includes('/rest/v1/pro_led
 
 reset()
 let r = await post({ outTradeNo: NO, kind: 'no_reason' })
-check('2.1 安卓合格申请 ⇒ 200、status=pending、revoked:true', [r.status, r.body], [200, { outTradeNo: NO, status: 'pending', revoked: true }])
+check('2.1 安卓合格申请 ⇒ 200、status=pending、revoked:true、viaAppStore:false', [r.status, r.body], [200, { outTradeNo: NO, status: 'pending', revoked: true, viaAppStore: false }])
 {
   const insIdx = calls.findIndex((c) => c.url.includes('/rest/v1/pro_refund_requests') && c.method === 'POST')
   const revIdx = calls.findIndex((c) => c.url.includes('/rest/v1/pro_ledger') && c.method === 'PATCH')
@@ -141,7 +141,14 @@ check('2.1 安卓合格申请 ⇒ 200、status=pending、revoked:true', [r.statu
 reset()
 stub.orderRow = row({ platform: 'ios', product_id: 'monthly_mem_apple' })
 r = await post({ outTradeNo: NO, kind: 'no_reason' })
-check('2.5 🔴 iOS 合格申请 ⇒ 落行但**账本零 PATCH**（E-28 判丙的那一半）', [r.status, r.body.revoked, reqCalls().length, ledgerPatches().length], [200, false, 1, 0])
+check('2.5 🔴 iOS 合格申请 ⇒ 落行但**账本零 PATCH**（E-28 判丙的那一半），且回 `viaAppStore:true`（#67② 那句"去 App Store"的判据）',
+  [r.status, r.body.revoked, r.body.viaAppStore, reqCalls().length, ledgerPatches().length], [200, false, true, 1, 0])
+
+reset()
+stub.orderRow = row({ platform: 'unknown' })
+r = await post({ outTradeNo: NO, kind: 'no_reason' })
+check('2.5b 🔴 `unknown`（工具／桌面）也不撤账，但**不许**回 viaAppStore——把商店那句指给它是假信息',
+  [r.status, r.body.revoked, r.body.viaAppStore, ledgerPatches().length], [200, false, false, 0])
 
 reset()
 stub.orderRow = row({ status: 'refunded' })

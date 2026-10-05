@@ -109,11 +109,16 @@ export async function onRequestGet(context) {
     orders: rows.map((r) => {
       const known = catalogEntry(r.product_id)
       const newest = newestByOrder.get(String(r.id)) || null
-      const refundable = requests === null
-        ? false
-        : evaluateRefund({
-            row: r, payerOpenid: openid, kind: 'no_reason', nowMs, requestsForPayer: requests,
-          }).ok
+      // 🔴 E-33 判甲（owner 2026-10-05 夜）：`refundable:false` 一种形状要表示两种完全相反的状态
+      //   （"进度正在跑"与"这个微信不能再自助申请了"），用户看得见的只有"按钮没了"。
+      //   ⇒ 多回一个**枚举码**，端上据此出一句灰字。🔴 只回码不回人话：文案的正本在端上
+      //   （`proCheckout.ts` 的 `REFUND_DENY_COPY`），同 7.5 那条"一句文案只有一个地方能改"。
+      //   ⚠️ 读不到申请行时（`requests===null`）码给 null 而不是编一个——那一种情形端上已经有
+      //   `refundInfoUnavailable` 那句话，再叠一句"额度用过了"是假信息。
+      const verdict = requests === null
+        ? null
+        : evaluateRefund({ row: r, payerOpenid: openid, kind: 'no_reason', nowMs, requestsForPayer: requests })
+      const refundable = verdict ? verdict.ok : false
       return {
         outTradeNo: r.out_trade_no,
         productId: r.product_id,
@@ -129,6 +134,7 @@ export async function onRequestGet(context) {
         // 不下发；正本 6.1 ⑦ 承诺的 `refund_reject_reason` 需要一个枚举列，今天没有 ⇒ 记 E-29。
         refundStatus: newest ? String(newest.status) : 'none',
         refundable,
+        refundDeny: refundable || !verdict ? null : String(verdict.code),
       }
     }),
   })

@@ -553,8 +553,35 @@ gb = await (await onRequestGet(getCtx())).json()
 check('10.16 申请行读不到 ⇒ `refundInfoUnavailable:true` 且每行 refundable 收着 false（读不到不许画成"能退"）',
   [gb.refundInfoUnavailable, gb.orders[0].refundable], [true, false])
 
-// ── 11. 静态门：写面收敛与开关只读部署变量 ─────────────────────────────────
+// ── 10.17…10.19 E-33 判甲：那颗按钮不出现时要带一个**码**回来（端上据此出灰字） ──
+reset()
+// 两笔单：ord-1 已有一条 done 申请（它自己＝"已经申请过"），ord-2 没申请过但**额度已被 ord-1 用掉**
+stub.pendingRows = [
+  asProductionRow(refundableRow()),
+  asProductionRow(refundableRow({ id: 'ord-2', out_trade_no: 'T1727000000000000000000rc' })),
+]
+stub.refundRows = [{ order_id: 'ord-1', kind: 'no_reason', status: 'done', requested_at: hoursAgo(30), executed_at: hoursAgo(29), note: null }]
+gb = await (await onRequestGet(getCtx())).json()
+check('10.17 🔴 两种"不能申请"分得开：ord-1＝already_requested（进度在跑）、ord-2＝quota_used（额度用尽）',
+  gb.orders.map((o) => [o.refundable, o.refundDeny]),
+  [[false, 'refund_already_requested'], [false, 'refund_quota_used']])
 
+reset()
+stub.pendingRows = [asProductionRow(refundableRow())]
+stub.refundStatus = 500
+gb = await (await onRequestGet(getCtx())).json()
+check('10.18 读不到申请行 ⇒ `refundDeny` 这一格**在**且是 null（不是编一个码；也不是"字段干脆没有"——反证时把整行删掉这一格要能分辨）',
+  [gb.refundInfoUnavailable, 'refundDeny' in gb.orders[0], gb.orders[0].refundDeny], [true, true, null])
+
+reset()
+stub.pendingRows = [asProductionRow(refundableRow())]
+stub.refundRows = [{ order_id: 'ord-1', kind: 'no_reason', status: 'done', requested_at: hoursAgo(30), executed_at: hoursAgo(29), note: '客服对话原文，含个人信息' }]
+gb = await (await onRequestGet(getCtx())).json()
+check('10.19 🔴 只回码不回人话，也不回申请行的 note：整个响应体里搜不到那两句（文案正本在端上）',
+  [JSON.stringify(gb).includes('无理由退款'), JSON.stringify(gb).includes('客服对话原文')], [false, false])
+
+
+// ── 11. 静态门：写面收敛与开关只读部署变量 ─────────────────────────────────
 function stripComments(src) {
   let out = ''
   let i = 0

@@ -93,6 +93,11 @@ export async function onRequestPost(context) {
       return json({ error: '暂时无法处理退款申请，请稍后再试', code: 'pro_unavailable' }, 503)
     }
   }
-  console.log('[pro/refund] requested:', JSON.stringify({ outTradeNo, kind, revoked }))
-  return json({ outTradeNo, status: 'pending', revoked })
+  // 🔴 #67② 那句"请到 App Store 申请退款"要有**服务端给的**分支判据，端上不许自己猜渠道：
+  //   同 E-28 那条铁律——只看订单行里下单时落库的那一个 `platform`，不看这次请求传来的任何字段。
+  //   ⚠️ 它不等于 `!revoked`：`unknown`（工具／桌面／鸿蒙）也是"不撤"，但那不是 Apple 那一支，
+  //   把 App Store 那句指给它是假信息。
+  const viaAppStore = String(row.platform) === 'ios'
+  console.log('[pro/refund] requested:', JSON.stringify({ outTradeNo, kind, revoked, viaAppStore }))
+  return json({ outTradeNo, status: 'pending', revoked, viaAppStore })
 }
