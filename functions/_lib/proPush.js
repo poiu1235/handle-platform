@@ -29,9 +29,15 @@
 const TEXT_ENCODER = new TextEncoder()
 
 // 顶层字段白名单：🔴 只读这些名字，其余一概不解析（不写通用 XML 解析器＝少一个能吃畸形输入的面）
+// ✅ 2026-10-05 第一次真推（三条 `xpay_refund_notify`，正本附录甲有原文）到手后按实回包补齐：
+//   退款那一支的单号字段**不是** `OutTradeNo`，而是 `MchOrderId`（商户单号＝我们的 `out_trade_no`），
+//   另有 `WxOrderId`（＝`wx_order_id`）／`WxRefundId`／`MchRefundId`／`RefundFee`（分）／`RetCode`／`RetMsg`。
+//   ⇒ 两个名字都收（`OutTradeNo` 是个人版页对**发货**推送那一列的转述，我们还没见过真发货推送）。
 const TOP_FIELDS = [
   'ToUserName', 'FromUserName', 'CreateTime', 'MsgType', 'Event',
-  'OpenId', 'OutTradeNo', 'Env', 'WeChatPayInfo', 'GoodsInfo',
+  'OpenId', 'OutTradeNo', 'MchOrderId', 'WxOrderId', 'Env',
+  'WxRefundId', 'MchRefundId', 'RefundFee', 'RetCode', 'RetMsg',
+  'WeChatPayInfo', 'GoodsInfo',
 ]
 const NESTED = { WeChatPayInfo: ['MchOrderNo'], GoodsInfo: ['ProductId', 'Quantity'] }
 
@@ -104,8 +110,16 @@ export function readPushFields(text) {
   }
   return {
     event: flat.Event || null,
-    openid: flat.OpenId || null,
-    outTradeNo: flat.OutTradeNo || null,
+    // 🔴 单号有两个 spelled：真推来的是 `MchOrderId`（商户单号＝我们的 `out_trade_no`），
+    //   个人版页对发货推送写的是 `OutTradeNo`。两个都认，🔴 但**不猜别的名字**——读不到就回 null，
+    //   调用方按"读不出"应答失败（宁可让平台重推，也不拿一条认不出的报文去改状态）。
+    outTradeNo: flat.OutTradeNo || flat.MchOrderId || null,
+    openid: flat.OpenId || flat.FromUserName || null, // 通则：FromUserName 就是这条消息来自的那个用户 openid
+    wxOrderId: flat.WxOrderId || null,
+    refundId: flat.WxRefundId || null,
+    mchRefundId: flat.MchRefundId || null,
+    refundFee: flat.RefundFee === undefined ? null : flat.RefundFee,
+    retCode: flat.RetCode === undefined ? null : flat.RetCode,
     env: flat.Env === undefined ? null : flat.Env,
     mchOrderNo: flat['WeChatPayInfo.MchOrderNo'] || null,
     productId: flat['GoodsInfo.ProductId'] || null,

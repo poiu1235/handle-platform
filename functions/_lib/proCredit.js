@@ -187,7 +187,7 @@ export async function queryOrderState(env, row, { fetchImpl } = {}) {
  *   从没发过权益（无可撤，E-17 那一支的 anomaly／pending 行）｜`credited`／`already` 查单说钱还在｜
  *   `unpaid`／`query_error`／`no_local_order`／`bad_order` 不动库
  */
-export async function refundOrder(env, outTradeNo, { fetchImpl } = {}) {
+export async function refundOrder(env, outTradeNo, { fetchImpl, pushOpenid, refundId } = {}) {
   let row = null
   try {
     row = await getOrderRow(env, outTradeNo)
@@ -195,6 +195,14 @@ export async function refundOrder(env, outTradeNo, { fetchImpl } = {}) {
     return { outcome: 'query_error', stage: 'local_order_read', code: (err && err.code) || 'read_failed' }
   }
   if (!row) return { outcome: 'no_local_order', outTradeNo }
+  // 🔴 推送里的 openid 必须与订单行的 `payer_openid` 是同一个微信。不比对就会出现"拿别人那笔已退的
+  //   单号来撤这个账号的权益"——验签只证明"这条请求来自平台"，不证明"这条消息与该账号有关"。
+  //   不一致 ⇒ 不撤、不写、只留日志（要不要落 `anomaly` 交 B4 一起判：那一支要写行、要留 operator，
+  //   而现在这条链上没有任何东西能证明该落给谁）。
+  if (pushOpenid && row.payer_openid && String(pushOpenid) !== String(row.payer_openid)) {
+    console.error('[proCredit] refund push openid mismatch, nothing revoked:', JSON.stringify({ outTradeNo }))
+    return { outcome: 'openid_mismatch' }
+  }
   if (String(row.status) === 'refunded') return { outcome: 'already_refunded' }
   if (!row.payer_openid || !row.id) return { outcome: 'bad_order', reason: row.id ? 'no_payer_openid' : 'no_order_id' }
 
@@ -226,7 +234,8 @@ export async function refundOrder(env, outTradeNo, { fetchImpl } = {}) {
   try {
     mr = await markOrderRefunded(env, String(row.out_trade_no), {
       operator: REFUND_OPERATOR,
-      note: 'xpay_refund_notify:查单确认已退款 ⇒ 撤账本行（D-22 唯一撤账触发源）',
+      // D-9a 那句"`note` 要写怎么核实的"：触发源＋平台侧退款单号＋凭据是查单，三样都在这一串里
+      note: `xpay_refund_notify${refundId ? ':' + String(refundId) : ''}:查单确认已退款 ⇒ 撤账本行（D-22 唯一撤账触发源）`,
     })
   } catch (err) {
     console.error('[proCredit] mark refunded failed after revoke:', JSON.stringify({ outTradeNo, code: (err && err.code) || 'unknown', revokedRows: rv.matched }))

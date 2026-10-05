@@ -95,11 +95,13 @@ export async function onRequestPost(context) {
   }
 
   if (f.event === EVENT_REFUND) {
-    const r = await refundOrder(env, f.outTradeNo)
+    const r = await refundOrder(env, f.outTradeNo, { pushOpenid: f.openid, refundId: f.refundId })
     // `refunded_not_credited` 回 0：钱退了而我们从没发过权益，这是一件**已判定**的事实，
     // 没有"再问一次就能变清楚"的余地 ⇒ 停推，那张 anomaly／pending 行由 A3 巡检接手
+    // 🔴 `openid_mismatch` 回**非 0**：这条消息与该账号无关＝不撤，但也不许我们把它读成"处理完了"——
+    //   重推会一直失败到上限，而 A3/A4 之外还有一条日志能查，比静默停推好。
     const ok = ['refunded_revoked', 'already_refunded', 'refunded_not_credited', 'credited', 'already'].includes(r.outcome)
-    console.log('[pro-push] refund:', JSON.stringify({ outTradeNo: f.outTradeNo, outcome: r.outcome, stage: r.stage || null, revokedRows: r.revokedRows === undefined ? null : r.revokedRows, replied: ok ? 0 : 1 }))
+    console.log('[pro-push] refund:', JSON.stringify({ outTradeNo: f.outTradeNo, outcome: r.outcome, stage: r.stage || null, revokedRows: r.revokedRows === undefined ? null : r.revokedRows, refundFee: f.refundFee, replied: ok ? 0 : 1 }))
     return xml(pushReplyXml({ ok }))
   }
 

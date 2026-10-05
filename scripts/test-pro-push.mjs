@@ -354,6 +354,44 @@ reset()
   })(), [NO, 'monthly_mem_android', '1'])
 }
 
+// ── 5b. 🔴 真推来的那一纸（2026-10-05 17:20 现网 tail 原文，正本附录甲）──────────
+// 第一次真推就把字段名给我们纠正了：退款通知里的单号叫 `MchOrderId`，**不是**个人版页转述的
+// `OutTradeNo`；而"商户退款单号/微信退款单号/退款金额"是 `MchRefundId`／`WxRefundId`／`RefundFee`。
+// 旧解析读不到单号 ⇒ 三条推送全落在"读不出"那一档、应答失败、零写（E-25 那套 fail-closed 的形状），
+// 而这一格钉的就是"这一纸现在要能被读懂"。
+const REAL_REFUND_XML =
+  '<xml><ToUserName><![CDATA[gh_3ce2cbec98b6]]></ToUserName> <FromUserName><![CDATA[' + OPENID + ']]></FromUserName> ' +
+  '<CreateTime>1791192028</CreateTime> <MsgType><![CDATA[event]]></MsgType> ' +
+  '<Event><![CDATA[xpay_refund_notify]]></Event> <OpenId><![CDATA[' + OPENID + ']]></OpenId> ' +
+  '<WxRefundId><![CDATA[VPR26100517083913588]]></WxRefundId> <MchRefundId><![CDATA[VPR26100517083909476]]></MchRefundId> ' +
+  '<WxOrderId><![CDATA[VPO261005154518026737539]]></WxOrderId> <MchOrderId><![CDATA[' + NO + ']]></MchOrderId> ' +
+  '<RefundFee>333</RefundFee> <RetCode>0</RetCode> <RetMsg><![CDATA[success]]></RetMsg></xml>'
+{
+  const f = readPushFields(REAL_REFUND_XML)
+  check("5b.1 🔴 真推的单号从 `MchOrderId` 读得出来（旧写法只认 OutTradeNo ⇒ 三条真推全部'读不出'）", f.outTradeNo, NO)
+  check('5b.2 退款那一支的三个字段都读得到（留痕与 B4 要用）', [f.refundId, f.mchRefundId, f.refundFee, f.wxOrderId], ['VPR26100517083913588', 'VPR26100517083909476', '333', 'VPO261005154518026737539'])
+  check('5b.3 openid 从 OpenId 读到（与 FromUserName 同值，两个都认）', f.openid, OPENID)
+  check('5b.4 两种拼写同时在场时以 OutTradeNo 优先（那是发货推送那一列的转述，不冲突时不猜）', readPushFields('<xml><OutTradeNo>A</OutTradeNo><MchOrderId>B</MchOrderId></xml>').outTradeNo, 'A')
+}
+reset()
+stub.orderRow = orderRow({ status: 'paid', paid_at: PAID_ISO })
+stub.queryBody = { errcode: 0, order: { status: 5 } }
+{
+  const ts = '1700000005'
+  const sig = await signFor(TOKEN, ts, 'n5')
+  const res = await onRequestPost(ctx(req({ method: 'POST', query: { signature: sig, timestamp: ts, nonce: 'n5' }, body: REAL_REFUND_XML })))
+  check('5b.5 🔴 这一纸现在真的会撤账（旧代码走到"读不出单号"就停了）', [await errCodeOf(res), ledgerPatches().length, refundedPatches().length], [0, 1, 1])
+  check('5b.6 平台侧退款单号进 note（D-9a：怎么核实的要能被追责）', String(bodyAt(refundedPatches()).note).includes('VPR26100517083913588'), true)
+}
+reset()
+stub.orderRow = orderRow({ status: 'paid', paid_at: PAID_ISO, payer_openid: 'oSomeoneElse' })
+{
+  const ts = '1700000006'
+  const sig = await signFor(TOKEN, ts, 'n6')
+  const res = await onRequestPost(ctx(req({ method: 'POST', query: { signature: sig, timestamp: ts, nonce: 'n6' }, body: REAL_REFUND_XML })))
+  check('5b.7 🔴 推送里的 openid 与订单行的 payer_openid 对不上 ⇒ 不撤、零写、应答非 0（验签只证明"来自平台"，不证明"与该账号有关"）', [await errCodeOf(res), writes().length, queryCalls().length], [1, 0, 0])
+}
+
 // ── 6. 静态闸：这条通道的形状不许被第二份实现稀释 ─────────────────────────────
 const JS = []
 ;(function walk(dir) {
