@@ -187,9 +187,9 @@ from (select o.payer_openid, count(*) as n
 --    访客账号的邮箱形如 <id>@guest.invalid（端上 src/api/env.ts 的 GUEST_EMAIL_SUFFIX）。
 --    ⚠️ env 这里写死 0＝与 wrangler 的 PRO_ENV 同值；填 1 看到的是判定**读不到**的那批行（4.2 的隔离）。
 --    ⚠️ 这条与夹具的"非夹具行"定义逐字同口径（`order_id` 为 null 也算真单；🔴 且两处都只数
---       `revoked_at is null` **且那一档还没过完期**的行——已撤账或已到期的历史行不参与折叠、夹具接不上龙 ⇒ 不拦；
---       到期那条用 `+1 day` 的上界，因为 4.3 对齐到北京自然日、绝对时刻最多差一天），两处不一致就会出现
---       "A9 说可插、夹具却拒"。
+--       `revoked_at is null` **且那一档今天还盖着**的行——已撤账或已过完期的历史行不参与折叠、夹具接不上龙 ⇒ 不拦；
+--       "过完期"按北京自然日算：`date(effective_at) + duration_days − 1 >= date(now())`，与 4.3 同一套历法），
+--       两处不一致就会出现"A9 说可插、夹具却拒"。
 -- ────────────────────────────────────────────────────────────────────────────
 select
   i.user_id,
@@ -204,7 +204,8 @@ select
          select 1 from public.pro_ledger l
           where l.provider = i.provider and l.payer_openid = i.openid and l.env = 0
             and l.revoked_at is null
-            and l.effective_at + make_interval(days => l.duration_days + 1) > now()
+            and (l.effective_at at time zone 'Asia/Shanghai')::date + l.duration_days - 1
+                >= (now() at time zone 'Asia/Shanghai')::date
             and (l.order_id is null
                  or l.order_id not in (select id from public.pro_orders
                                         where out_trade_no like 'FIXTURE-%')))

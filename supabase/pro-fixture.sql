@@ -14,12 +14,12 @@
 -- `is_pro` 那种布尔位可涂（D-2＝读时折叠），这正是本文件存在的理由——想要"是会员"只能给账本。
 --
 -- 🔴 三条硬边界（跑之前读一遍）：
--- 1. **只对自测账号**。目标 openid 上若已有**非夹具、且那一档还没过完期**的账本行，本文件**当场报错退出**，
+-- 1. **只对自测账号**。目标 openid 上若已有**非夹具、且那一档今天还盖着**的账本行，本文件**当场报错退出**，
 --    不会碰真单一根毛（真单的 out_trade_no 不是 FIXTURE- 前缀）。两条排除都有依据：折叠只看
 --    `revoked_at is null` 的行（4.3）⇒ 已撤账的那几条在判定里根本不存在，插夹具前后判出来的东西逐字一样；
---    窗口已经结束的行也加不出东西（夹具生效在"现在"，接龙点必然在它之后）⇒ 也不拦。
---    🔴 真正会被干扰的是**还挂着的那一档**：夹具会顺着它往下续算，于是"删掉夹具之后到期日是哪天"
---    变成需要人记的事——所以拒的是这一种。
+--    已过完期的行也加不出东西（夹具生效在"现在"，接龙点必然在它之后）⇒ 也不拦。
+--    🔴 真正会被干扰的是**今天还盖着的那一档**：夹具会顺着它往下续算，于是"删掉夹具之后到期日是哪天"
+--    变成需要人记的事——所以拒的是这一种。"过完期"按**北京自然日**判（和 4.3 同一套历法），不是按绝对时刻。
 -- 2. 不产生任何支付事实：没有微信单号、没有钱。`goods_price` 填 1（＝¥0.01，只满足
 --    `check (goods_price > 0)`），`wx_order_id` 留 null。别拿它做对账或营收统计（6.5 的口径
 --    要按 out_trade_no 前缀把 FIXTURE 剔掉）。
@@ -79,21 +79,26 @@ begin
     raise exception '账号 % 没有 wechat_mp 绑定，取不到 openid ⇒ 会员判定按 openid 锚（正本 2.2），插了也判不出来。请用真机那个微信账号（pro-ops.sql A9 能列出来）', v_user_id;
   end if;
 
-  -- 闸门④：这个 openid 上**已经有真单入账、且那一档还没过完期**的覆盖就退出——那笔会跟夹具接龙，
+  -- 闸门④：这个 openid 上**已经有真单入账、且那一档今天还盖着**的覆盖就退出——那笔会跟夹具接龙，
   -- 而且"删掉 FIXTURE 行之后还剩什么"会变成需要人记的东西。两条排除都有依据（顶部边界 1）：
   -- 已撤账的行不参与折叠；窗口已经结束的行折叠时也加不出任何东西（`start_i` 取 `greatest(cursor, effective_at)`，
-  -- 夹具的生效时刻是"现在"，必然在它之后）。取 `+1 day` 的上界是因为 4.3 把窗口对齐到**北京自然日**，
-  -- 绝对时刻的算法最多差一天 ⇒ 灰区按"可能还有影响"处理，宁可不插。
+  -- 夹具的生效时刻是"现在"，必然在它之后）。
+  -- 🔴 "过完期没有"用**北京自然日**算，和 4.3 折叠里的 `day_start + duration_days` 同一套历法：
+  --    一行的最后覆盖日＝`date(effective_at) + duration_days − 1`；它早于今天 ⇒ 这一档已经盖完了。
+  --    ⚠️ 这里刻意不写成 `effective_at + (duration_days+1) days > now()`：绝对时刻与北京自然日最多差一天，
+  --    那种写法会多拦——北京昨天 23:00 买的 1 天卡只盖昨天（`day_start` 取的是北京日历日），
+  --    但它按绝对时刻算"明天才过完"，于是明明接不上龙却被拒。宁可算准，别靠放宽来绕。
   select count(*) into v_real_rows
   from public.pro_ledger
   where payer_openid = v_openid and provider = 'wechat_mp' and env = v_env
     and revoked_at is null
-    and effective_at + make_interval(days => duration_days + 1) > now()
+    and (effective_at at time zone 'Asia/Shanghai')::date + duration_days - 1
+        >= (now() at time zone 'Asia/Shanghai')::date
     and (order_id is null or order_id not in (
       select id from public.pro_orders where out_trade_no like 'FIXTURE-%'
     ));
   if v_real_rows > 0 then
-    raise exception 'openid 尾 %… 上已有 % 条**还没过完期**的非夹具账本行（可能是真单），本文件拒绝在这种账号上跑，换一个干净的自测账号（已撤账或已到期超过一天的历史行不拦）',
+    raise exception 'openid 尾 %… 上已有 % 条**那一档今天还盖着**的非夹具账本行（可能是真单），本文件拒绝在这种账号上跑，换一个干净的自测账号（已撤账或已过完期的历史行不拦）',
       right(v_openid, 6), v_real_rows;
   end if;
 
