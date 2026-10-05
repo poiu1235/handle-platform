@@ -286,3 +286,57 @@ export async function markOrderRefunded(env, outTradeNo, { operator, note }) {
   if (rows === null) throw fail('pro_order_mark_refunded_unreadable', res.status, 'PATCH 没回 representation（Prefer 被吞？）')
   return { matched: rows.length }
 }
+
+// ── B4 退款申请侧（4.2 第三张表；入口③用户自助申请与订单页的进度可见）────────────
+//
+// 🔴 这张表**没有 openid 列**（4.2 刻意不建 FK），所以"每个付款微信一次"这类额度判据
+//   只能两步走：先按 `payer_openid` 取出这个微信名下的所有 `order_id`，再按 `order_id=in.(…)`
+//   读申请行。别为了少一次读就给申请表加一列 openid——那会把"额度按付款微信算"这条
+//   口径同时写在两处（一处漏改就静默失真）。
+
+/** 某部微信名下的全部订单主键（额度判据的寻址用；🔴 不设 limit——漏读会把已用额度算少） */
+export async function orderIdsByOpenid(env, openid) {
+  const res = await serviceRoleFetch(
+    env,
+    `${ORDERS}?select=id&provider=eq.${PROVIDER}&payer_openid=eq.${encodeURIComponent(openid)}`,
+  )
+  if (!res.ok) throw fail('pro_order_id_list_failed', res.status, JSON.stringify(res.data))
+  return (Array.isArray(res.data) ? res.data : []).map((r) => String(r.id)).filter(Boolean)
+}
+
+/**
+ * 落一行退款申请（入口③）。🔴 只有**通过资格判据**的申请才允许走到这里（6.1 修正一：
+ * 不合格当场拒、不落行——代价是"多少人试过退款"从此没有落点，那是已认的账）。
+ * `kind='manual'`／`'duplicate'` 不耗额度，但 `manual` 必须带 `operator`＋`note`（D-4：
+ * 那是唯一"由我方主动生成退款"的通道，没有留痕就等于没有门）。
+ */
+export async function insertRefundRequest(env, { orderId, kind, operator, note }) {
+  const body = { order_id: String(orderId), kind: String(kind), status: 'pending' }
+  if (operator) body.operator = String(operator)
+  if (note) body.note = String(note)
+  const res = await serviceRoleFetch(env, '/rest/v1/pro_refund_requests', {
+    method: 'POST',
+    body,
+    prefer: 'return=representation',
+  })
+  if (!res.ok) return { ok: false, status: res.status, data: res.data }
+  const rows = Array.isArray(res.data) ? res.data : []
+  return { ok: true, status: res.status, row: rows[0] || null }
+}
+
+/**
+ * 一批订单的申请行（订单页要 join 出 `refund_status`——6.1 ⑦"进度必须自己看得见"：
+ * 点了就撤之后，用户全靠打开账户页才知道结果，被拒还原权益时更不能没有说法）。
+ * ⚠️ 一次 `in.` 读，🔴 不在端点上按行循环打库（列表 50 行＝50 次读是另一种静默劣化）。
+ */
+export async function refundRequestsByOrders(env, orderIds) {
+  const ids = (orderIds || []).map((x) => String(x)).filter(Boolean)
+  if (ids.length === 0) return []
+  const res = await serviceRoleFetch(
+    env,
+    `/rest/v1/pro_refund_requests?select=order_id,kind,status,requested_at,executed_at,note` +
+      `&order_id=in.${encodeURIComponent('(' + ids.join(',') + ')')}&order=requested_at.desc`,
+  )
+  if (!res.ok) throw fail('pro_refund_list_failed', res.status, JSON.stringify(res.data))
+  return Array.isArray(res.data) ? res.data : []
+}
