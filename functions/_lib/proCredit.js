@@ -17,7 +17,7 @@
 //   而**真正的双入账闸门是 `pro_ledger.order_id` 那条 unique** ⇒ 并发两路同时进来时
 //   第二条会拿到 `already_credited`，那是**成功**不是错误（见下面的分支注释）。
 import { xpayQueryOrder, xpayNotifyProvideGoods, classifyQueryResult } from './proXpay.js'
-import { getOrderRow, markOrderPaid, ledgerExistsForOrder, insertLedgerRow } from './proStore.js'
+import { getOrderRow, markOrderPaid, ledgerExistsForOrder, insertLedgerRow, revokeLedgerForOrder, markOrderRefunded } from './proStore.js'
 import { durationDaysFor } from './proCatalog.js'
 import { getCoverageByOpenid, readProFlags, RENEW_WINDOW_DAYS, PROVIDER } from './proCoverage.js'
 
@@ -169,6 +169,83 @@ export async function queryOrderState(env, row, { fetchImpl } = {}) {
   if (kind === 'unpaid' || kind === 'closed' || kind === 'not_found') return { outcome: 'unpaid', via: kind }
   return { outcome: 'query_error', errcode: q.errcode, errmsg: q.errmsg }
 }
+
+/**
+ * 外部退款撤账（E-20②：`xpay_refund_notify` 是 D-22 认定的**唯一**撤账触发源）。
+ *
+ * 🔴 与入账同一条铁律：**推送只是触发器，撤账只认 `query_order`**。收到一句"这单退了"就把
+ *   用户的权益撤掉，等于把权益的处置权交给一条可伪造的入站报文——那一格的方向比"漏发"更坏，
+ *   因为它伤的是付了钱没退款的人。所以本函数第一步就是再查一次平台：
+ *   `refunded` 才撤；`paid` 就以查单为准去入账（推送与账期不一致时，钱在谁那边由平台说）；
+ *   `unpaid`／`query_error` ⇒ 什么都不做，回给调用方去**应答失败**让平台重推。
+ * ⚠️ 两支写的**顺序是撤账在前、改状态在后**：万一中间断了，结果是"权益已撤而订单还挂着 `paid`"——
+ *   钱已经回到用户手里，方向不错，且下一次重推会走同一支把状态补上（`revokeLedgerForOrder`
+ *   过滤 `revoked_at is null` ⇒ 第二次匹配 0 行，不会把撤销时刻挪后）。反过来（先改状态后撤账）
+ *   留下的形状是"订单说已退款、权益却还在"，那正是今天后台直退那笔的现场。
+ * @returns outcome：`refunded_revoked` 撤成（`revokedRows` 可能为 0＝之前已撤过）｜
+ *   `already_refunded` 我方已是 refunded（幂等成功）｜`refunded_not_credited` 平台说退了但这单
+ *   从没发过权益（无可撤，E-17 那一支的 anomaly／pending 行）｜`credited`／`already` 查单说钱还在｜
+ *   `unpaid`／`query_error`／`no_local_order`／`bad_order` 不动库
+ */
+export async function refundOrder(env, outTradeNo, { fetchImpl } = {}) {
+  let row = null
+  try {
+    row = await getOrderRow(env, outTradeNo)
+  } catch (err) {
+    return { outcome: 'query_error', stage: 'local_order_read', code: (err && err.code) || 'read_failed' }
+  }
+  if (!row) return { outcome: 'no_local_order', outTradeNo }
+  if (String(row.status) === 'refunded') return { outcome: 'already_refunded' }
+  if (!row.payer_openid || !row.id) return { outcome: 'bad_order', reason: row.id ? 'no_payer_openid' : 'no_order_id' }
+
+  const st = await queryOrderState(env, row, { fetchImpl })
+  if (st.outcome === 'paid') {
+    // 推送说退、查单说付 ⇒ 以查单为准走入账那条路（幂等：已入过的回 `already`）
+    console.error('[proCredit] refund notify but query says paid, crediting instead:', JSON.stringify({ outTradeNo, platformStatus: st.platformStatus }))
+    return await creditOrder(env, outTradeNo, { fetchImpl })
+  }
+  if (st.outcome !== 'refunded') {
+    // unpaid（含 closed／查无此单）与 query_error 都不能撤：前者说不准，后者没查到
+    return { outcome: st.outcome, via: st.via || null, errcode: st.errcode || null, errmsg: st.errmsg || null }
+  }
+
+  if (String(row.status) !== 'paid') {
+    // 从没发过权益的单（pending／closed／anomaly）无可撤 ⇒ 这是一件**已判定**的事实，不是"还没查到"：
+    // 调用方可以应答成功停掉重推，A3 巡检看得见那张 anomaly 行。
+    return { outcome: 'refunded_not_credited', status: String(row.status) }
+  }
+
+  let rv = null
+  try {
+    rv = await revokeLedgerForOrder(env, String(row.id))
+  } catch (err) {
+    console.error('[proCredit] ledger revoke failed:', JSON.stringify({ outTradeNo, code: (err && err.code) || 'unknown' }))
+    return { outcome: 'query_error', stage: 'ledger_revoke', code: (err && err.code) || 'revoke_failed' }
+  }
+  let mr = null
+  try {
+    mr = await markOrderRefunded(env, String(row.out_trade_no), {
+      operator: REFUND_OPERATOR,
+      note: 'xpay_refund_notify:查单确认已退款 ⇒ 撤账本行（D-22 唯一撤账触发源）',
+    })
+  } catch (err) {
+    console.error('[proCredit] mark refunded failed after revoke:', JSON.stringify({ outTradeNo, code: (err && err.code) || 'unknown', revokedRows: rv.matched }))
+    // 🔴 权益已经撤掉了（方向对），只是订单状态没跟上 ⇒ 回"这次没成"让平台重推，下一次会补上状态
+    return { outcome: 'query_error', stage: 'mark_refunded', code: (err && err.code) || 'mark_refunded_failed' }
+  }
+  // 匹配 0 行**不能当成功**：我们读到的那一行明明是 `paid`（上面才判过），PATCH 却说没匹配到
+  // ⇒ 中间有人改过它（并发轮询／人工）。留着"账本已撤、订单还挂着 paid"这个形状不吭声，
+  // 等于把不一致藏进只有对账才看得见的地方；回非 0 让平台重推一次，第二次大概率就补上了。
+  if (!mr.matched) {
+    console.error('[proCredit] ledger revoked but order row not matched:', JSON.stringify({ outTradeNo, revokedRows: rv.matched }))
+    return { outcome: 'query_error', stage: 'mark_refunded_no_row' }
+  }
+  console.error('[proCredit] external refund revoked:', JSON.stringify({ outTradeNo, revokedRows: rv.matched }))
+  return { outcome: 'refunded_revoked', revokedRows: rv.matched }
+}
+
+/** 留痕用的触发源名（`pro_orders.operator`；D-9a 要求"谁做的"能被追责） */
+const REFUND_OPERATOR = 'xpay_refund_notify'
 
 /** 已付/已退的行缺账本时补上（数据全部从订单行取，不接受调用方传值） */
 async function ensureLedgerForPaidRow(env, row, { queried, fetchImpl }) {

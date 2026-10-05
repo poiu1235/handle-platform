@@ -229,3 +229,60 @@ export async function closePendingOrder(env, outTradeNo) {
   if (!res.ok) throw fail('pro_order_close_failed', res.status, JSON.stringify(res.data))
   return { matched: Array.isArray(res.data) && res.data.length > 0 }
 }
+
+// ── 外部退款撤账（E-20②：`xpay_refund_notify` 是 D-22 认定的**唯一**撤账触发源）──────
+//
+// 🔴 这两支只在"查单已确认这单被退"之后才允许调（`proCredit.refundOrder` 把那道门）。
+//   本模块不查平台——它只负责"写对形状"，事实确认在上一层，与入账那一对（`markOrderPaid`
+//   ＋`insertLedgerRow`）是同一个分工。
+// ⚠️ B4 的**申请侧**（`pro_refund_requests`、点了就撤、iOS 那一支不撤）还没做；这两支是
+//   "钱已从用户那里回来"这一侧的最小正确动作，B4 落地时复用它们、不另写第三份。
+
+/**
+ * 撤掉这一单的账本行（权益当场消失——折叠排除 `revoked_at` 非空的行，4.3）。
+ * 🔴 过滤 `revoked_at=is.null` ⇒ 重放安全：第二次撤匹配 0 行，不会把撤销时刻挪后（那是留痕的
+ *   "什么时候退的"），也不会让一次网络抖动变成"撤了两次"。
+ * ⚠️ 留痕**不在这张表上**：`pro_ledger` 按 4.2 刻意没有 `operator`／`note` 两列（它是权益的
+ *   事实来源，不是工单）⇒ "谁撤的、怎么核实的"写在订单行上（`markOrderRefunded` 那一支）。
+ * ⇒ 所以匹配 0 行**不是错误**：一张从没入账的单本来就没有可撤的行（调用方按 `matched` 记日志）。
+ */
+export async function revokeLedgerForOrder(env, orderId) {
+  const res = await serviceRoleFetch(
+    env,
+    `/rest/v1/pro_ledger?order_id=eq.${encodeURIComponent(orderId)}&revoked_at=is.null`,
+    {
+      method: 'PATCH',
+      body: { revoked_at: new Date().toISOString() },
+      prefer: 'return=representation',
+    },
+  )
+  if (!res.ok) throw fail('pro_ledger_revoke_failed', res.status, JSON.stringify(res.data))
+  const rows = Array.isArray(res.data) ? res.data : null
+  if (rows === null) throw fail('pro_ledger_revoke_unreadable', res.status, 'PATCH 没回 representation（Prefer 被吞？）')
+  return { matched: rows.length }
+}
+
+/**
+ * 订单 `paid → refunded`（4.5 状态转换：退款完成那一格）。留痕两列是 D-9a 要求的：
+ * `operator` 写触发源（`xpay_refund_notify`／将来 `admin:<名字>`），`note` 写"怎么核实的"。
+ * 🔴 过滤只吃 `status=eq.paid`，两个理由都是硬的：
+ *   ① 库侧 CHECK `status not in ('paid','refunded') or paid_at is not null` ⇒ 一张 `pending`
+ *     或 `closed`（`paid_at` 为空）的行被改成 `refunded` 会直接 23514，那笔 PATCH 整条失败；
+ *   ② 语义上"从没发过权益的单"不该被写成"退过款"——那一支是 E-17 判丙的 `anomaly`
+ *     （`refunded_not_credited`），出边只有人工。
+ * ⇒ 所以匹配 0 行是**合法且要有说法**的一种结果，调用方按 `matched` 分档，别当成功。
+ */
+export async function markOrderRefunded(env, outTradeNo, { operator, note }) {
+  const body = { status: 'refunded', updated_at: new Date().toISOString() }
+  if (operator) body.operator = String(operator)
+  if (note) body.note = String(note)
+  const res = await serviceRoleFetch(env, `${ORDERS}?out_trade_no=eq.${encodeURIComponent(outTradeNo)}&status=eq.paid`, {
+    method: 'PATCH',
+    body,
+    prefer: 'return=representation',
+  })
+  if (!res.ok) throw fail('pro_order_mark_refunded_failed', res.status, JSON.stringify(res.data))
+  const rows = Array.isArray(res.data) ? res.data : null
+  if (rows === null) throw fail('pro_order_mark_refunded_unreadable', res.status, 'PATCH 没回 representation（Prefer 被吞？）')
+  return { matched: rows.length }
+}
