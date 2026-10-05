@@ -17,6 +17,8 @@ const check = (name, got, want) => results.push({ name, ok: JSON.stringify(got) 
 
 const { evaluateRefund } = await import(pathToFileURL(path.join(root, 'functions/_lib/proRefund.js')).href)
 const { onRequestPost } = await import(pathToFileURL(path.join(root, 'functions/api/pro/refund-requests/index.js')).href)
+const { onRequestPost: onRequestAdminPost } = await import(pathToFileURL(path.join(root, 'functions/admin/pro-refunds.js')).href)
+const { onRequestGet } = await import(pathToFileURL(path.join(root, 'functions/api/pro/orders/index.js')).href)
 
 // 🔴 窗口长度在这里写**字面值**，故意不 import `REFUND_WINDOW_MS`：判据去引用被测常量的话，
 //   把 7 天改成 30 天这两格照样绿（反向复现 R3 实测到了这一点——那是一道没牙的门）。
@@ -178,6 +180,171 @@ check('2.12 申请行落不下去 ⇒ 503 且**不撤账**（顺序门反过来�
 reset()
 r = await post({ outTradeNo: NO, kind: 'no_reason' }, {}, {})
 check('2.13 没有会话身份 ⇒ 401 且零出网', [r.status, calls.length], [401, 0])
+
+// ── 4. 管理端（functions/admin/pro-refunds.js）───────────────────────────────
+let stub2 = {}
+const reset2 = (over = {}) => {
+  calls = []
+  stub2 = {
+    request: { id: 'r-1', order_id: OID, kind: 'no_reason', status: 'pending', requested_at: '2026-10-05T09:00:00Z' },
+    order: row(),
+    otherRequests: [],
+    revokeRows: [{ id: 'l-1' }],
+    unrevokeRows: [{ id: 'l-1' }],
+    finalizeRows: [{ id: 'r-1', status: 'done' }],
+    ...over,
+  }
+}
+globalThis.fetch = async (url, options) => {
+  const u = String(url)
+  const method = (options && options.method) || 'GET'
+  calls.push({ url: u, method, body: options && options.body ? JSON.parse(options.body) : null })
+  const mk = (data, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => data })
+  if (u.includes('/rest/v1/pro_refund_requests') && method === 'PATCH') return mk(stub2.finalizeRows)
+  if (u.includes('/rest/v1/pro_refund_requests') && method === 'GET') {
+    return mk(u.includes('id=eq.') ? [stub2.request].filter(Boolean) : stub2.otherRequests)
+  }
+  if (u.includes('/rest/v1/pro_ledger') && method === 'PATCH') {
+    return mk(u.includes('revoked_at=is.not.null') ? stub2.unrevokeRows : stub2.revokeRows)
+  }
+  if (u.includes('/rest/v1/pro_orders') && u.includes('id=eq.')) return mk([stub2.order])
+  throw new Error('未预期的出网目标：' + u)
+}
+const admin = async (body, headers = { 'x-admin-token': 'adm-secret' }, eover = {}) => {
+  const res = await onRequestAdminPost({
+    request: {
+      json: async () => body,
+      headers: { get: (k) => (String(k).toLowerCase() === 'x-admin-token' ? headers['x-admin-token'] || null : null) },
+    },
+    env: { SUPABASE_URL: 'https://fake', SUPABASE_SERVICE_ROLE_KEY: 'k', PRO_ADMIN_TOKEN: 'adm-secret', ...eover },
+  })
+  return { status: res.status, body: await res.json().catch(() => null) }
+}
+const goodAdmin = (over = {}) => ({ id: 'r-1', action: 'done', operator: 'owner', note: '后台已退，回执见 wx_refund_id', wxRefundId: 'VPR123', ...over })
+const finalizePatches = () => calls.filter((c) => c.url.includes('/rest/v1/pro_refund_requests') && c.method === 'PATCH')
+const ledgerPatches2 = () => calls.filter((c) => c.url.includes('/rest/v1/pro_ledger') && c.method === 'PATCH')
+
+reset2()
+r = await admin(goodAdmin())
+check('4.1 done ⇒ 200，账本先撤、申请行后改', [r.status, r.body.ledgerMoved], [200, 'revoked'])
+{
+  const revIdx = calls.findIndex((c) => c.url.includes('/rest/v1/pro_ledger') && c.method === 'PATCH')
+  const finIdx = calls.findIndex((c) => c.url.includes('/rest/v1/pro_refund_requests') && c.method === 'PATCH')
+  check('4.2 🔴 写序＝先动账本、后改申请行（反过来会留下"行已终态、账本没跟上"，而 pending 过滤把重试挡死）', [revIdx >= 0, finIdx > revIdx], [true, true])
+  check('4.3 撤账过滤 revoked_at=is.null、改行过滤 status=eq.pending', [urlAt(ledgerPatches2()).includes('revoked_at=is.null'), urlAt(finalizePatches()).includes('status=eq.pending')], [true, true])
+  check('4.4 留痕三样都落（#68：wx_refund_id＋operator＋note）', [bodyAt(finalizePatches()).wx_refund_id, bodyAt(finalizePatches()).operator, bodyAt(finalizePatches()).status], ['VPR123', 'owner', 'done'])
+}
+
+reset2()
+stub2.revokeRows = []
+r = await admin(goodAdmin())
+check('4.5 撤账匹配 0 行（推送/轮询抢先撤过）⇒ 仍算成功，ledgerMoved=already_revoked', [r.status, r.body.ledgerMoved], [200, 'already_revoked'])
+
+reset2()
+r = await admin(goodAdmin({ action: 'rejected', wxRefundId: '' }))
+check('4.6 rejected ⇒ 先还原权益、再改行（不退款 ⇒ 权益本来就该在）', [r.status, r.body.ledgerMoved, urlAt(ledgerPatches2()).includes('revoked_at=is.not.null')], [200, 'returned', true])
+
+reset2()
+stub2.order = row({ status: 'refunded' })
+r = await admin(goodAdmin({ action: 'rejected', wxRefundId: '' }))
+check('4.7 🔴 订单已 refunded（外部真退了钱）⇒ rejected 也**不许还原**（还原＝"钱退了、权益还在"那个现场）', [r.status, r.body.ledgerMoved, urlAt(ledgerPatches2()).includes('revoked_at=is.not.null')], [200, 'kept_revoked', false])
+
+reset2()
+stub2.otherRequests = [{ order_id: OID, kind: 'manual', status: 'done' }]
+r = await admin(goodAdmin({ action: 'rejected', wxRefundId: '' }))
+check('4.8 同一订单上还有另一条生效申请 ⇒ 不还原', [r.status, r.body.ledgerMoved], [200, 'kept_revoked'])
+
+reset2()
+stub2.request = { id: 'r-1', order_id: OID, kind: 'no_reason', status: 'done' }
+r = await admin(goodAdmin())
+check('4.9 申请行不是 pending ⇒ 409 且零写（重放／两个管理员同时点开）', [r.status, r.body.code, finalizePatches().length, ledgerPatches2().length], [409, 'refund_not_pending', 0, 0])
+
+reset2()
+stub2.request = null
+r = await admin(goodAdmin())
+check('4.10 没有这条申请 ⇒ 404 且零写', [r.status, r.body.code, calls.length], [404, 'no_such_request', 1])
+
+reset2()
+stub2.finalizeRows = []
+r = await admin(goodAdmin())
+check('4.11 账本动了、改行却匹配 0 行（被人抢先）⇒ 409，🔴 不静默成 200', [r.status, r.body.code], [409, 'refund_not_pending'])
+
+reset2()
+r = await admin(goodAdmin(), { 'x-admin-token': 'wrong' })
+check('4.12 🔴 凭证不对 ⇒ 401 且**一次出网都没有**（未鉴权输入不许触发任何写）', [r.status, r.body.code, calls.length], [401, 'admin_unauthorized', 0])
+
+reset2()
+r = await admin(goodAdmin(), {}, { PRO_ADMIN_TOKEN: undefined })
+check('4.13 没配 PRO_ADMIN_TOKEN ⇒ 503 admin_disabled（缺配置不许长得像"没有门"）', [r.status, r.body.code, calls.length], [503, 'admin_disabled', 0])
+
+reset2()
+r = await admin({ id: 'r-1', action: 'done', operator: '', note: '' })
+check('4.14 缺 operator/note ⇒ 400 admin_note_required 且零写（#68 那道门今天**只在代码里**，库里没 CHECK＝E-29）', [r.status, r.body.code, calls.length], [400, 'admin_note_required', 0])
+
+reset2()
+r = await admin({ id: 'r-1', action: 'done', operator: 'owner', note: 'n' })
+check('4.15 done 而缺 wx_refund_id ⇒ 400 且零写', [r.status, r.body.code, calls.length], [400, 'admin_wx_refund_id_required', 0])
+
+// ── 5. 订单列表 join（6.1 ⑦ 进度看得见）──────────────────────────────────────
+let stub3 = {}
+const reset3 = (over = {}) => {
+  calls = []
+  stub3 = { orderRow: row(), ids: [OID], requests: [], identityRows: [{ openid: OPENID }], requestsFail: false, ...over }
+}
+globalThis.fetch = async (url, options) => {
+  const u = String(url)
+  const method = (options && options.method) || 'GET'
+  calls.push({ url: u, method })
+  const mk = (data, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => data })
+  if (u.includes('/rest/v1/user_identities')) return mk(stub3.identityRows)
+  if (u.includes('/rest/v1/pro_refund_requests')) {
+    if (stub3.requestsFail) return mk({ message: 'boom' }, 500)
+    return mk(stub3.requests)
+  }
+  if (u.includes('/rest/v1/pro_orders') && u.includes('select=id&')) return mk(stub3.ids.map((id) => ({ id })))
+  if (u.includes('/rest/v1/pro_orders')) return mk([stub3.orderRow])
+  throw new Error('未预期的出网目标：' + u)
+}
+const list = async () => {
+  const res = await onRequestGet({ env: env(), data: { user: { id: UID } }, request: { json: async () => ({}) } })
+  return { status: res.status, body: await res.json().catch(() => null) }
+}
+
+reset3()
+r = await list()
+check('5.1 没有申请行 ⇒ refundStatus=none、refundable=true（7 天内、安卓、额度没用过）', [r.body.orders[0].refundStatus, r.body.orders[0].refundable], ['none', true])
+
+reset3()
+stub3.requests = [{ order_id: OID, kind: 'no_reason', status: 'pending', requested_at: '2026-10-05T09:00:00Z' }]
+r = await list()
+check('5.2 有 pending 申请 ⇒ refundStatus=pending 且 refundable=false（不许重复申请）', [r.body.orders[0].refundStatus, r.body.orders[0].refundable], ['pending', false])
+
+reset3()
+stub3.orderRow = row({ platform: 'ios', product_id: 'monthly_mem_apple' })
+r = await list()
+check('5.3 iOS 单仍然可申请（E-28 那一条只管"撤不撤"，不管"能不能申请"）', r.body.orders[0].refundable, true)
+
+reset3()
+stub3.ids = [OID, 'other-id']
+stub3.requests = [{ order_id: 'other-id', kind: 'no_reason', status: 'done', requested_at: '2026-09-01T09:00:00Z' }]
+r = await list()
+check('5.4 🔴 额度按付款微信跨订单算：另一笔已用过 no_reason ⇒ 这一笔 refundable=false', r.body.orders[0].refundable, false)
+
+reset3()
+stub3.orderRow = row({ status: 'refunded' })
+r = await list()
+check('5.5 已退的单 ⇒ refundable=false（按钮不该画给不能点的行）', r.body.orders[0].refundable, false)
+
+reset3()
+stub3.requestsFail = true
+r = await list()
+check('5.6 🔴 申请行读不到 ⇒ refundInfoUnavailable:true 且**所有行 refundable=false**（读不到就画成"能点"＝诱导重复申请／点了报错）', [r.body.refundInfoUnavailable, r.body.orders[0].refundable], [true, false])
+
+reset3()
+stub3.requests = [{ order_id: OID, kind: 'no_reason', status: 'rejected', requested_at: '2026-10-05T09:00:00Z' }]
+r = await list()
+check('5.7 被拒过的申请 ⇒ refundStatus=rejected 且额度归还（又能申请）', [r.body.orders[0].refundStatus, r.body.orders[0].refundable], ['rejected', true])
+check('5.8 响应里没有 note／operator／wx_refund_id 这些自由文本键（管理员 note 里可能有客服对话内容）', ['note', 'operator', 'wx_refund_id'].some((k) => JSON.stringify(r.body).includes('"' + k + '"')), false)
 
 // ── 3. 静态闸 ───────────────────────────────────────────────────────────────
 const JS = []

@@ -161,7 +161,11 @@ check('4.4 守卫函数的消费者＝proCatalog 自身 + 下单端点（列表�
 //   正是这格该有的用法——**新来一个读 openid 的地方，就得有人证明它不往外发 openid**：
 //   那一格写好了，＝ `test:credit` 8.3（响应体里搜不到 openid／user_id／note）＋ 8.2（白名单字段不加不减）。
 const openidSites = jsFiles.filter((p) => /getAccountOpenid/.test(read(p))).map(routeName).sort()
-check('4.5 getAccountOpenid 的消费者清单（新增消费者要一起看 4.6 的"不下发 openid"）', openidSites, ['[no].js', 'orders.js', 'proCoverage.js', 'products.js'])
+// ⚠️ B4 起多出第五个消费者 `refund-requests/index.js`（申请退款同样按 openid 判归属，4.7）。
+//   这格要的就是这个动作：**新来一个读 openid 的地方，就得有人证明它不往外发 openid**——
+//   那一格的写法＝ `test:refund` 5.8（响应里搜不到 note／operator／wx_refund_id 这些键）
+//   ＋ 2.6／2.7（归属不符时拒且零落行）。
+check('4.5 getAccountOpenid 的消费者清单（新增消费者要一起看 4.6 的"不下发 openid"）', openidSites, ['[no].js', 'orders.js', 'proCoverage.js', 'products.js', 'refund-requests.js'])
 
 let fails = 0
 for (const r of results) {

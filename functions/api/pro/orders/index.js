@@ -30,7 +30,8 @@ import { json } from '../../../_lib/supabase.js'
 import { serviceRoleFetch } from '../../../_lib/userAuth.js'
 import { readProFlags, getAccountOpenid, getCoverageByOpenid, RENEW_WINDOW_DAYS, PROVIDER } from '../../../_lib/proCoverage.js'
 import { catalogEntry, sellableProducts, testAllowed, canBuyNormalTier } from '../../../_lib/proCatalog.js'
-import { findPendingOrder, closePendingOrder, markOrderAnomaly, insertOrder, listOrdersByOpenid } from '../../../_lib/proStore.js'
+import { findPendingOrder, closePendingOrder, markOrderAnomaly, insertOrder, listOrdersByOpenid, orderIdsByOpenid, refundRequestsByOrders } from '../../../_lib/proStore.js'
+import { evaluateRefund } from '../../../_lib/proRefund.js'
 import { queryOrderState } from '../../../_lib/proCredit.js'
 import { code2sessionKey, buildPayPayload, makeOutTradeNo, toClientPayParams } from '../../../_lib/proPaySign.js'
 import { wxTicketResponse } from '../../../_lib/wxTicket.js'
@@ -80,10 +81,37 @@ export async function onRequestGet(context) {
   // 商品名与期限从这里补（表里没有这两列，而"表只有一份配置来源"这条已经判过＝不建冗余列）；
   // 道具若已从表里撤下 ⇒ name 退回 id、duration 为 null，至少这单的钱看得见
   const byId = new Map(sellableProducts(env, openid).map((p) => [p.productId, p]))
+  // 🔴 6.1 ⑦"进度必须自己看得见"：点了就撤之后，用户全靠这一页知道结果（被拒还原权益时更是没有别的说法）。
+  //   两次读，🔴 不按行循环打库（列表 50 行＝50 次读是另一种静默劣化）：
+  //   ① 这个微信名下的全部订单主键（额度要跨订单算）；② 那批订单的申请行。
+  let requests = []
+  try {
+    const allIds = await orderIdsByOpenid(env, String(openid))
+    requests = await refundRequestsByOrders(env, allIds)
+  } catch (err) {
+    // 读不到申请行 ⇒ 只能报"没有进度可显示"，🔴 不能顺手把 refundable 画成 true（那会诱导用户重复申请）
+    console.error('[pro/orders:list] refund rows unreadable:', (err && err.code) || 'unknown')
+    requests = null
+  }
+  const newestByOrder = new Map()
+  if (requests) {
+    for (const r of requests) {
+      const k = String(r.order_id)
+      if (!newestByOrder.has(k)) newestByOrder.set(k, r) // 读回来就是 requested_at desc ⇒ 第一条是最新的
+    }
+  }
+  const nowMs = Date.now()
   return json({
     purchaseEnabled: true,
+    refundInfoUnavailable: requests === null,
     orders: rows.map((r) => {
       const known = catalogEntry(r.product_id)
+      const newest = newestByOrder.get(String(r.id)) || null
+      const refundable = requests === null
+        ? false
+        : evaluateRefund({
+            row: r, payerOpenid: openid, kind: 'no_reason', nowMs, requestsForPayer: requests,
+          }).ok
       return {
         outTradeNo: r.out_trade_no,
         productId: r.product_id,
@@ -95,6 +123,10 @@ export async function onRequestGet(context) {
         paidAt: r.paid_at,
         createdAt: r.created_at,
         expiresAt: r.expires_at,
+        // 只回状态与"能不能申请"。🔴 申请行的 `note` 是管理员自由文本（含客服对话内容），
+        // 不下发；正本 6.1 ⑦ 承诺的 `refund_reject_reason` 需要一个枚举列，今天没有 ⇒ 记 E-29。
+        refundStatus: newest ? String(newest.status) : 'none',
+        refundable,
       }
     }),
   })

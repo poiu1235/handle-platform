@@ -51,7 +51,9 @@ export async function findPendingOrder(env, openid) {
 export async function listOrdersByOpenid(env, openid) {
   const res = await serviceRoleFetch(
     env,
-    `${ORDERS}?select=out_trade_no,product_id,goods_price,currency_type,env,status,paid_at,created_at,expires_at` +
+    // 🔴 读回来的列比回给端上的多：`id`（join 申请行）、`platform`＋`is_duplicate`（退款资格判据，
+    //   E-28 之后 `platform` 第一次进入判定）。白名单是**响应侧**的事，见端点里那格 10.4 的判据。
+    `${ORDERS}?select=id,out_trade_no,product_id,goods_price,currency_type,env,status,paid_at,created_at,expires_at,platform,is_duplicate` +
       `&provider=eq.${PROVIDER}&payer_openid=eq.${encodeURIComponent(openid)}` +
       `&order=created_at.desc&limit=50`,
   )
@@ -339,4 +341,70 @@ export async function refundRequestsByOrders(env, orderIds) {
   )
   if (!res.ok) throw fail('pro_refund_list_failed', res.status, JSON.stringify(res.data))
   return Array.isArray(res.data) ? res.data : []
+}
+
+/** 按主键读一行订单（管理端要拿它判"这笔现在是什么状态"，🔴 不靠申请行自己说） */
+export async function getOrderById(env, orderId) {
+  const res = await serviceRoleFetch(
+    env,
+    `${ORDERS}?select=id,user_id,provider,payer_openid,product_id,goods_price,env,buy_quantity,status,paid_at,wx_order_id,wxpay_order_id,out_trade_no,platform&id=eq.${encodeURIComponent(orderId)}&limit=1`,
+  )
+  if (!res.ok) throw fail('pro_order_lookup_failed', res.status, JSON.stringify(res.data))
+  const rows = Array.isArray(res.data) ? res.data : []
+  return rows[0] || null
+}
+
+/** 读一行退款申请（管理端） */
+export async function getRefundRequest(env, id) {
+  const res = await serviceRoleFetch(
+    env,
+    `/rest/v1/pro_refund_requests?select=id,order_id,kind,status,requested_at,executed_at,wx_refund_id,operator,note&id=eq.${encodeURIComponent(id)}&limit=1`,
+  )
+  if (!res.ok) throw fail('pro_refund_lookup_failed', res.status, JSON.stringify(res.data))
+  const rows = Array.isArray(res.data) ? res.data : []
+  return rows[0] || null
+}
+
+/**
+ * 管理端把申请推到终态（入口④）。🔴 过滤 `status=eq.pending`：重放／两个管理员同时点开时
+ * 匹配 0 行 ⇒ 不会把已 `done` 的行改回 `rejected`（那会把"还回去"的判定建立在一条假状态上）。
+ * ⚠️ 4.2 与验收 #68 都写着"`done` 必须同时填 `wx_refund_id` 与 `operator`/`note`——**CHECK 会挡空**"，
+ *   但 2026-10-05 核对 DDL 后确认：**库里那两条 CHECK 不存在**（`pro_refund_requests` 只有 kind 与
+ *   status 两条枚举 CHECK）。⇒ 现在这道门写在调用方（`functions/admin/pro-refunds.js`），
+ *   偏离登记在正本 §十六 E-29。要补库侧约束就得走一次增量迁移（`check (status <> 'done' or ...)`）。
+ */
+export async function finalizeRefundRequest(env, id, { status, operator, note, wxRefundId }) {
+  const body = { status: String(status), "operator": String(operator), note: String(note), executed_at: new Date().toISOString() }
+  if (wxRefundId) body.wx_refund_id = String(wxRefundId)
+  const res = await serviceRoleFetch(env, `/rest/v1/pro_refund_requests?id=eq.${encodeURIComponent(id)}&status=eq.pending`, {
+    method: 'PATCH',
+    body,
+    prefer: 'return=representation',
+  })
+  if (!res.ok) throw fail('pro_refund_finalize_failed', res.status, JSON.stringify(res.data))
+  const rows = Array.isArray(res.data) ? res.data : null
+  if (rows === null) throw fail('pro_refund_finalize_unreadable', res.status, 'PATCH 没回 representation（Prefer 被吞？）')
+  return { matched: rows.length, row: rows[0] || null }
+}
+
+/**
+ * 把那一笔**还回去**（`rejected` 那一支：6.1 修正④"被拒／失败把那一笔还回去并归还额度"）。
+ * 🔴 过滤 `revoked_at is not null` ⇒ 只还原"被我们撤掉的那一行"，不去碰本来就没撤过的行；
+ *   调用方必须先确认"这一笔的撤销确实是这次申请造成的"（订单还 `paid`、没有别的生效申请），
+ *   否则外部退款（钱真的退了）会被这一句还原成"钱退了、权益还在"——那正是 E-20② 的现场。
+ */
+export async function unrevokeLedgerForOrder(env, orderId) {
+  const res = await serviceRoleFetch(
+    env,
+    `/rest/v1/pro_ledger?order_id=eq.${encodeURIComponent(orderId)}&revoked_at=is.not.null`,
+    {
+      method: 'PATCH',
+      body: { revoked_at: null },
+      prefer: 'return=representation',
+    },
+  )
+  if (!res.ok) throw fail('pro_ledger_unrevoke_failed', res.status, JSON.stringify(res.data))
+  const rows = Array.isArray(res.data) ? res.data : null
+  if (rows === null) throw fail('pro_ledger_unrevoke_unreadable', res.status, 'PATCH 没回 representation（Prefer 被吞？）')
+  return { matched: rows.length }
 }
