@@ -383,6 +383,10 @@ check('3.1 🔴 pro_refund_requests 的 URL 只出现在 proStore.js（4.6 那�
 check('3.2 申请端点不看购买开关（与 /push/xpay 同一条例外，两处都得写死）', /PRO_PURCHASE_ENABLED|readProFlags/.test(codeOf(path.join(root, 'functions/api/pro/refund-requests/index.js'))), false)
 check('3.3 platform 的判定只发生在 proRefund.js 一处（E-28 那条例外不许被抄第二遍）', JS.filter((p) => /platform\)?\s*===\s*'android'/.test(codeOf(p))).map((p) => path.relative(root, p)), ['functions\\_lib\\proRefund.js'])
 check('3.4 端点上没有直接打库的 serviceRoleFetch（读一律经 proStore）', /serviceRoleFetch/.test(codeOf(path.join(root, 'functions/api/pro/refund-requests/index.js'))), false)
+// 🔴 E-31／E-35 那一族的第三次预防：申请行的读路有**三个**消费者要拿 `id` 寻址（管理端排除自己、
+//   接收器关行、订单页取最新一条），而 select 原来是手写列名清单，漏一个就静默恒假。
+check('3.5 🔴 refundRequestsByOrders 的 select 必须含 id（消费者按它寻址；漏了＝接收器关不了行）',
+  selectColsOf(storeSrc, 'refundRequestsByOrders').includes('id'), true)
 
 const failed = results.filter((x) => !x.ok)
 for (const x of failed) console.log(`✗ ${x.name}\n    got  ${JSON.stringify(x.got)}\n    want ${JSON.stringify(x.want)}`)

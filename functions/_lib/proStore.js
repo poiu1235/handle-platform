@@ -349,7 +349,9 @@ export async function refundRequestsByOrders(env, orderIds) {
   if (ids.length === 0) return []
   const res = await serviceRoleFetch(
     env,
-    `/rest/v1/pro_refund_requests?select=order_id,kind,status,requested_at,executed_at,note` +
+    // 🔴 `id` 必须在列里：两个消费者要拿它**寻址**——管理端要把它自己那条排除掉（`others.filter(r.id !== id)`），
+    //   接收器要按它关掉那一行（E-36 判甲）。漏了就又是 E-31／E-35 那一族（消费者在读生产者没喂的键）。
+    `/rest/v1/pro_refund_requests?select=id,order_id,kind,status,requested_at,executed_at,note` +
       `&order_id=in.${encodeURIComponent('(' + ids.join(',') + ')')}&order=requested_at.desc`,
   )
   if (!res.ok) throw fail('pro_refund_list_failed', res.status, JSON.stringify(res.data))

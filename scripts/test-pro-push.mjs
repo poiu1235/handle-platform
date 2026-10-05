@@ -61,6 +61,10 @@ const defaultStub = () => ({
   ledgerRevokeRows: [{ id: 'l-1' }], // 撤账那次 PATCH 回几行（0 行＝之前已撤过）
   patchRows: [{ out_trade_no: NO, status: 'paid' }],
   refundedPatchRows: [{ out_trade_no: NO, status: 'refunded' }],
+  // E-36 判甲：撤账成功之后接收器会去关那条自助申请行（读它＋PATCH 它，两样都要有桩）
+  requestRows: [],
+  finalizeRows: [{ id: 'r-1' }],
+  finalizeStatus: 200,
   queryBody: { errcode: 0, errmsg: 'ok', order: { status: 3, paid_time: PAID_SEC, wx_order_id: 'VPO-1', wxpay_order_id: '4500-1' } },
   notifyBody: { errcode: 0, errmsg: 'OK' },
   tokenBody: { access_token: 'TOKEN-x', expires_in: 7200 },
@@ -93,6 +97,10 @@ globalThis.fetch = async (url, options) => {
   if (u.includes('/rest/v1/pro_orders') && method === 'GET') {
     return mk(stub.orderRows === null ? [stub.orderRow] : stub.orderRows)
   }
+  if (u.includes('/rest/v1/pro_refund_requests') && method === 'PATCH') {
+    return mk(stub.finalizeStatus === 200 ? stub.finalizeRows : { message: 'finalize boom' }, stub.finalizeStatus)
+  }
+  if (u.includes('/rest/v1/pro_refund_requests')) return mk(stub.requestRows)
   throw new Error('未预期的出网目标：' + u)
 }
 
@@ -294,6 +302,73 @@ stub.orderRow = orderRow({ status: 'pending' })
 stub.queryBody = { errcode: 0, order: { status: 5 } }
 code = await refund()
 check('4.9 从没入账的单被退 ⇒ refunded_not_credited：零写、但应答 0（这是已判定的事实，不是"还没查到"；A3 接手）', [code, writes().length], [0, 0])
+
+// ── 4.10…4.14 E-36 判甲：撤账成功之后，接收器顺手关掉那条**用户自己点出来的**申请行 ──
+//   （E-30 判甲禁的是"凭空创建 external 行"，这一支关的是已存在的行，两件事不冲突）
+const finalizePatches = () => calls.filter((c) => c.url.includes('/rest/v1/pro_refund_requests') && c.method === 'PATCH')
+const refundWith = async (extra) => {
+  const ts = '1700000004'
+  const sig = await signFor(TOKEN, ts, 'n4')
+  const res = await onRequestPost(ctx(req({ method: 'POST', query: { signature: sig, timestamp: ts, nonce: 'n4' }, body: pushBody({ event: 'xpay_refund_notify', extra }) })))
+  return await errCodeOf(res)
+}
+const RECEIPT = '<WxRefundId><![CDATA[VPR26100521083872708]]></WxRefundId><RefundFee>1</RefundFee>'
+
+reset()
+stub.orderRow = orderRow({ status: 'paid', paid_at: PAID_ISO })
+stub.queryBody = { errcode: 0, order: { status: 5, left_fee: 0 } }
+stub.requestRows = [{ id: 'r-1', order_id: OID, kind: 'no_reason', status: 'pending', requested_at: PAID_ISO, executed_at: null, note: null }]
+code = await refundWith(RECEIPT)
+{
+  const b = finalizePatches().length ? finalizePatches()[0].body : null
+  check('4.10 🔴 有 pending 行＋推送带回执号 ⇒ 关成 done，operator 是触发源、回执号落库（E-29 那条 CHECK 要的就是它）',
+    [code, finalizePatches().length, b ? [b.status, b.operator, b.wx_refund_id] : null],
+    [0, 1, ['done', 'xpay_refund_notify', 'VPR26100521083872708']])
+  check('4.11 关行的 PATCH 过滤 status=eq.pending（被人抢先就匹配 0 行，不覆盖别人的终态）',
+    finalizePatches().length ? finalizePatches()[0].url.includes('status=eq.pending') : null, true)
+}
+
+reset()
+stub.orderRow = orderRow({ status: 'paid', paid_at: PAID_ISO })
+stub.queryBody = { errcode: 0, order: { status: 5, left_fee: 0 } }
+code = await refundWith(RECEIPT)
+check('4.12 没有申请行（后台直退那一类）⇒ 撤账照做、**零** finalize PATCH、应答 0（那种单归 A6 人工登记）',
+  [code, ledgerPatches().length, finalizePatches().length], [0, 1, 0])
+
+reset()
+stub.orderRow = orderRow({ status: 'paid', paid_at: PAID_ISO })
+stub.queryBody = { errcode: 0, order: { status: 5, left_fee: 0 } }
+stub.requestRows = [{ id: 'r-1', order_id: OID, kind: 'no_reason', status: 'pending', requested_at: PAID_ISO, executed_at: null, note: null }]
+code = await refundWith('') // 没有 WxRefundId
+check('4.13 🔴 推送没带回执号 ⇒ **不许**写 done（E-29 的 CHECK 会把它挡成 23514，而挡下来是对的）：零 finalize PATCH、应答仍 0',
+  [code, ledgerPatches().length, finalizePatches().length], [0, 1, 0])
+
+reset()
+stub.orderRow = orderRow({ status: 'paid', paid_at: PAID_ISO })
+stub.queryBody = { errcode: 0, order: { status: 5, left_fee: 0 } }
+stub.requestRows = [{ id: 'r-1', order_id: OID, kind: 'no_reason', status: 'pending', requested_at: PAID_ISO, executed_at: null, note: null }]
+stub.finalizeRows = []
+code = await refundWith(RECEIPT)
+check('4.14 关行匹配 0 行（管理员刚处理过）⇒ 应答仍 0：钱与权益已对齐，为一行簿记让平台重推整次撤账不值得', [code, finalizePatches().length], [0, 1])
+
+reset()
+stub.orderRow = orderRow({ status: 'paid', paid_at: PAID_ISO })
+stub.queryBody = { errcode: 0, order: { status: 5, left_fee: 0 } }
+stub.requestRows = [{ id: 'r-1', order_id: OID, kind: 'no_reason', status: 'pending', requested_at: PAID_ISO, executed_at: null, note: null }]
+stub.finalizeStatus = 500
+code = await refundWith(RECEIPT)
+check('4.15 关行那一次抛错 ⇒ 应答仍 0（同上），且撤账与改状态都没被它带坏', [code, ledgerPatches().length, refundedPatches().length], [0, 1, 1])
+
+reset()
+stub.orderRow = orderRow({ status: 'paid', paid_at: PAID_ISO })
+stub.queryBody = { errcode: 0, order: { status: 5, left_fee: 0 } }
+stub.requestRows = [
+  { id: 'r-1', order_id: OID, kind: 'no_reason', status: 'done', requested_at: PAID_ISO, executed_at: PAID_ISO, note: null },
+  { id: 'r-2', order_id: OID, kind: 'no_reason', status: 'pending', requested_at: PAID_ISO, executed_at: null, note: null },
+]
+code = await refundWith(RECEIPT)
+check('4.16 同一订单上已有 done 又有 pending（被拒后重申请过）⇒ 只关 pending 那一条',
+  [finalizePatches().length, finalizePatches().length ? finalizePatches()[0].url.includes('id=eq.r-2') : null], [1, true])
 
 reset()
 stub.orderRow = orderRow({ status: 'anomaly', anomaly_reason: 'refunded_not_credited' })

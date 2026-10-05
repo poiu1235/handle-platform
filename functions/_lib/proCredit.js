@@ -17,7 +17,7 @@
 //   而**真正的双入账闸门是 `pro_ledger.order_id` 那条 unique** ⇒ 并发两路同时进来时
 //   第二条会拿到 `already_credited`，那是**成功**不是错误（见下面的分支注释）。
 import { xpayQueryOrder, xpayNotifyProvideGoods, classifyQueryResult } from './proXpay.js'
-import { getOrderRow, markOrderPaid, ledgerExistsForOrder, insertLedgerRow, revokeLedgerForOrder, markOrderRefunded } from './proStore.js'
+import { getOrderRow, markOrderPaid, ledgerExistsForOrder, insertLedgerRow, revokeLedgerForOrder, markOrderRefunded, refundRequestsByOrders, finalizeRefundRequest } from './proStore.js'
 import { durationDaysFor } from './proCatalog.js'
 import { getCoverageByOpenid, readProFlags, RENEW_WINDOW_DAYS, PROVIDER } from './proCoverage.js'
 
@@ -249,10 +249,44 @@ export async function refundOrder(env, outTradeNo, { fetchImpl, pushOpenid, refu
     console.error('[proCredit] ledger revoked but order row not matched:', JSON.stringify({ outTradeNo, revokedRows: rv.matched }))
     return { outcome: 'query_error', stage: 'mark_refunded_no_row' }
   }
+  // ✅ E-36 判甲（owner 2026-10-05 夜那一问："每次还要手动 curl，那接入推送的作用是什么"）：
+  //   钱与权益这边动完之后，**顺手把该订单上那条 `pending` 申请关掉**。这与 E-30 判甲不矛盾——
+  //   E-30 禁的是**凭空创建**一行 `external`（没有申请人、没有会话身份，而这张表是 6.5 的分母）；
+  //   这一条关的是**用户自己点出来的那一行**，同一笔钱、同一个申请人，凭据就是刚查过的"平台说已退"。
+  //   三道门都要有：① 没有 pending 行 ⇒ 什么都不做（后台直退那一类仍归 A6 人工登记）；
+  //   ② 推送没带 `WxRefundId` ⇒ **不写 `done`**——E-29 那条 CHECK 正是要挡"没有回执号的 done"
+  //      （写下去只会 23514，而挡下来是对的），只记日志、应答仍成功，那一行留给 A1 巡检；
+  //   ③ 关闭失败／匹配 0 行（有人抢先处理）⇒ **不回非 0**：钱与权益已经对齐了，为一行簿记
+  //      让平台重推一整次撤账不值得，留 error 日志让人去看。
+  let closedRequest = null
+  if (refundId) {
+    try {
+      const reqs = await refundRequestsByOrders(env, [String(row.id)])
+      const pending = reqs.filter((x) => String(x.status) === 'pending')[0] || null
+      if (pending) {
+        const fin = await finalizeRefundRequest(env, String(pending.id), {
+          status: 'done',
+          operator: REFUND_OPERATOR,
+          note: 'xpay_refund_notify：平台侧退款已回流 ⇒ 自动关闭这条自助申请（E-36 判甲；凭据＝查单说已退＋推送回执号）',
+          wxRefundId: String(refundId),
+        })
+        closedRequest = fin.matched > 0 ? 'closed' : 'raced'
+        if (fin.matched === 0) {
+          console.error('[proCredit] refund request already handled by someone else:', JSON.stringify({ outTradeNo, requestId: String(pending.id) }))
+        }
+      } else closedRequest = 'no_request'
+    } catch (err) {
+      closedRequest = 'failed'
+      console.error('[proCredit] closing refund request failed (money side is done):', JSON.stringify({ outTradeNo, code: (err && err.code) || 'unknown' }))
+    }
+  } else {
+    closedRequest = 'no_receipt_id'
+    console.error('[proCredit] refund push carried no WxRefundId ⇒ request row left pending (E-29 CHECK needs a receipt id):', JSON.stringify({ outTradeNo }))
+  }
   // ⚠️ 这一条是**成功路径**（2026-10-05 真机 tail 第一次自动撤账成功，却被 `console.error` 报成故障，
   //   owner 读作"platform 收到错误"）。上面那条 `but order row not matched` 才是真异常，级别留着。
-  console.log('[proCredit] external refund revoked:', JSON.stringify({ outTradeNo, revokedRows: rv.matched }))
-  return { outcome: 'refunded_revoked', revokedRows: rv.matched }
+  console.log('[proCredit] external refund revoked:', JSON.stringify({ outTradeNo, revokedRows: rv.matched, closedRequest }))
+  return { outcome: 'refunded_revoked', revokedRows: rv.matched, closedRequest }
 }
 
 /** 留痕用的触发源名（`pro_orders.operator`；D-9a 要求"谁做的"能被追责） */
