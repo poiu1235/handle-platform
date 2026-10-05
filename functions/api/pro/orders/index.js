@@ -59,9 +59,16 @@ export async function onRequestGet(context) {
     openid = await getAccountOpenid(env, userId)
   } catch (err) {
     console.error('[pro/orders:list] openid lookup failed:', (err && err.code) || (err && err.message) || 'unknown')
-    return json({ purchaseEnabled: true, orders: [] })
+    // 🔴 E-26：以前这一支也回 `{orders:[]}`，与"你真的没买过"**同一个形状** ⇒ 页面画一句
+    //   "还没有订单"，把"我们没读到"说成"你没买过"。现在分开说：这一支是**暂时的读失败**。
+    return json({ purchaseEnabled: true, orders: [], listUnavailable: true })
   }
-  if (!openid) return json({ purchaseEnabled: true, orders: [] })
+  if (!openid) {
+    // 🔴 E-26（owner 2026-10-05 判甲）：没绑微信＝没有归属锚（4.7 的判据是 `payer_openid`
+    //   ＝当前账号绑定的那个微信）。那一串订单**一行都没少**，只是这一拍认不出来；绑回同一部
+    //   微信就全回来。⇒ 必须与"真的没有订单"分得开，端上据此画"请用购买那部微信重新绑定"。
+    return json({ purchaseEnabled: true, orders: [], noWechatBinding: true })
+  }
 
   let rows = []
   try {

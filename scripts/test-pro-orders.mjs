@@ -445,11 +445,14 @@ check('10.7 入口关着 ⇒ 空列表且零次数据库', [gb.purchaseEnabled, 
 reset()
 stub.identityRows = []
 gb = await (await onRequestGet(getCtx())).json()
-check('10.8 账号没绑微信 ⇒ 空列表（不是"全部订单"，也不是报错）', [gb.orders.length, calls.filter((c) => c.url.includes('/rest/v1/pro_orders')).length], [0, 0])
+check('10.8 账号没绑微信 ⇒ 空列表（不是"全部订单"，也不是报错）＋ 🔴 必须说得出"是没绑"（E-26 甲：旧形状与"你没买过"同形，会诱导人再买一笔）', [gb.orders.length, gb.noWechatBinding, gb.listUnavailable, calls.filter((c) => c.url.includes('/rest/v1/pro_orders')).length], [0, true, undefined, 0])
 reset()
 stub.identityStatus = 500
 gb = await (await onRequestGet(getCtx())).json()
-check('10.9 identity 读失败 ⇒ 200 + 空列表（读侧收紧方向同 products）', [gb.purchaseEnabled, gb.orders.length], [true, 0])
+check('10.9 identity 读失败 ⇒ 200 + 空列表（读侧收紧方向同 products），🔴 但标的是 `listUnavailable` 而不是"没绑"（两种失败的用户动作不同：等一会儿 vs 去绑定）', [gb.purchaseEnabled, gb.orders.length, gb.listUnavailable, gb.noWechatBinding], [true, 0, true, undefined])
+reset()
+gb = await (await onRequestGet(getCtx())).json()
+check('10.9b 🔴 正常路径两个标记都不许出现（恒真的标记＝没有标记：那等于把"你没买过"重新说成一句空话）', [gb.noWechatBinding === undefined, gb.listUnavailable === undefined], [true, true])
 reset()
 stub.pendingStatus = 500
 r = await onRequestGet(getCtx())
