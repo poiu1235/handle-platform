@@ -32,9 +32,9 @@ import './board.css'
 // ============================================================
 
 const TABS = [
-  { key: 'notes', label: '便利贴' },
-  { key: 'cards', label: '会员' },
   { key: 'balance', label: '余额' },
+  { key: 'cards', label: '会员' },
+  { key: 'notes', label: '便利贴' },
 ]
 
 // 余额排序下拉选项（2026-09-13 用户裁定：三枚排序按钮折叠为下拉框）。默认
