@@ -381,11 +381,18 @@ reset()
 stub.pendingRows = [pendingRow()]
 stub.queryBody = UNPAID_BODY
 r = await run(good())
-check('8.1 同商品同 env 未过期＋平台说还开着 ⇒ 复用原单，不再插、不关', [r.body.reused, r.body.outTradeNo, insertCalls().length, patchCalls().length], [true, 'T1727000000000deadbeef', 0, 0])
-check('8.1b 🔴 复用之前**必须问过平台**（E-21 判乙的全部代价＝这一格从 0 变 1）', queryCalls().length, 1)
+// 🔴 8.1–8.3 这四格是 **E-43 反转**的（owner 2026-10-07：iOS 实测"平台答还开着"的号其实拉不起）。
+//   旧期望是 `reused:true` ＋ 原号递回；新期望是"关旧建新"。**期望值不抄实现**：这里钉的是
+//   reused=false、单号必须变、一次关旧 PATCH ＋ 一次建新 POST——四个数一起看，
+//   才能区分"改对了"与"根本没走到前置④"（后者会让 reused:false 也成立）。
+check('8.1 ✅ E-43：同商品同 env 未过期＋平台答"还开着"⇒ **不复用**，关旧建新（旧行为把死号递回去，iOS 上拉不起）',
+  [r.body.reused, r.body.outTradeNo !== 'T1727000000000deadbeef', insertCalls().length, patchCalls().length], [false, true, 1, 1])
+check('8.1b 🔴 关旧之前必须问过平台（这条边界从 E-21 传到 E-43 没变：不许拿"我方口径的关闭"赌"这单没被付"）', queryCalls().length, 1)
 const sd2 = JSON.parse(r.body.pay.signData)
-check('8.2 复用也重签一次（session_key 是新的，签名必须贴着这一刻算）', [sd2.outTradeNo, r.body.pay.signature], ['T1727000000000deadbeef', expectHmac(SESSION_KEY, r.body.pay.signData)])
-check('8.3 金额取**订单行里的值**，不重新读价格表', sd2.goodsPrice, 333)
+check('8.2 签出去的是**新单号**，且签名就是这一份 post_body（递回旧号那条路已经封了）',
+  [sd2.outTradeNo !== 'T1727000000000deadbeef', r.body.pay.signature === expectHmac(SESSION_KEY, r.body.pay.signData)], [true, true])
+check('8.3 新行的金额取服务端价表（333＝这档的价），🔴 关旧那一次 PATCH 不碰金额列',
+  [sd2.goodsPrice, Object.keys(bodyAt(patchCalls()) || {}).includes('goods_price')], [333, false])
 
 // 🔴 8.4–8.13 是 **B3-3 恢复后的前置④**：不能复用 ⇒ 先查单，查得"未付/查无/已关"才关旧建新。
 //   这一族格子的牙齿有两处：① `queryCalls()===1`（**没查过就不许关**——E-14 判乙时的那条边界
@@ -466,7 +473,7 @@ reset()
 stub.pendingRows = [pendingRow({ product_id: 'yearly_mem_android' })]
 stub.queryBody = UNPAID_BODY
 r = await run(good())
-check('8.11 平台说"还开着"但形状不对（换档）⇒ 照样关旧建新（复用只在两件事同时成立时发生）', [r.body.reused, patchCalls().length, insertCalls().length], [false, 1, 1])
+check('8.11 平台答"还开着"但是换档 ⇒ 同样关旧建新（✅ E-43 起这一支与 8.1 走同一条路——"形状对"已经不再决定任何事；这一格留着是钉"换档"不会变成第二个把死号递出去的出口）', [r.body.reused, patchCalls().length, insertCalls().length], [false, 1, 1])
 
 reset()
 stub.pendingRows = [pendingRow()]
@@ -480,6 +487,11 @@ r = await run(good())
 check('8.13 pending 查不到 ⇒ 503 拒、零写（不"当没有单"直接建）', [r.status, r.body.code, writes().length], [503, 'pro_unavailable', 0])
 
 // ── 9. 库侧 partial unique index 挡双击 ────────────────────────────────────
+// 🔴 E-43 撤掉"复用未付号"之后，**这一支是唯一还在复用的路径**，而且它刻意不查平台。
+//   为什么它可以而 8.1 那支不行：撞这个约束说明那张 pending 行是**几毫秒前另一个并发请求刚建的**
+//   （不是十几秒前被用户关掉的那个），它从没被递出过 `requestVirtualPayment` ⇒ 递出去是安全的；
+//   而库侧那道 partial unique 也正需要"重读并复用"这个出口，否则双击第二下会拿到一个 409。
+//   ⚠️ 别为了"和 E-43 保持一致"把这里也改成关旧建新——那会变成双击两下产生两行单。
 reset()
 stub.insertStatus = 409
 stub.insertError = { code: '23505', message: 'duplicate key value violates unique constraint "pro_orders_one_pending_per_openid"' }
@@ -798,6 +810,16 @@ check('11.9 [no].js 不许有第二个 24 小时字面量，窗口只能从 proS
 const treeNow = orderListVisibleTree(Date.now())
 check('11.10 可见性树只用有先例的形状（无 `in.`、无嵌套 `or=`）且四个分支齐',
   [treeNow.includes('in.'), treeNow.includes('or='), splitTopLevel(treeNow.slice(1, -1)).length], [false, false, 4])
+// 🔴 E-43 的形状门：把"库里已有的单号"递回端上的路，全仓只许剩"撞 partial unique"那一支。
+//   为什么要专门钉一条静态门而不是只靠 8.1：这次删掉的东西看起来只是"少省一行 INSERT"，
+//   很容易被后来人以"优化"的名义写回来；而它写回来的症状**两端不一样**——安卓有平台关单兜着看不出来，
+//   iOS 才是那 15 分钟拉不起收银台。两端不一致的回归最容易被当成"个别设备问题"，所以要留一道与设备无关的门。
+const createSrc = codeOf.get(path.join(root, 'functions/api/pro/orders/index.js')) || ''
+check('11.11 ✅ E-43：`reused: true` 只有一处、且必须在撞号分支里；前置④ 里不许再有"形状对"这个变量',
+  [(createSrc.match(/reused: true/g) || []).length,
+    /conflict === 'pending_exists'[\s\S]{0,700}reused: true/.test(createSrc),
+    /shapeMatches/.test(createSrc)],
+  [1, true, false])
 
 let fails = 0
 for (const x of results) {
