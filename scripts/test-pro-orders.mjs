@@ -24,6 +24,10 @@ const check = (name, got, want) => results.push({ name, ok: JSON.stringify(got) 
 const expectHmac = (key, msg) => crypto.createHmac('sha256', key).update(msg, 'utf8').digest('hex')
 
 const { onRequestPost, onRequestGet } = await import(pathToFileURL(path.join(root, 'functions/api/pro/orders/index.js')).href)
+// 列表谓词与它的窗口常量直接从这个模块取（10.20 之后那一段要**调**它们，不只是扫源码）
+const { orderListVisibleTree, listOrdersByOpenid, orderIdsByOpenid, PENDING_ORDER_FRESH_MS } = await import(
+  pathToFileURL(path.join(root, 'functions/_lib/proStore.js')).href
+)
 
 const UID = 'u-1'
 const BOUND = 'oBound'
@@ -59,6 +63,73 @@ const defaultStub = () => ({
 const future = () => new Date(Date.now() + 60_000).toISOString()
 const past = () => new Date(Date.now() - 60_000).toISOString()
 
+// ── 假后端要**真的应用** `?or=` 那棵逻辑树 ────────────────────────────────
+// 🔴 为什么不改成"断言 URL 里含有那几个字"：那等于把实现原样抄进期望——实现写错、期望跟着错，
+//   格子恒绿（"抄一遍 URL 字符串"保护 bug 这条已经栽过）。桩按树过滤之后，
+//   「closed 的行回不来」是**算出来的**，不是抄出来的。
+// ⚠️ 只实现今天真发得出来的形状：顶层 `or=(...)`、嵌套 `and(...)`、算子 `eq`／`gt`／`lt`，
+//   **其余一律当场抛**。这是给自己下绊子用的：将来谁把树改成 `in.()`、或再套一层 `or=`
+//   （`notes.js:54` 记着那次 PGRST100 实测），桩会先响，而不是静默把所有行放过来。
+// ⚠️ 刻意**没**实现 `status=eq.pending` 那条过滤：那是本文件既有的桩形状（第 8／9 节直接喂
+//   pendingRows），与本次改动无关，动它会把无关的格子一起搅进来。
+function unsupported(why, text) {
+  throw new Error(`假后端的 or= 树不支持：${why} ⇒ ${text}`)
+}
+function splitTopLevel(body) {
+  const out = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]
+    if (ch === '(') depth++
+    else if (ch === ')') depth--
+    else if (ch === ',' && depth === 0) {
+      out.push(body.slice(start, i))
+      start = i + 1
+    }
+  }
+  out.push(body.slice(start))
+  return out.filter((s) => s !== '')
+}
+function matchCond(row, cond) {
+  const first = cond.indexOf('.')
+  const second = cond.indexOf('.', first + 1)
+  if (first < 0 || second < 0) unsupported('条件不是「列.算子.值」三段', cond)
+  const col = cond.slice(0, first)
+  const op = cond.slice(first + 1, second)
+  const val = cond.slice(second + 1)
+  if (op !== 'eq' && op !== 'gt' && op !== 'lt') unsupported('算子不在已证形状里', cond)
+  const cell = row[col]
+  if (op === 'eq') return String(cell ?? '') === val
+  // 时刻比不出来＝不匹配（与生产代码同一侧的保守：`isExpired` 读不出 expires_at 就按已过期办）
+  const a = Date.parse(String(cell ?? ''))
+  const b = Date.parse(val)
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false
+  return op === 'gt' ? a > b : a < b
+}
+function matchNode(row, node) {
+  const s = node.trim()
+  if (s.startsWith('and(') && s.endsWith(')')) return splitTopLevel(s.slice(4, -1)).every((c) => matchNode(row, c))
+  if (s.startsWith('(') && s.endsWith(')')) return splitTopLevel(s.slice(1, -1)).some((c) => matchNode(row, c))
+  return matchCond(row, s)
+}
+// 顺序本身就是判据的一部分：**先过滤（含 or= 树），再排序，最后截 limit**——与 PostgREST 一致。
+// 把可见性过滤挪到端点的 `rows.map` 里＝"截完再筛"，那正好是 10.24 要抓的那个写法。
+function restList(params, rows) {
+  let out = rows
+  const tree = params.get('or')
+  if (tree !== null) out = out.filter((row) => matchNode(row, tree))
+  if (String(params.get('order') || '').startsWith('created_at.desc')) {
+    out = [...out].sort((a, b) => Date.parse(String(b.created_at ?? '')) - Date.parse(String(a.created_at ?? '')))
+  }
+  const limitRaw = params.get('limit')
+  // ⚠️ `Number(null)` 是 0 而不是 NaN——原来这里直接 `Number(params.get('limit'))` 判 finite，
+  //   于是**没带 limit 的那两条读路**（`orderIdsByOpenid`／申请行）被截成 0 行，
+  //   一下把 10.13…10.18 五格染红（症状是"退款额度算不出来"，看不出是桩的错）。缺参数＝不设限。
+  if (limitRaw !== null && Number.isFinite(Number(limitRaw))) out = out.slice(0, Number(limitRaw))
+  return out
+}
+
 globalThis.fetch = async (url, options) => {
   const u = String(url)
   const method = (options && options.method) || 'GET'
@@ -80,7 +151,7 @@ globalThis.fetch = async (url, options) => {
   if (u.includes('/rest/v1/pro_orders') && method === 'PATCH') return mk([{ status: 'closed' }], stub.patchStatus)
   if (u.includes('/rest/v1/pro_orders')) {
     if (stub.pendingStatus !== 200) return mk({ message: 'select boom' }, stub.pendingStatus)
-    return mk(stub.pendingRows)
+    return mk(restList(new URL(u).searchParams, stub.pendingRows))
   }
   if (u.includes('/rest/v1/pro_refund_requests')) return mk(stub.refundRows, stub.refundStatus)
   throw new Error('未预期的出网目标：' + u)
@@ -486,7 +557,10 @@ stub.pendingStatus = 500
 r = await onRequestGet(getCtx())
 check('10.10 列表查询失败 ⇒ 503 结构化，不返回半截列表', [r.status, (await r.json()).code], [503, 'pro_unavailable'])
 reset()
-stub.pendingRows = [{ out_trade_no: 'T1', product_id: 'discontinued_item', goods_price: 100, currency_type: 'CNY', env: 0, status: 'closed', paid_at: null, created_at: 'x', expires_at: 'y' }]
+// ⚠️ 这一格的行原来是 `status:'closed'`——甲（读侧隐藏）之后 closed 根本回不来，
+//   所以把它换成同样"期限读不出"的一行已付单：这一格测的是**道具下架**，不是状态可见性
+//   （可见性另起 10.20 那一段，别把两件事混在一格里，否则红了分不清是哪一件）。
+stub.pendingRows = [{ out_trade_no: 'T1', product_id: 'discontinued_item', goods_price: 100, currency_type: 'CNY', env: 0, status: 'paid', paid_at: past(), created_at: past(), expires_at: 'y' }]
 gb = await (await onRequestGet(getCtx())).json()
 check('10.11 道具已从表里撤下 ⇒ 名字退回 id、期限为 null，钱仍然看得见', [gb.orders[0].name, gb.orders[0].durationDays, gb.orders[0].goodsPrice], ['discontinued_item', null, 100])
 
@@ -552,9 +626,13 @@ stub.pendingRows = [
 ]
 stub.refundRows = [{ order_id: 'ord-1', kind: 'no_reason', status: 'done', requested_at: hoursAgo(30), executed_at: hoursAgo(29), note: null }]
 gb = await (await onRequestGet(getCtx())).json()
+// ⚠️ 这里按**单号**取而不是按位置：桩开始尊重 `order=created_at.desc` 之后，两行的返回顺序
+//   变成"新的在前"（生产本来就是这个顺序，两行的 created_at 相差几毫秒）。
+//   这一格要判的是"两种不能申请分得开"，从来不是"谁在前"——靠位置断言的那写法是脆的。
+const denyOf = (no) => (gb.orders.find((o) => o.outTradeNo === no) || {}).refundDeny
 check('10.17 🔴 两种"不能申请"分得开：ord-1＝already_requested（进度在跑）、ord-2＝quota_used（额度用尽）',
-  gb.orders.map((o) => [o.refundable, o.refundDeny]),
-  [[false, 'refund_already_requested'], [false, 'refund_quota_used']])
+  [denyOf('T1727000000000000000000rb'), denyOf('T1727000000000000000000rc')],
+  ['refund_already_requested', 'refund_quota_used'])
 
 reset()
 stub.pendingRows = [asProductionRow(refundableRow())]
@@ -570,6 +648,80 @@ gb = await (await onRequestGet(getCtx())).json()
 check('10.19 🔴 只回码不回人话，也不回申请行的 note：整个响应体里搜不到那两句（文案正本在端上）',
   [JSON.stringify(gb).includes('无理由退款'), JSON.stringify(gb).includes('客服对话原文')], [false, false])
 
+
+// ── 10.20…10.26 甲：没成交的单不给人看（谓词落在查询串里，不在响应的 map 里）─────
+// 这一段的每一条都是**算**出来的（见上面那棵假树过滤器），所以列名写错、窗口基准写错、
+// 甚至"过滤挪到 map 之后"都会当场掉出来，而不是一句对实现的复述。
+const visRow = (over = {}) => asProductionRow(refundableRow({ id: 'v-1', out_trade_no: 'TV1', ...over }))
+const atAgo = (ms) => new Date(Date.now() - ms).toISOString()
+const FRESH = () => atAgo(60 * 60 * 1000) // 1 小时前＝窗口内
+const STALE = () => atAgo(25 * 60 * 60 * 1000) // 25 小时前＝越界
+const visibleAt = (eover = {}) => onRequestGet(getCtx(eover)).then((res) => res.json()).then((b) => b.orders.map((o) => [o.outTradeNo, o.status]))
+
+reset()
+stub.pendingRows = [visRow({ status: 'closed', paid_at: null, created_at: FRESH() }), visRow({ id: 'v-2', out_trade_no: 'TV2', status: 'paid', created_at: FRESH() })]
+check('10.20 `closed`（点了支付没成交、我方已关的那行）不出现在列表里，已付的那行照常出得来',
+  await visibleAt(), [['TV2', 'paid']])
+
+reset()
+stub.pendingRows = [visRow({ id: 'v-3', out_trade_no: 'TV3', status: 'pending', paid_at: null, created_at: FRESH() })]
+check('10.21 🔴 窗口内的 pending 必须还在列表里——它是端上 `pickPendingToRecheck` 唯一的输入，削掉它＝6.4 第②层（掉单找回）失效',
+  await visibleAt(), [['TV3', 'pending']])
+
+reset()
+stub.pendingRows = [
+  visRow({ id: 'v-4', out_trade_no: 'TV4', status: 'pending', paid_at: null, created_at: STALE() }),
+  visRow({ id: 'v-5', out_trade_no: 'TV5', status: 'paid', created_at: STALE() }),
+]
+check('10.22 越界的 pending 隐藏，而🔴 老的已付单不许跟着消失（隐藏只认"没成交"那一类，不许简化成按时间一刀切）',
+  await visibleAt(), [['TV5', 'paid']])
+
+reset()
+stub.pendingRows = [visRow({ id: 'v-6', out_trade_no: 'TV6', status: 'anomaly', created_at: STALE() })]
+check('10.23 `anomaly`（处理中）永远给看，哪怕早就过了窗口：那是"钱与货对不上"，用户要有地方看见、客服要有单号可报',
+  await visibleAt(), [['TV6', 'anomaly']])
+
+// 🔴 负控制：只挪"此刻"、行不变，跨过窗口边界就必须换结论。这一格证明 10.22 不是恒绿——
+//   树里那一支 `created_at` 若被拆掉、或桩其实没在过滤，两次调用会给出**相同**结果。
+{
+  const createdMs = Date.now() - 100 * 60 * 60 * 1000
+  const one = [visRow({ id: 'v-7', out_trade_no: 'TV7', status: 'pending', paid_at: null, created_at: new Date(createdMs).toISOString() })]
+  reset()
+  stub.pendingRows = one
+  const inside = await listOrdersByOpenid(env(), BOUND, createdMs + PENDING_ORDER_FRESH_MS - 60_000)
+  reset()
+  stub.pendingRows = one
+  const outside = await listOrdersByOpenid(env(), BOUND, createdMs + PENDING_ORDER_FRESH_MS + 60_000)
+  check('10.24 🔴 负控制：同一行 pending 只挪此刻 ⇒ 界内读得到、界外读不到（窗口那一支真的有牙）',
+    [inside.length, outside.length], [1, 0])
+}
+
+// 🔴 这一格钉"过滤必须在 limit 之前"：50 行刚关掉的单占满 limit ＋ 1 行最老的已付单。
+//   谁把可见性过滤挪回端点的 `rows.map`，桩就会先按 limit 截掉最老那一行 ⇒ 列表变成一句
+//   「还没有订单」，而这个人明明付过钱——那正是 E-26 刚拆开的塌法换个入口回来。
+reset()
+stub.pendingRows = [
+  ...Array.from({ length: 50 }, (_, i) => visRow({ id: 'c' + i, out_trade_no: 'TC' + i, status: 'closed', paid_at: null, created_at: atAgo(i * 1000) })),
+  visRow({ id: 'v-8', out_trade_no: 'TV8', status: 'paid', created_at: atAgo(99 * 86400_000) }),
+]
+check('10.25 🔴 反复取消的人不许看不见自己那笔真单：50 行 closed 挤满 limit 时第 51 行那笔已付仍要出得来',
+  await visibleAt(), [['TV8', 'paid']])
+
+// 额度那条读路（`orderIdsByOpenid`）跨**全部**订单算，可见性与它无关。
+reset()
+stub.pendingRows = [visRow({ id: 'v-9', out_trade_no: 'TV9', status: 'closed', paid_at: null, created_at: FRESH() })]
+const quotaIds = await orderIdsByOpenid(env(), BOUND)
+const quotaUrl = String(calls.find((c) => c.url.includes('/rest/v1/pro_orders'))?.url || '')
+check('10.26 🔴 额度那条读路不许套可见性谓词（隐藏是"给人看"，"每微信一次"的分母跨全部订单）',
+  [quotaIds, quotaUrl.includes('or='), quotaUrl.includes('limit=')], [['v-9'], false, false])
+
+// 🔴 树的形状另起一格（11.10），那里连"不许用 `in.`、不许嵌套 `or=`"一起判。
+// ⚠️ 10.24 那格**钉不住量级**：它的两个时刻是从同一个常数推算出来的，所以常数整体缩成
+//   24 分钟时它照样一边红一边绿（本次实施真犯过这个错，抓住它的是 10.21）。
+//   量级要单独钉——照 `test:credit` 那条惯例：**两个消费者各钉着同一个字面值**，
+//   这里"独立重写一遍 24 小时"就是有意的重复，不是抄实现。
+check('10.27 窗口常数的量级＝24 小时（防 `24*60*1000`＝24 分钟这种手滑；与端上 16.20 各钉一次）',
+  [PENDING_ORDER_FRESH_MS, PENDING_ORDER_FRESH_MS / 3600_000], [86400000, 24])
 
 // ── 11. 静态门：写面收敛与开关只读部署变量 ─────────────────────────────────
 function stripComments(src) {
@@ -631,6 +783,18 @@ const closePatchSites = files.filter((f) => /status=eq\.pending/.test(codeOf.get
 check('11.8 关旧单只发生在带 status=eq.pending 的 PATCH 上，且只有一个实现处', closePatchSites, ['functions/_lib/proStore.js'])
 const closeCallers = files.filter((f) => /closePendingOrder/.test(codeOf.get(f))).map(rel).sort()
 check('11.8b closePendingOrder 的调用点只有下单端点（推送侧接上时在这里加第二个）', closeCallers, ['functions/_lib/proStore.js', 'functions/api/pro/orders/index.js'])
+
+// 🔴 未付单那个窗口只许有一处定义：补查那一侧（`[no].js`）与列表可见性这一侧读**同一个导出值**。
+//   谁在 `[no].js` 里再打一个字面量，两处就会漂，而漂成的形状正是甲要消灭的那句话——
+//   「列表里挂着一排我们早已不再追问的单」。
+const noFile = codeOf.get(path.join(root, 'functions/api/pro/orders/[no].js')) || ''
+check('11.9 [no].js 不许有第二个 24 小时字面量，窗口只能从 proStore 导入',
+  [/24\s*\*\s*(3600_000|60\s*\*\s*1000)/.test(noFile), /PENDING_ORDER_FRESH_MS/.test(noFile)], [false, true])
+// 树只使用现网跑通过的那几种形状：`in.` 在树内没有先例，嵌套 `or=` 是 `notes.js:54` 记着的
+// PGRST100 实测坑。假后端遇到不认识的形状会抛，所以这一格＋那把抛是两道门，不是复述实现。
+const treeNow = orderListVisibleTree(Date.now())
+check('11.10 可见性树只用有先例的形状（无 `in.`、无嵌套 `or=`）且四个分支齐',
+  [treeNow.includes('in.'), treeNow.includes('or='), splitTopLevel(treeNow.slice(1, -1)).length], [false, false, 4])
 
 let fails = 0
 for (const x of results) {

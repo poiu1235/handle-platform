@@ -17,11 +17,14 @@
 //   对不上时回 `no_such_order`（404）而不是 403——存在性本身也是别人的信息。
 import { json } from '../../../_lib/supabase.js'
 import { readProFlags, getAccountOpenid } from '../../../_lib/proCoverage.js'
-import { getOrderRow } from '../../../_lib/proStore.js'
+import { getOrderRow, PENDING_ORDER_FRESH_MS } from '../../../_lib/proStore.js'
 import { creditOrder } from '../../../_lib/proCredit.js'
 import { catalogEntry } from '../../../_lib/proCatalog.js'
 
-const RECENT_MS = 24 * 3600 * 1000
+// 🔴 窗口只有一处定义（`proStore.PENDING_ORDER_FRESH_MS`）：这一侧用它决定"还要不要打平台"，
+//   列表那一侧用同一个值决定"还要不要给人看"。两处各写一个字面量就会漂成
+//   "列表里挂着一排我们早已不再追问的单"（见 `orderListVisibleTree`）。
+const RECENT_MS = PENDING_ORDER_FRESH_MS
 
 export async function onRequestGet(context) {
   const { env, params, data } = context

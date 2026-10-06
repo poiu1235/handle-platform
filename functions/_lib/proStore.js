@@ -13,6 +13,36 @@ import { PROVIDER } from './proCoverage.js'
 
 const ORDERS = '/rest/v1/pro_orders'
 
+/**
+ * 一张未付单还"值得我方为它出网"的窗口。
+ * 🔴 这一个常数有两个消费者，必须是同一个导出，不许各写一份：
+ *   ① `orders/[no].js` 的补查闸门（越过它就不再打平台，交人工巡检）；
+ *   ② 下面的列表可见性谓词（越过它就从用户眼前撤下）。
+ *   原来它只写在 ① 那一侧，于是列表里会挂着一排"我们早已不再追问"的单，
+ *   用户看着像"待支付还能继续"，而那一行什么都做不了。
+ * ⚠️ 它**不是**"这张单在平台侧还能付多久"——那个数值官方文档一处都没写（R-9 ⑦ 已改判为
+ *   "虚拟支付没有关单接口"，见正本 E-39），而 `status='closed'` 也只是我方口径的关闭。
+ *   ⇒ 别拿这个窗口当删除依据，它只够支撑"不给人看"和"不再追问"这两件事。
+ */
+export const PENDING_ORDER_FRESH_MS = 24 * 60 * 60 * 1000
+
+/**
+ * 订单页的可见性谓词，返回 PostgREST 的**逻辑树本体**（不含 `or=` 前缀，调用方自己编码）。
+ * 隐藏"点了支付但没成交"那两类：`closed`（我方已关）与越过 `PENDING_ORDER_FRESH_MS` 的 `pending`；
+ * 保留 `paid`／`refunded`／`anomaly`（异常单是"钱与货对不上"，必须看得见）与仍在窗口内的 `pending`
+ * （它同时是 6.4 第②层补查的输入，端上 `pickPendingToRecheck` 读的就是这一页的行）。
+ * 🔴 为什么必须落在查询串里，而不是落在响应的 `rows.map` 里：这条读串带 `order=created_at.desc&limit=50`，
+ *   **limit 在 map 之前**——先取 50 行再过滤，一个反复取消支付的人会把真付过款那一行挤到 50 名之外，
+ *   页面就画「还没有订单」（E-26 才拆开的塌法换个入口重来）。
+ * 树形照 `functions/api/notes.js` 那棵**现网跑通**的（嵌套 `and(...)` ＋ 值里带 `:` 的 toISOString 都已实证）；
+ * 🔴 树内不用 `in.()`——那一层没有先例，而 notes.js 记着一条实测坑：`?or=` 的值里再带一层 `or=`
+ *   会被 PostgREST 以 PGRST100 拒 ⇒ 三种可见状态逐个 `status.eq.X` 摊平，只用有先例的算子。
+ */
+export function orderListVisibleTree(nowMs = Date.now()) {
+  const freshFrom = new Date(nowMs - PENDING_ORDER_FRESH_MS).toISOString()
+  return `(status.eq.paid,status.eq.refunded,status.eq.anomaly,and(status.eq.pending,created_at.gt.${freshFrom}))`
+}
+
 function fail(code, status, detail) {
   const err = new Error(code)
   err.code = code
@@ -49,8 +79,11 @@ export async function findPendingOrder(env, openid) {
  * 而判定要用的列必须读得到——`payer_openid` 两条读路都要（`getOrderRow` 一直是这么读的，
  * 这一条原来漏了 ⇒ 同族两个函数形状不一致，正是订单页那颗按钮不出现的原因，见函数体里那段）。
  * 🔴 真正一律不许读进来的是 `callback_raw`／`note`／`operator`／`attach`：那些不是判定输入。
+ * 可见性：这一条读路带 `orderListVisibleTree` 那道谓词（没成交的单不给人看），
+ *   而下面的 `orderIdsByOpenid` **刻意不带**——那是两件事，别"顺手统一"。
+ * @param {number} nowMs 窗口基准，测试可注入（生产调用用默认＝此刻）
  */
-export async function listOrdersByOpenid(env, openid) {
+export async function listOrdersByOpenid(env, openid, nowMs = Date.now()) {
   const res = await serviceRoleFetch(
     env,
     // 🔴 读回来的列比**回给端上的**多：`id`（join 申请行）、`platform`＋`is_duplicate`＋`payer_openid`
@@ -64,6 +97,8 @@ export async function listOrdersByOpenid(env, openid) {
     //   而响应侧仍然一个字都不回（10.4／10.5）。真正不许读进来的是 `callback_raw`／`note`／`operator`／`attach`。
     `${ORDERS}?select=id,out_trade_no,product_id,goods_price,currency_type,env,status,paid_at,created_at,expires_at,platform,is_duplicate,payer_openid` +
       `&provider=eq.${PROVIDER}&payer_openid=eq.${encodeURIComponent(openid)}` +
+      // 🔴 可见性过滤在**库里**做，不是读回来再筛（理由见 orderListVisibleTree：limit 在 map 之前）
+      `&or=${encodeURIComponent(orderListVisibleTree(nowMs))}` +
       `&order=created_at.desc&limit=50`,
   )
   if (!res.ok) throw fail('pro_order_list_failed', res.status, JSON.stringify(res.data))
@@ -309,7 +344,12 @@ export async function markOrderRefunded(env, outTradeNo, { operator, note }) {
 //   读申请行。别为了少一次读就给申请表加一列 openid——那会把"额度按付款微信算"这条
 //   口径同时写在两处（一处漏改就静默失真）。
 
-/** 某部微信名下的全部订单主键（额度判据的寻址用；🔴 不设 limit——漏读会把已用额度算少） */
+/**
+ * 某部微信名下的全部订单主键（额度判据的寻址用；🔴 不设 limit——漏读会把已用额度算少）。
+ * 🔴 这一条读路**不许**套 `orderListVisibleTree`：可见性是"给人看"的事，而额度是跨这个微信
+ *   名下**全部**订单算的。今天被隐藏的未付单没有申请行、套上也不改变结果——但那叫"两条读路恰好一致"，
+ *   将来任何一单能带着申请行被隐藏，额度就被静默算少（同一族的失败形态见 `test:refund` 2.0b）。
+ */
 export async function orderIdsByOpenid(env, openid) {
   const res = await serviceRoleFetch(
     env,
