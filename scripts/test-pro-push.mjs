@@ -70,6 +70,11 @@ const defaultStub = () => ({
   tokenBody: { access_token: 'TOKEN-x', expires_in: 7200 },
   coverageBody: { is_covered: false, valid_until: null, remaining_days: null },
   pushToken: TOKEN,
+  // ── E-40（`no_such_order` 取证行）用的三个旋钮 ──
+  identityRows: [], // []＝这个微信当前没绑账号 ⇒ `user_id` 走哨兵；[{user_id}]＝唯一 ⇒ 用真 id
+  orderInsertRows: [{ id: 'an-1' }], // representation 回几行＝"到底落没落成"，调用方要数
+  orderInsertStatus: 201,
+  orderInsertConflict: null, // { code:'23505', message:'…pro_orders_out_trade_no_key…' } ⇒ 单号已有行
 })
 const reset = () => {
   calls = []
@@ -101,6 +106,14 @@ globalThis.fetch = async (url, options) => {
     return mk(stub.finalizeStatus === 200 ? stub.finalizeRows : { message: 'finalize boom' }, stub.finalizeStatus)
   }
   if (u.includes('/rest/v1/pro_refund_requests')) return mk(stub.requestRows)
+  // ── E-40 新增的两条路由 ────────────────────────────────────────────────
+  // 反查 `user_id`（`accountIdsByOpenid`）：默认空数组＝这个微信当前没绑账号 ⇒ 走哨兵值。
+  if (u.includes('/rest/v1/user_identities')) return mk(stub.identityRows)
+  // 落 anomaly 取证行那一次 POST：桩把"回几行"与"撞号"都做成可控，因为调用方**要数改到几行**。
+  if (u.includes('/rest/v1/pro_orders') && method === 'POST') {
+    if (stub.orderInsertConflict) return mk(stub.orderInsertConflict, 409)
+    return mk(stub.orderInsertRows, stub.orderInsertStatus)
+  }
   throw new Error('未预期的出网目标：' + u)
 }
 
@@ -133,13 +146,15 @@ const req = ({ method = 'GET', query = {}, body = '' }) => ({
 })
 const ctx = (r, eover = {}) => ({ request: r, env: env(eover), params: {}, data: {} })
 
-const pushBody = ({ event, outTradeNo = NO, openid = OPENID, extra = '' }) =>
-  `<xml><ToUserName><![CDATA[gh_x]]></ToUserName><FromUserName><![CDATA[${openid}]]></FromUserName>` +
+const pushBody = ({ event, outTradeNo = NO, openid = OPENID, productId = 'monthly_mem_android', extra = '' }) =>
+  `<xml><ToUserName><![CDATA[gh_x]]></ToUserName>` +
+  (openid === null ? '' : `<FromUserName><![CDATA[${openid}]]></FromUserName>`) +
   `<CreateTime>1791182274</CreateTime><MsgType><![CDATA[event]]></MsgType>` +
-  `<Event><![CDATA[${event}]]></Event><OpenId><![CDATA[${openid}]]></OpenId>` +
+  `<Event><![CDATA[${event}]]></Event>` +
+  (openid === null ? '' : `<OpenId><![CDATA[${openid}]]></OpenId>`) +
   `<OutTradeNo><![CDATA[${outTradeNo}]]></OutTradeNo><Env>0</Env>` +
   `<WeChatPayInfo><MchOrderNo><![CDATA[${outTradeNo}]]></MchOrderNo></WeChatPayInfo>` +
-  `<GoodsInfo><ProductId><![CDATA[monthly_mem_android]]></ProductId><Quantity>1</Quantity></GoodsInfo>` +
+  `<GoodsInfo><ProductId><![CDATA[${productId}]]></ProductId><Quantity>1</Quantity></GoodsInfo>` +
   `${extra}</xml>`
 
 const errCodeOf = async (res) => {
@@ -249,10 +264,93 @@ stub.orderRow = orderRow({ status: 'anomaly', anomaly_reason: 'refunded_not_cred
 d = await deliver()
 check('3.7 anomaly ⇒ 拒绝复活（零写）；应答仍是非 0＝人工没看过之前不停推（重推有上限，而"停推"不可逆）', [d.code, writes().length, queryCalls().length], [1, 0, 0])
 
+// ── 3.8…3.16 E-40：库里没这单时的那一行取证（4.5 第 2 步那句「不能只写日志」）──────
+// 这一节判的重点不是"能不能写"，而是**哪些情况下它必须不写**：这一行会被 A3 巡检看见、
+// 会被人在订单页读成"处理中"，写错就是拿一条我们没证的记录去占人的注意力。
+const deliverWith = async (body) => {
+  const ts = '1700000009'
+  const sig = await signFor(TOKEN, ts, 'n9')
+  const res = await onRequestPost(ctx(req({ method: 'POST', query: { signature: sig, timestamp: ts, nonce: 'n9' }, body })))
+  return { code: await errCodeOf(res) }
+}
+const anomalyPosts = () => calls.filter((c) => c.url.includes('/rest/v1/pro_orders') && c.method === 'POST')
+const NIL_USER_ID = '00000000-0000-0000-0000-000000000000'
+
 reset()
 stub.orderRows = []
 d = await deliver()
-check('3.8 库里没这单 ⇒ 非 0 且一次平台调用都不打（单号可能是别人拼的）', [d.code, queryCalls().length, writes().length], [1, 0, 0])
+// ⚠️ 这一格原来钉的是「库里没这单 ⇒ 非 0、零写、一次平台调用都不打（单号可能是别人拼的）」。
+//   E-40 把它**改掉**了：那条"零写"正是正本 `:356` 判为不可接受的"只写日志"——重推 15 次耗尽之后
+//   这笔钱在库里零痕迹，而 `/admin/pro-anomaly` 是按 `out_trade_no` 取行的，没有行就没有人工出边。
+//   而"单号可能是别人拼的"那一层本来就由**验签**挡（E-25：过不了签的报文一个库都不写，见第 2 节），
+//   能走到这一支的必然是签过的报文 ⇒ 现行期望＝落一行取证行＋应答 0 停推。撤一条门要写清换成了什么。
+check('3.8 🔴 库里没这单（验签已过）⇒ 不再"零写"：落一行 anomaly/no_such_order 当地址并停推（E-40 改写此格）',
+  [d.code, anomalyPosts().length, bodyAt(anomalyPosts()).status, bodyAt(anomalyPosts()).anomaly_reason], [0, 1, 'anomaly', 'no_such_order'])
+check('3.9 这一支**不入账**：零账本写、零发货告知（查单只当凭据用，不作为发权益的依据）',
+  [ledgerPosts().length, notifyCalls().length, queryCalls().length], [0, 0, 1])
+check('3.10 落的是异常单该有的形状：paid_at 为空、状态不是 pending（pending 会被前置④ 当未付单复用）',
+  [bodyAt(anomalyPosts()).paid_at, bodyAt(anomalyPosts()).expires_at !== undefined, bodyAt(anomalyPosts()).out_trade_no],
+  [undefined, true, NO])
+
+reset()
+stub.orderRows = []
+await deliverWith(pushBody({ event: 'xpay_goods_deliver_notify', extra: '<ActualPrice>1</ActualPrice><TotalFee>1</TotalFee>' }))
+check('3.11 🔴 金额只有一个来源＝按推送的 product_id 反查价表（333）；报文里塞两句"价"也不改它（6.2 铁律 3）',
+  bodyAt(anomalyPosts()).goods_price, 333)
+
+reset()
+stub.orderRows = []
+d = await deliverWith(pushBody({ event: 'xpay_goods_deliver_notify', openid: null }))
+check('3.12 🔴 缺 openid ⇒ 零写＋应答非 0（查单要它、payer_openid not-null 也要它，而"是不是这个微信付的"根本判不出）',
+  [d.code, anomalyPosts().length, queryCalls().length], [1, 0, 0])
+
+reset()
+stub.orderRows = []
+d = await deliverWith(pushBody({ event: 'xpay_goods_deliver_notify', productId: 'ghost_item' }))
+check('3.13 🔴 道具不在价表 ⇒ 零写＋应答非 0（🔴 不编金额：CHECK 只挡得住 0，挡不住"随手填个 1 分占位"，而这一行是给人看的）',
+  [d.code, anomalyPosts().length], [1, 0])
+
+reset()
+stub.orderRows = []
+stub.orderInsertConflict = { code: '23505', message: 'duplicate key value violates unique constraint "pro_orders_out_trade_no_key"' }
+d = await deliver()
+check('3.14 撞 out_trade_no unique ⇒ 不插第二次，且应答**非 0**（那一行其实存在 ⇒ 让重推走正常入账，这里不许停推）',
+  [d.code, anomalyPosts().length], [1, 1])
+
+reset()
+stub.orderRows = []
+stub.orderInsertRows = [] // 插成功但 representation 回 0 行
+d = await deliver()
+check('3.15 🔴 插了但回 0 行＝不算落成：应答非 0（"我以为写了"与"确实写了"必须能分开——E-19 那一族）',
+  [d.code, anomalyPosts().length], [1, 1])
+
+reset()
+stub.orderRows = []
+stub.identityRows = [{ user_id: UID }]
+await deliver()
+check('3.16 这个微信唯一绑着一个账号 ⇒ user_id 用真 id，note 写明来源是 identity',
+  [bodyAt(anomalyPosts()).user_id, String(bodyAt(anomalyPosts()).note).includes('user_id=identity')], [UID, true])
+
+reset()
+stub.orderRows = []
+stub.identityRows = [{ user_id: 'u-a' }, { user_id: 'u-b' }]
+await deliver()
+check('3.17 🔴 反查出来两个账号 ⇒ 用哨兵值且 note 写明 ambiguous（不替它挑一行；user_id 按 4.2 只作留痕）',
+  [bodyAt(anomalyPosts()).user_id, String(bodyAt(anomalyPosts()).note).includes('sentinel:ambiguous_2')], [NIL_USER_ID, true])
+
+reset()
+stub.orderRows = []
+stub.queryBody = { errcode: 0, errmsg: 'ok', order: { status: 1 } } // 平台说这张单还没付
+await deliver()
+check('3.18 查得未付 ⇒ **照样落行**（"平台推来一单而我们没有"这件事来自推送本身，不来自查单），note 里写的是未付',
+  [anomalyPosts().length, String(bodyAt(anomalyPosts()).note).includes('查单＝unpaid'), ledgerPosts().length], [1, true, 0])
+
+reset()
+stub.orderRows = []
+logs = []
+await deliver()
+check('3.19 🔴 这一支每一次都打 error 级日志（钱可能进了平台而我们连单都没有，不是常规流量；tail 里要跳出来）',
+  loggedWith('deliver without a local order') >= 1, true)
 
 // ── 4. 退款通知：只认查单，撤账在前、改状态在后 ───────────────────────────────
 const refund = async () => {

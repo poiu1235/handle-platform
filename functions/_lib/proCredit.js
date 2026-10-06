@@ -17,9 +17,9 @@
 //   而**真正的双入账闸门是 `pro_ledger.order_id` 那条 unique** ⇒ 并发两路同时进来时
 //   第二条会拿到 `already_credited`，那是**成功**不是错误（见下面的分支注释）。
 import { xpayQueryOrder, xpayNotifyProvideGoods, classifyQueryResult, xpayOrderOf, xpayPaidTime } from './proXpay.js'
-import { getOrderRow, markOrderPaid, ledgerExistsForOrder, insertLedgerRow, revokeLedgerForOrder, markOrderRefunded, refundRequestsByOrders, finalizeRefundRequest } from './proStore.js'
-import { durationDaysFor } from './proCatalog.js'
-import { getCoverageByOpenid, readProFlags, RENEW_WINDOW_DAYS, PROVIDER } from './proCoverage.js'
+import { getOrderRow, markOrderPaid, ledgerExistsForOrder, insertLedgerRow, revokeLedgerForOrder, markOrderRefunded, refundRequestsByOrders, finalizeRefundRequest, insertAnomalyOrderWithoutTrace } from './proStore.js'
+import { durationDaysFor, catalogEntry } from './proCatalog.js'
+import { getCoverageByOpenid, accountIdsByOpenid, readProFlags, RENEW_WINDOW_DAYS, PROVIDER } from './proCoverage.js'
 
 /**
  * 入账（或确认"已经入过"）。
@@ -168,6 +168,109 @@ export async function queryOrderState(env, row, { fetchImpl } = {}) {
   if (kind === 'refunded') return { outcome: 'refunded', platformStatus: statusOf(q) }
   if (kind === 'unpaid' || kind === 'closed' || kind === 'not_found') return { outcome: 'unpaid', via: kind }
   return { outcome: 'query_error', errcode: q.errcode, errmsg: q.errmsg }
+}
+
+/** `user_id` 的哨兵值。4.2 写明这一列"只作留痕与客服检索，不参与判定" ⇒ 判不出归属时可以填它，
+ *  🔴 但必须同批在 `note` 里写清"这是哨兵、不是下单账号"，否则下一个人会把它当真实来路读。 */
+const NIL_USER_ID = '00000000-0000-0000-0000-000000000000'
+
+/**
+ * 4.5 第 2 步欠的那一笔（✅ E-40）：发货推送来了、`getOrderRow` 说没这单。
+ * 在这一支补上之前，代码只做一件事——应答失败、让平台重推 15 次——耗尽之后这笔钱**在库里零痕迹**，
+ * 而正本 `:356` 点的正是这个：「不能只写日志：…此后这笔钱在库里查无痕迹、日志还会滚掉」。
+ * 落点是一行 `anomaly`／`no_such_order`：A3 巡检看得见它，`/admin/pro-anomaly` 也才**有东西可按单号处置**
+ * （那一支按 `out_trade_no` 取行，行不存在时 404——所以这一行是所有人工出边的地址）。
+ *
+ * 🔴 三条不商量的形状，都是"宁可这一格没落成，也不要落错"：
+ * 1. **不自动入账**。就算查单答"已付"也只写 anomaly ＋ 把凭据进 note ⇒ 出边是人工那条（7.6／4.5 第 7 步）。
+ *    理由：这一单连"该给谁"都没证——它不是我们建的，`user_id`／快照价／env 全靠反推。
+ * 2. **不编金额**。`goods_price` 只有一个来源：拿推送里的 `product_id` 反查服务端价表
+ *    （与 6.2 铁律 3 同向：钱数不从对侧来）。反查不到 ⇒ **不写这一行**。
+ *    为什么这条不能松：这一列有 `>0` 的 CHECK，填占位数是当着人的面写假金额
+ *    （`anomaly` 在订单页是"处理中"、看得见），还会串进 A5 的收款额口径。
+ * 3. **缺 openid 不动手**：查单要它、`payer_openid` not-null 也要它，而没有它就连"钱是不是这个微信付的"都判不出。
+ *
+ * @returns {outcome, ...}
+ *   `traced` 写成（调用方**应答成功停推**：落点已经有了，出边是人工）｜
+ *   `exists` 撞 `out_trade_no` unique＝那一行其实存在（调用方**应答失败**，让重推走正常入账）｜
+ *   `refused` 没脸写／写不成（调用方**应答失败**，绝不停推）
+ */
+export async function traceUnknownOrderPush(env, push, { fetchImpl } = {}) {
+  const outTradeNo = String(push.outTradeNo || '')
+  const openid = String(push.openid || '')
+  const productId = String(push.productId || '')
+  if (!outTradeNo) return { outcome: 'refused', reason: 'no_out_trade_no' }
+  if (!openid) return { outcome: 'refused', reason: 'no_openid' }
+  const entry = catalogEntry(productId)
+  if (!entry || !Number.isInteger(entry.goodsPrice) || entry.goodsPrice <= 0) {
+    return { outcome: 'refused', reason: 'price_not_derivable', productId }
+  }
+  const flags = readProFlags(env)
+  const envFlag = push.env === null || push.env === undefined ? flags.proEnv : Number(push.env) === 1 ? 1 : 0
+
+  // 先问一次平台再落行（4.5 第 2 步那句"仍然要调一次查单"）：结论只进 note 当**凭据**，
+  // 不改变"这一支不入账"的处置。查不成也落行——"平台推来一单而我们没有"这件事来自推送本身，不来自查单。
+  let st = null
+  try {
+    st = await queryOrderState(env, { payer_openid: openid, out_trade_no: outTradeNo, env: envFlag }, { fetchImpl })
+  } catch (err) {
+    st = { outcome: 'query_error', errmsg: String((err && err.message) || 'query_threw') }
+  }
+
+  let userId = NIL_USER_ID
+  let userIdSource = 'sentinel'
+  try {
+    const ids = await accountIdsByOpenid(env, openid)
+    if (ids.length === 1) {
+      userId = ids[0]
+      userIdSource = 'identity'
+    } else {
+      userIdSource = ids.length === 0 ? 'sentinel:no_binding' : `sentinel:ambiguous_${ids.length}`
+    }
+  } catch (err) {
+    userIdSource = 'sentinel:identity_lookup_failed'
+    console.error('[proCredit] identity reverse lookup failed, fall back to sentinel:', (err && err.code) || 'unknown')
+  }
+
+  const note = [
+    'xpay_deliver_notify:no_local_order ⇒ 落取证行（4.5 第 2 步／E-40）',
+    `查单＝${st.outcome}${st.via ? '/' + st.via : ''}${st.platformStatus === undefined ? '' : '/status' + st.platformStatus}`,
+    st.outcome === 'paid'
+      ? '🔴 平台说已付而我方从没建过这单 ⇒ 按 7.6 走 /admin/pro-anomaly 的 credit（必写 operator＋note）；本支不自动入账'
+      : '未付／查无／判不出 ⇒ 只取证，不出权益',
+    `user_id=${userIdSource}；goods_price＝proCatalog(${productId}) 反查；expires_at＝写入时刻（anomaly 不参与单号复用）；wx_order_id 在 callback_raw`,
+  ].join(' | ')
+
+  let ins = null
+  try {
+    ins = await insertAnomalyOrderWithoutTrace(env, {
+      out_trade_no: outTradeNo,
+      payer_openid: openid,
+      product_id: productId,
+      goods_price: entry.goodsPrice,
+      buy_quantity: Number(push.quantity) || 1,
+      user_id: userId,
+      env: envFlag,
+      anomaly_reason: 'no_such_order',
+      attach: null,
+      note,
+      callback_raw: {
+        source: 'deliver_push_no_local_order',
+        push: { event: push.event || null, openid, outTradeNo, productId, quantity: push.quantity || null, mchOrderNo: push.mchOrderNo || null, wxOrderId: push.wxOrderId || null, env: envFlag },
+        query: { outcome: st.outcome, via: st.via || null, platformStatus: st.platformStatus === undefined ? null : st.platformStatus, errcode: st.errcode === undefined ? null : st.errcode },
+        filled: { user_id: userIdSource, goods_price: 'proCatalog', expires_at: 'write_time' },
+      },
+      expires_at: new Date().toISOString(),
+    })
+  } catch (err) {
+    // 入口那把"必填项"的抛：说明组装漏了键 ⇒ 不写、不停推，并把缺的键打进日志
+    return { outcome: 'refused', reason: 'row_incomplete', missing: (err && err.detail) || null }
+  }
+  if (ins.conflict === 'out_trade_no') return { outcome: 'exists', queryOutcome: st.outcome }
+  if (!ins.ok || ins.wrote === 0) {
+    return { outcome: 'refused', reason: 'insert_failed', status: ins.status, data: ins.data }
+  }
+  return { outcome: 'traced', wrote: ins.wrote, queryOutcome: st.outcome, userIdSource, platformStatus: st.platformStatus }
 }
 
 /**

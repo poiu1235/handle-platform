@@ -9,10 +9,14 @@
 // 两条事件各干什么（都**不**自己下结论，事实一律回平台查单拿）：
 //   · `xpay_goods_deliver_notify` ⇒ `creditOrder`（入账，账本写成后当场打发货告知）
 //   · `xpay_refund_notify`        ⇒ `refundOrder`（查单确认已退 ⇒ 撤账本行 ＋ 订单 `refunded`）
+// 🔴 发货那一条多了一个分支（E-40）：`no_local_order`＝平台推来一单而我们库里没有 ⇒
+//   `traceUnknownOrderPush` 落一行 `anomaly`/`no_such_order` 当**地址**（没有行，`/admin/pro-anomaly`
+//   连按单号处置的落点都没有），然后才谈应答码。这一支**不入账**，出边是人工。
+//   ⚠️ 退款那一条的 `no_local_order` 今天仍只应答失败、不落行——那一格要不要也留取证行，等 owner 拍。
 //
 // ⚠️ 四笔账（探测类代码的纪律）：
 //   触发时机＝平台推过来才有流量，我方零自动调用方；
-//   单次成本＝一次查单（两次出网）＋入账那一路的写＋一次发货告知；
+//   单次成本＝一次查单（两次出网）＋入账那一路的写＋一次发货告知；没这单那一支＝一次查单＋一行写；
 //   频次上限＝平台重推上限 15 次／事件，且**幂等**：`creditOrder` 撞 `pro_ledger.order_id` unique
 //     回 `already`（按成功处理），`refundOrder` 第二次撤匹配 0 行 ⇒ 重推做不出双份权益、也撤不了两次；
 //   凭证＝`access_token`（应用级）；🔴 不消耗用户的一次性 `code`、不碰 `session_key`。
@@ -20,7 +24,7 @@
 // 🔴 这一支**不看** `PRO_PURCHASE_ENABLED`：入口关着只意味着"不再收新钱"，而推送到了＝钱已经进了
 //   （关着就不认账＝收了钱没人认，正是 E-14 判乙那条线反过来的样子）；撤账更不能按开关关——
 //   那正是今天"钱退了、权益还在"的现场。开关该管的是"画不画入口"（端上）与"接不接新单"（下单端点）。
-import { creditOrder, refundOrder } from '../_lib/proCredit.js'
+import { creditOrder, refundOrder, traceUnknownOrderPush } from '../_lib/proCredit.js'
 import { verifyPushSignature, readPushFields, pushReplyXml, excerpt, EVENT_DELIVER, EVENT_REFUND } from '../_lib/proPush.js'
 
 const MAX_BODY = 20000 // 报文是几百字的东西；超出这个量级的不是我们要处理的推送
@@ -88,6 +92,22 @@ export async function onRequestPost(context) {
 
   if (f.event === EVENT_DELIVER) {
     const r = await creditOrder(env, f.outTradeNo)
+    // 🔴 `no_local_order` 单独立一支（✅ E-40；正本 4.5 第 2 步那句「未命中 ⇒ 落一行 anomaly…
+    //   不能只写日志」今天第一次落到码上）。原来这一支跟着"应答失败"走 ⇒ 平台重推 15 次耗尽后
+    //   库里零痕迹，而 `/admin/pro-anomaly` 是按 `out_trade_no` 取行的——**没有行就没有出边**。
+    //   现在：落成落点 ⇒ 应答成功（停推，出边交人工）；没落成／那一行其实存在 ⇒ 应答失败保留重推。
+    if (r.outcome === 'no_local_order') {
+      let t = { outcome: 'refused', reason: 'trace_threw' }
+      try {
+        t = await traceUnknownOrderPush(env, f)
+      } catch (err) {
+        console.error('[pro-push] trace threw:', JSON.stringify({ code: (err && err.code) || 'unknown' }))
+      }
+      const traced = t.outcome === 'traced'
+      // 🔴 error 级：每一次都是"钱可能进了平台而我们连单都没有"，不是常规流量（tail 里要跳出来）
+      console.error('[pro-push] deliver without a local order:', JSON.stringify({ outTradeNo: f.outTradeNo, trace: t.outcome, reason: t.reason || null, queryOutcome: t.queryOutcome || null, replied: traced ? 0 : 1 }))
+      return xml(pushReplyXml({ ok: traced }))
+    }
     const ok = r.outcome === 'credited' || r.outcome === 'already'
     // 🔴 未付／查无／判不出 ⇒ 应答失败（不入账也不停推，订单维持 pending）：4.5 那张三态表第 2 行
     console.log('[pro-push] deliver:', JSON.stringify({ outTradeNo: f.outTradeNo, outcome: r.outcome, stage: r.stage || null, replied: ok ? 0 : 1 }))

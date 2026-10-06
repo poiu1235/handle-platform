@@ -128,6 +128,47 @@ export async function insertOrder(env, order) {
 }
 
 /**
+ * 落一行"平台推来说这单存在，而我方库里从没建过它"的 `anomaly`（正本 4.5 第 2 步；✅ E-40 补上，
+ * 之前这一支只应答失败、什么库都不写 ⇒ 15 次重推耗尽后这笔钱在库里零痕迹，正是 `:356` 明令禁止的"只写日志"）。
+ * 🔴 为什么不复用 `insertOrder`：那支的字段是下单端点按七条前置组装的（有 `user_id`、有快照价、`status` 走默认 `pending`），
+ *   这一支的字段全部来自推送体与服务端价表，`anomaly_reason` 必须有值，而且它**天生不该是 `pending`**
+ *   （`pending` 会被前置④ 当未付单去复用／关闭，而这单的归属我们根本没证）。
+ * 🔴 必填项在**入口**拒，不发给了库：`user_id`／`goods_price` 这些是 not-null 或带 CHECK 的列，
+ *   少一个就是 23502／23514——那报错读起来像库坏了，而真实原因是调用方漏填。
+ *   与 `insertLedgerRow` 同一条纪律（可空列上的约束挡不住"根本没写"，E-16 实测）。
+ * @returns {ok, status, wrote, conflict, data}；`wrote`＝representation 回的行数（0 行＝没落下去）
+ */
+export async function insertAnomalyOrderWithoutTrace(env, order) {
+  for (const key of ['out_trade_no', 'payer_openid', 'product_id', 'goods_price', 'user_id', 'anomaly_reason', 'expires_at']) {
+    if (order[key] === null || order[key] === undefined || order[key] === '') {
+      throw fail('pro_anomaly_order_incomplete', 500, key)
+    }
+  }
+  const body = {
+    ...order,
+    provider: PROVIDER,
+    status: 'anomaly',
+    currency_type: order.currency_type || 'CNY',
+    platform: order.platform || 'unknown',
+    env: Number(order.env) === 1 ? 1 : 0,
+    buy_quantity: Number(order.buy_quantity) || 1,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+  const res = await serviceRoleFetch(env, ORDERS, { method: 'POST', body, prefer: 'return=representation' })
+  if (res.ok) {
+    const rows = Array.isArray(res.data) ? res.data : []
+    return { ok: true, status: res.status, wrote: rows.length, conflict: null, data: res.data }
+  }
+  const message = String((res.data && res.data.message) || '')
+  const code = String((res.data && res.data.code) || '')
+  if (code === '23505' && /out_trade_no/.test(message)) {
+    return { ok: false, status: res.status, wrote: 0, conflict: 'out_trade_no', data: res.data }
+  }
+  return { ok: false, status: res.status, wrote: 0, conflict: null, data: res.data }
+}
+
+/**
  * 入账第 5 步的前半：回填 `paid_at`／`wx_order_id` 并把订单置 `paid`。
  * 🔴 过滤条件 `status=in.(pending,closed)`（🔴 值不加引号，理由见下面那句注释）：已
  *   `paid`/`refunded` 的行改不动——这正是 4.5 第 3 步"拒绝复活"的库侧形态（重放不会把

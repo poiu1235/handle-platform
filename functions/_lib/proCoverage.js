@@ -74,6 +74,31 @@ async function currentWechatOpenid(env, userId) {
  */
 export const getAccountOpenid = currentWechatOpenid
 
+/**
+ * 反查：这个 openid 当前被**哪些账号**绑着（E-40 用）。
+ * 🔴 与 `currentWechatOpenid` 方向相反，所以返回值是**数组**而不是 rows[0]：
+ *   `unique(user_id, provider)` 只保证"一个账号至多一条微信"，不保证"一个 openid 只属于一个账号"
+ *   （解绑再绑、访客合并、注销撤位都能留下过多行）。调用方要的就是"能不能唯一确定"这一件事，
+ *   所以这里不替它挑一行——挑了就是拿一个猜测填进 `user_id`。
+ * ⚠️ `user_id` 按 4.2 只作留痕与客服检索，永不参与判定 ⇒ 这里判不出归属时交回哨兵值是可接受的，
+ *   但**必须把"这是哨兵不是账号"写进 note**，否则下一个人会把它当真实来路读。
+ */
+export async function accountIdsByOpenid(env, openid) {
+  const res = await serviceRoleFetch(
+    env,
+    `/rest/v1/user_identities?select=user_id&openid=eq.${encodeURIComponent(openid)}` +
+      `&provider=eq.${PROVIDER}`,
+  )
+  if (!res.ok) {
+    const err = new Error('pro_identity_reverse_lookup_failed')
+    err.code = 'pro_identity_reverse_lookup_failed'
+    err.status = res.status
+    throw err
+  }
+  const rows = Array.isArray(res.data) ? res.data : []
+  return [...new Set(rows.map((r) => String(r && r.user_id || '')).filter(Boolean))]
+}
+
 // 🔴 rpc 唯一调用点。p_now 用调用方传进来的同一个时刻（见 getProView 那条"同源"注释）。
 async function callProCoverage(env, openid, nowIso, proEnv) {
   const res = await serviceRoleFetch(env, '/rest/v1/rpc/pro_coverage', {
