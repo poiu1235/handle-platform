@@ -563,7 +563,13 @@ const read = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n')
 const outside = (re, owner = 'proStore.js') => JS.filter((p) => !p.includes(owner) && re.test(read(p))).map((p) => path.relative(root, p))
 check('9.1 🔴 三张会员表的 URL 只出现在 proStore.js（端点里不许各写一份 serviceRoleFetch）', outside(/rest\/v1\/pro_(orders|ledger|refund_requests)/), [])
 check('9.2 只有 proStore 写 status:paid', outside(/status:\s*'paid'/), [])
-check('9.3 入账实现只有一个模块（proCredit 之外没人 import 它）——消费者清单是**封闭列表**，加第四个要在这里登记', JS.filter((p) => /from '.*proCredit/.test(read(p)) && !p.includes('proCredit.js')).map((p) => path.relative(root, p)).sort(), ['functions\\api\\pro\\orders\\index.js', 'functions\\api\\pro\\orders\\[no].js', 'functions\\push\\xpay.js'].sort())
+// 第四个消费者＝B5① 管理端出边（`functions/admin/pro-anomaly.js`）。它调 `creditOrder` 是**刻意**的：
+// 全仓只许有一份"查单→回填 paid→写账本→发货告知"。它凭什么算安全（三处判据，别只信这句注释）：
+//   · 交还前那一行**一定已经是 `pending`**（先做一次带 `status=eq.<原状态>` 的 CAS）⇒ 上面
+//     "anomaly 拒绝复活"那道门从没被绕过（`test:anomaly` 4.1／4.2／4.12）；
+//   · 它自己不写 paid、不写账本行（`test:anomaly` 8.2 的 import 清单＋本文件 9.1／9.2）；
+//   · `proCredit.js` 里不许出现 `allowAnomaly`／`isAdmin` 这类为管理端开的口子（`test:anomaly` 8.3／8.4）。
+check('9.3 入账实现只有一个模块（proCredit 之外没人 import 它）——消费者清单是**封闭列表**，加第四个要在这里登记', JS.filter((p) => /from '.*proCredit/.test(read(p)) && !p.includes('proCredit.js')).map((p) => path.relative(root, p)).sort(), ['functions\\api\\pro\\orders\\index.js', 'functions\\api\\pro\\orders\\[no].js', 'functions\\push\\xpay.js', 'functions\\admin\\pro-anomaly.js'].sort())
 check('9.4 🔴 proCredit 不 import 签名模块⇒入账这条链上不碰 session_key／一次性 code', /proPaySign/.test(read(path.join(root, 'functions/_lib/proCredit.js'))), false)
 check('9.5 creditOrder 只在 proCredit 里定义一次', JS.filter((p) => /export async function creditOrder/.test(read(p))).length, 1)
 check('9.6 🔴 打 `/xpay/*` 的调用点只有 proXpay.js 一处（别人不许绕过分类器自己发、自己读 status）', outside(/uri:\s*'\/xpay\//, 'proXpay.js'), [])

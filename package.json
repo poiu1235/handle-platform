@@ -21,7 +21,8 @@
     "test:xpay": "node scripts/test-pro-xpay.mjs",
     "test:credit": "node scripts/test-pro-credit.mjs",
     "test:push": "node scripts/test-pro-push.mjs",
-    "test:refund": "node scripts/test-pro-refund.mjs"
+    "test:refund": "node scripts/test-pro-refund.mjs",
+    "test:anomaly": "node scripts/test-pro-anomaly.mjs"
   },
   "dependencies": {
     "@marsidev/react-turnstile": "^1.6.0",
