@@ -117,6 +117,33 @@ const sneaky = { env: envOf({ PRO_TEST_OPENIDS: 'oA' }), data: { user: { id: 'u-
 body = await bodyOf(await onRequestGet(sneaky))
 check('3.9 请求里塞开关/白名单 ⇒ 无效（只认部署变量：名单 oA + 身份 oA ⇒ 五个照给）', body.products.map((p) => p.productId).sort(), FIVE)
 
+// ── 3.10…3.14 E-24 判丙 的落地：`emptyReason`（B5③，2026-10-06）────────────────
+// 端上要在"空列表"那一屏给一句说法，而它自己判不出是哪一种空 ⇒ 判据住在这里，句子住在端上。
+// 🔴 形状与 E-33 的 `refundDeny` 一致：**只回码**，名单内容与 openid 都不外发。
+reset()
+body = await bodyOf(await onRequestGet(ctx(envOf())))
+check('3.10 发布态且列表非空 ⇒ emptyReason 为 null（有档位就不给原因，端上也就不会多说一句）', body.emptyReason, null)
+
+reset()
+body = await bodyOf(await onRequestGet(ctx(envOf({ PRO_PURCHASE_ENABLED: 'false' }))))
+check('3.11 入口关着 ⇒ purchaseClosed（与 products:[] 同时给，两侧各判一次的那条 8.3 规矩）', body.emptyReason, 'purchaseClosed')
+
+reset(); stub.identityStatus = 500
+body = await bodyOf(await onRequestGet(ctx(envOf({ PRO_TEST_OPENIDS: 'oA' }))))
+check('3.12 identity 读失败 ⇒ readFailed（动作是"稍后再试"，🔴 不许与"你没在名单里"共用一个码——两种状态两个动作）', body.emptyReason, 'readFailed')
+
+reset(); stub.identityRows = [{ openid: 'oZ' }]
+body = await bodyOf(await onRequestGet(ctx(envOf({ PRO_TEST_OPENIDS: 'oA,oB' }))))
+check('3.13 内测态且你不在名单里 ⇒ 空列表 + notOpenToYou（唯一可以说"内测只对名单内开放"的一种）',
+  [body.products.length, body.emptyReason], [0, 'notOpenToYou'])
+check('3.14 🔴 那一格里不许漏出名单内容或 openid（只回码；这是 4.6"不下发 openid"在这一支的延伸）',
+  ['oA', 'oB', 'oZ'].some((k) => JSON.stringify(body).includes(k)), false)
+
+reset(); stub.identityRows = []
+body = await bodyOf(await onRequestGet(ctx(envOf({ PRO_TEST_OPENIDS: 'oA' }))))
+check('3.15 内测态且这个账号没绑微信 ⇒ noWechatBinding（发布态下同一账号照给四档＝3.4 的形状没被这次改动破坏）',
+  [body.products.length, body.emptyReason], [0, 'noWechatBinding'])
+
 // ── 4. 静态门 ───────────────────────────────────────────────────────────────
 const jsFiles = []
 const walk = (dir) => {

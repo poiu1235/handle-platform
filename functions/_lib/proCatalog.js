@@ -150,3 +150,20 @@ export function sellableProducts(env, openid) {
       isTest: e.isTest === true,
     }))
 }
+
+/**
+ * 展示面专用的那一层薄壳：列表 ＋ **为什么是空的**（E-24 判丙，2026-10-06）。
+ * 🔴 这一位必须在这里算，不能让列表端点自己拼守卫——`test:catalog` 4.4 钉的就是
+ *   "守卫函数只有 proCatalog 自身与下单端点两个消费者"，端点多一个消费者就等于把
+ *   "能不能卖"变成第二处判据（漂移时的表现是"有人看得见档位、有人看不见"）。
+ * ⚠️ `emptyReason` 只在列表为空时有值，且**只回码不回文本**：名单内容与 openid 都不外发。
+ *   四种码里 `purchaseClosed`／`readFailed` 由端点自己产生（那是它那一侧的事实），
+ *   这里只负责"要看名单才知道"的那两种。
+ */
+export function sellableView(env, openid) {
+  const products = sellableProducts(env, openid)
+  if (products.length > 0) return { products, emptyReason: null }
+  if (typeof openid !== 'string' || openid === '') return { products, emptyReason: 'noWechatBinding' }
+  if (purchaseWhitelistActive(env) && !canBuyNormalTier(env, openid)) return { products, emptyReason: 'notOpenToYou' }
+  return { products, emptyReason: null }
+}
