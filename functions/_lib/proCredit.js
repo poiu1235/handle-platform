@@ -16,7 +16,7 @@
 // ⚠️ 幂等的两道闸：`markOrderPaid` 的 PATCH 只吃 `pending|closed`（已付单的 `paid_at` 不会被挪），
 //   而**真正的双入账闸门是 `pro_ledger.order_id` 那条 unique** ⇒ 并发两路同时进来时
 //   第二条会拿到 `already_credited`，那是**成功**不是错误（见下面的分支注释）。
-import { xpayQueryOrder, xpayNotifyProvideGoods, classifyQueryResult } from './proXpay.js'
+import { xpayQueryOrder, xpayNotifyProvideGoods, classifyQueryResult, xpayOrderOf, xpayPaidTime } from './proXpay.js'
 import { getOrderRow, markOrderPaid, ledgerExistsForOrder, insertLedgerRow, revokeLedgerForOrder, markOrderRefunded, refundRequestsByOrders, finalizeRefundRequest } from './proStore.js'
 import { durationDaysFor } from './proCatalog.js'
 import { getCoverageByOpenid, readProFlags, RENEW_WINDOW_DAYS, PROVIDER } from './proCoverage.js'
@@ -80,7 +80,7 @@ export async function creditOrder(env, outTradeNo, { fetchImpl } = {}) {
   }
 
   // kind === 'paid'
-  const paid = paidTimeOf(q)
+  const paid = xpayPaidTime(q)
   if (!paid.ok) {
     // ⚠️ 拿不到支付时刻时**退到"本次确认时刻"并留一条 error 日志**：7 天退款窗口的起点会偏后，
     //    偏后对用户有利（窗口更长）、对我们不利 ⇒ 这是可接受的偏向，但不能静默。
@@ -371,28 +371,16 @@ async function writeLedger(env, fields) {
 }
 
 function statusOf(q) {
-  const o = q && q.data && q.data.order ? q.data.order : null
+  const o = xpayOrderOf(q)
   return o && typeof o.status === 'number' ? o.status : null
 }
 
-/**
- * `paid_time` 是 **unix 秒**（2026-10-04 实测那行文档字段表，附录甲）⇒ ×1000。
- * 🔴 这条换算没有单元测试兜不住：忘了乘得到的不是报错，是"1970-01-21 到期"——
- *   折叠会把它判成已过期，用户付了钱却看不到会员，而且零异常日志。
- */
-function paidTimeOf(q) {
-  const o = q && q.data && q.data.order ? q.data.order : null
-  const raw = o ? o.paid_time : null
-  const n = typeof raw === 'string' && raw !== '' ? Number(raw) : raw
-  if (typeof n === 'number' && Number.isFinite(n) && n > 0) {
-    const ms = n < 1e11 ? n * 1000 : n // 秒级 ×1000；万一平台给的是毫秒（>1e11）就别再乘
-    return { ok: true, iso: new Date(ms).toISOString(), raw: n }
-  }
-  return { ok: false, iso: new Date().toISOString(), raw }
-}
+// ⚠️ `paid_time` 的 unix 秒→毫秒换算**不在本文件**：它与 B5① 管理端出边共用 `proXpay.xpayPaidTime`。
+//   留两份就是留两份"1970 年到期"。兜住它的是 `test:credit` 1.5／2.1／2.2／2.3 与 `test:anomaly` 5.6
+//   ——两个消费者各有一格钉着**同一个字面时刻**，不是钉着"代码里那句乘法"。
 
 function wxOrderIdOf(q) {
-  const o = orderOf(q)
+  const o = xpayOrderOf(q)
   if (!o) return null
   // 🔴 E-23 之后**只认这一个字段名**：2026-10-05 的已付回包证实 `wx_order_id`／`channel_order_id`／
   //   `wxpay_order_id` 三个值同时存在且语义不同（VPO…／2026…／4500…）⇒ 旧的那条
@@ -404,12 +392,9 @@ function wxOrderIdOf(q) {
 
 /** 微信支付交易单号（`4500…`，后台"交易单号"那一列）＝E-23 判甲新增的那一列 */
 function wxpayOrderIdOf(q) {
-  const o = orderOf(q)
+  const o = xpayOrderOf(q)
   if (!o) return null
   const v = o.wxpay_order_id
   return typeof v === 'string' && v !== '' ? v : null
 }
 
-function orderOf(q) {
-  return q && q.data && q.data.order ? q.data.order : null
-}

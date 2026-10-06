@@ -383,10 +383,11 @@ export async function getRefundRequest(env, id) {
 /**
  * 管理端把申请推到终态（入口④）。🔴 过滤 `status=eq.pending`：重放／两个管理员同时点开时
  * 匹配 0 行 ⇒ 不会把已 `done` 的行改回 `rejected`（那会把"还回去"的判定建立在一条假状态上）。
- * ⚠️ 4.2 与验收 #68 都写着"`done` 必须同时填 `wx_refund_id` 与 `operator`/`note`——**CHECK 会挡空**"，
- *   但 2026-10-05 核对 DDL 后确认：**库里那两条 CHECK 不存在**（`pro_refund_requests` 只有 kind 与
- *   status 两条枚举 CHECK）。⇒ 现在这道门写在调用方（`functions/admin/pro-refunds.js`），
- *   偏离登记在正本 §十六 E-29。要补库侧约束就得走一次增量迁移（`check (status <> 'done' or ...)`）。
+ * ✅ E-29 判甲之后留痕那三样**在 DDL 与增量迁移里都有 CHECK 兜着**了
+ *   （`pro-billing.sql:275,279` 两条具名约束＋`pro-billing-e29-migration.sql`；⚠️ 现网那一库里
+ *   到底加没加，由结构核对第 14 项判，不在这里当已证事实写）。⇒ 端点那道门是纵深不是唯一防线。
+ *   ⚠️ `pro_orders` 侧**没有**同族 CHECK（4.2 那两列一直可空），所以 anomaly 出边的留痕
+ *   今天只有代码里那一道（`_lib/proAdminGuard.js`＋`test:anomaly` 6.3）。
  */
 export async function finalizeRefundRequest(env, id, { status, operator, note, wxRefundId }) {
   const body = { status: String(status), "operator": String(operator), note: String(note), executed_at: new Date().toISOString() }
@@ -422,4 +423,95 @@ export async function unrevokeLedgerForOrder(env, orderId) {
   const rows = Array.isArray(res.data) ? res.data : null
   if (rows === null) throw fail('pro_ledger_unrevoke_unreadable', res.status, 'PATCH 没回 representation（Prefer 被吞？）')
   return { matched: rows.length }
+}
+
+// ── B5① anomaly 出边（4.5 第 7 步"anomaly 必须有出边"；入口仍是 4.6 那一个写模块）─────
+//
+// 🔴 这一族**不是**第二个入账实现：`toStatus` 的枚举里刻意**没有 `paid`**，也没有任何账本行 INSERT。
+//   "改判成入账"那一支由调用方把行交还给 `proCredit.creditOrder`（唯一那份入账事务），
+//   本模块只负责出边那一条 CAS。把 paid 允许进来＝在库里第二处决定"这单已付"，
+//   而那正是 4.5 第 1 条（只认查单）与 4.6（一个写模块）合力要防的形状。
+
+/** 出边的**入边**状态：只有这两种有出边可走。`paid`／`refunded`／`closed` 是终态或已入账态。 */
+const ANOMALY_FROM = ['anomaly', 'pending']
+/** 出边的**目标**状态：🔴 没有 `paid`（要入账走 `creditOrder`），也没有 `anomaly`（那是入边函数 `markOrderAnomaly`） */
+const ANOMALY_TO = ['pending', 'refunded', 'closed']
+
+/**
+ * 管理端把一张 `anomaly`（或 E-19 那种卡住的 `pending`）推到出边，🔴 **一次 CAS 同时写完留痕**。
+ *
+ * 三条都是形状约束，不是风格：
+ * 1. **过滤 `id=eq.<orderId>&status=eq.<fromStatus>`** ＝ compare-and-set。两个管理员同点一条、
+ *    或出边与轮询／推送撞上时匹配 0 行 ⇒ 后动手的那个看见 0 才知道自己读到的状态是过期的。
+ *    2026-10-05 那次"账本写成、订单还 pending"的根因就是拿 HTTP 200 当"改到了"，
+ *    所以这里与 `markOrderPaid` 同一条纪律：`return=representation` ＋ 把 `matched` 交回调用方。
+ * 2. **`anomaly_reason` 一律清成 null**。留着一个原因码就是两个互相矛盾的状态（"这单有问题"
+ *    ＋"这单已定案"）——反证 M12 抓过同一形状（标完 anomaly 又去 close）。来路文字不丢：
+ *    它在这一行的 `note` 里，调用方是**追加**不是覆盖。
+ * 3. **`operator`＋`note` 在写入口就要有值**。`pro_orders` 侧没有 E-29 那两条 CHECK（4.2 那两列
+ *    一直可空），"该写没写"这一类库挡不住 ⇒ 只能钉在唯一那条写路上。
+ *
+ * ⚠️ `paidAtIso` 只在调用方**已经拿到平台时刻**时传：库侧 CHECK
+ *   `status not in ('paid','refunded') or paid_at is not null` 会让"把一张 `paid_at` 为空的行标成
+ *   `refunded`"整条 PATCH 失败（E-19 那笔遗留单就是这个形状：账本行写成了、`paid_at` 从没回填）。
+ * @returns {{matched:number,row:object|null}}
+ */
+export async function resolveAnomalyOrder(env, { orderId, fromStatus, toStatus, paidAtIso, operator, note }) {
+  if (!ANOMALY_FROM.includes(String(fromStatus))) throw fail('pro_anomaly_from_forbidden', 500, String(fromStatus))
+  if (!ANOMALY_TO.includes(String(toStatus))) throw fail('pro_anomaly_to_forbidden', 500, String(toStatus))
+  if (!String(operator || '').trim() || !String(note || '').trim()) throw fail('pro_anomaly_trace_incomplete', 500, String(orderId))
+  const body = {
+    status: String(toStatus),
+    anomaly_reason: null,
+    operator: String(operator),
+    note: String(note),
+    updated_at: new Date().toISOString(),
+  }
+  if (paidAtIso) body.paid_at = String(paidAtIso)
+  const res = await serviceRoleFetch(
+    env,
+    `${ORDERS}?id=eq.${encodeURIComponent(orderId)}&status=eq.${encodeURIComponent(fromStatus)}`,
+    { method: 'PATCH', body, prefer: 'return=representation' },
+  )
+  if (!res.ok) throw fail('pro_order_anomaly_resolve_failed', res.status, JSON.stringify(res.data))
+  const rows = Array.isArray(res.data) ? res.data : null
+  if (rows === null) throw fail('pro_order_anomaly_resolve_unreadable', res.status, 'PATCH 没回 representation（Prefer 被吞？）')
+  return { matched: rows.length, row: rows[0] || null }
+}
+
+/**
+ * 这张单上**还有没有活的权益**（`revoked_at is null`）。B5① 的 `closed` 那一支用它挡
+ * "把一笔真权益凭空撤掉"：`closed` 的语义是"没付过"，而带活账本行的单付过。
+ * 🔴 与 `ledgerExistsForOrder` 一样，它**不是闸门**（读与写之间有并发窗口）——真正的兜底是
+ *   调用方随后那条 CAS：并发的 `creditOrder` 会把状态改成 `paid`，CAS 于是匹配 0 行。
+ * ⚠️ 只数未撤销的行：撤销过的行仍然是事实（`pro_ledger` 不删行），但它已经不是权益了。
+ */
+export async function liveLedgerExistsForOrder(env, orderId) {
+  const res = await serviceRoleFetch(
+    env,
+    `/rest/v1/pro_ledger?select=id&order_id=eq.${encodeURIComponent(orderId)}&revoked_at=is.null&limit=1`,
+  )
+  if (!res.ok) throw fail('pro_ledger_live_lookup_failed', res.status, JSON.stringify(res.data))
+  return Array.isArray(res.data) && res.data.length > 0
+}
+
+/**
+ * 管理端出边用的那一行订单（4.5 第 7 步／入口④）。
+ * 🔴 与用户侧两条读路（`getOrderRow`／`listOrdersByOpenid`）**刻意分开**：这里要多读的是 `note`
+ *   ——出边要**追加**留痕，得先看得到旧的那句（否则"为什么异常"这条来路会被覆盖掉）。
+ *   分开一份读路，代价是"漏列"这一族可能重来（E-31／E-35 两次都是它），所以判据把
+ *   "消费者对生产者的字段需求 ⊆ select"钉在 `test:anomaly` 6.5 上，不靠注释提醒。
+ * ⚠️ 不读 `callback_raw`：出边不读它，也不许写进任何响应（4.6）。`operator` 同样不读——
+ *   库里那列是"最后一次人工处理是谁"，读回来只会诱使下一次写去拼接它。
+ */
+export async function getOrderForAdminByOutTradeNo(env, outTradeNo) {
+  const res = await serviceRoleFetch(
+    env,
+    `${ORDERS}?select=id,out_trade_no,status,anomaly_reason,product_id,goods_price,currency_type,env,` +
+      `buy_quantity,payer_openid,user_id,paid_at,wx_order_id,wxpay_order_id,created_at,expires_at,note` +
+      `&out_trade_no=eq.${encodeURIComponent(outTradeNo)}&limit=1`,
+  )
+  if (!res.ok) throw fail('pro_order_admin_lookup_failed', res.status, JSON.stringify(res.data))
+  const rows = Array.isArray(res.data) ? res.data : []
+  return rows[0] || null
 }

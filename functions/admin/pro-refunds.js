@@ -14,6 +14,7 @@
 //   反过来（先改行）会留下"行已是终态、账本没跟上"的形状，而那时这一支的 `status=eq.pending`
 //   过滤会把重试挡在门外——只剩手工改库一条路。
 import { json } from '../_lib/supabase.js'
+import { adminTokenGate, adminTraceGate } from '../_lib/proAdminGuard.js'
 import {
   getRefundRequest,
   getOrderById,
@@ -27,26 +28,12 @@ function badRequest(error, code) {
   return json({ error, code }, 400)
 }
 
-/** 定长比较：管理端凭证是攻击者可控输入的一部分，别用 `===` 的短路语义 */
-function tokenEqual(a, b) {
-  const x = String(a)
-  const y = String(b)
-  if (x.length !== y.length) return false
-  let diff = 0
-  for (let i = 0; i < x.length; i++) diff |= x.charCodeAt(i) ^ y.charCodeAt(i)
-  return diff === 0
-}
-
 export async function onRequestPost(context) {
   const { request, env } = context
-  const expected = env.PRO_ADMIN_TOKEN
-  if (!expected) {
-    console.error('[admin/refunds] PRO_ADMIN_TOKEN missing — endpoint disabled')
-    return json({ error: '管理端未启用', code: 'admin_disabled' }, 503)
-  }
-  if (!tokenEqual(request.headers.get('x-admin-token') || '', expected)) {
-    return json({ error: '凭证不对', code: 'admin_unauthorized' }, 401)
-  }
+  // 🔴 两道门与 `/admin/pro-anomaly` **共用同一个实现**（`_lib/proAdminGuard.js`）：同一把 secret、
+  //   同一个"缺配置回 503 而不是 401"、同一条 operator＋note 必填。抄两份＝留一条会漂移的门。
+  const gate = adminTokenGate(request, env, 'admin/refunds')
+  if (gate) return gate
 
   let body = null
   try {
@@ -56,14 +43,12 @@ export async function onRequestPost(context) {
   }
   const id = String((body && body.id) || '')
   const action = String((body && body.action) || '')
-  const operator = String((body && body.operator) || '').trim()
-  const note = String((body && body.note) || '').trim()
-  const wxRefundId = String((body && body.wxRefundId) || '').trim()
   if (!id) return badRequest('缺少申请号', 'bad_request')
   if (action !== 'done' && action !== 'rejected') return badRequest('action 只能是 done 或 rejected', 'bad_request')
-  // D-9a／#68：人工终态必须留痕"谁做的、怎么核实的"。🔴 库里那两条 CHECK 其实不存在（E-29），
-  // 所以这道门现在完全落在这里——删掉它等于把留痕要求删掉。
-  if (!operator || !note) return badRequest('人工执行必须同时填 operator 与 note', 'admin_note_required')
+  const tr = adminTraceGate(body)
+  if (tr.res) return tr.res
+  const { operator, note } = tr
+  const wxRefundId = String((body && body.wxRefundId) || '').trim()
   if (action === 'done' && !wxRefundId) return badRequest('标 done 必须填后台给的退款回执号', 'admin_wx_refund_id_required')
 
   let req = null

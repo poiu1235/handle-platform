@@ -154,6 +154,34 @@ export async function xpayQueryOrder({ env, openid, orderId, wxOrderId, envFlag 
 }
 
 /**
+ * 查单回包里的 `order` 对象——🔴 **只有本模块认识这个回包形状**（`data.order.*`）。
+ * B5① 的管理端出边也要读它（`paid_fee`／`refund_info.refund_order` 要进留痕），
+ * 所以这里给一个取法而不是一处一个 `q.data.order`：形状变了改一个文件。
+ */
+export function xpayOrderOf(q) {
+  return q && q.data && q.data.order ? q.data.order : null
+}
+
+/**
+ * 查单回包里的**付款时刻**。`paid_time` 是 **unix 秒**（2026-10-04 文档字段表 + 10-05 两轮真单
+ * 各自证成一次）⇒ ×1000。
+ * 🔴 这条换算全仓只许有一份：忘了乘得到的不是报错，是"1970-01-21 到期"——折叠把它判成已过期，
+ *   用户付了钱却看不到会员，而且零异常日志（正本 §十六 B3-3 那节"三条只有代码能守的规矩"之一）。
+ * @returns {{ok:boolean, iso:string, raw:*}} `ok:false` ＝ 平台没给可用时刻；`iso` 退到"本次时刻"，
+ *   🔴 调用方必须把它写进留痕（7 天退款窗口的起点由这一列算），或直接拒绝这次写。
+ */
+export function xpayPaidTime(q) {
+  const o = xpayOrderOf(q)
+  const raw = o ? o.paid_time : null
+  const n = typeof raw === 'string' && raw !== '' ? Number(raw) : raw
+  if (typeof n === 'number' && Number.isFinite(n) && n > 0) {
+    const ms = n < 1e11 ? n * 1000 : n // 秒级 ×1000；万一平台给的是毫秒（>1e11）就别再乘
+    return { ok: true, iso: new Date(ms).toISOString(), raw: n }
+  }
+  return { ok: false, iso: new Date().toISOString(), raw }
+}
+
+/**
  * 发货告知（E-20①，owner 2026-10-05：「调，最好是支付成功后马上自动调用发货」）。
  *
  * 🔴 形状来源＝通用文档树 `api_notify_provide_goods` 页的**工具抓取**，尚未逐字复核（R-9 ⑥）：
