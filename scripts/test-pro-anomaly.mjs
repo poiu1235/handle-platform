@@ -541,7 +541,7 @@ check('8.10 🔴 paid_time 的秒→毫秒换算全仓只有一份（两份实�
   check('8.11 管理端两个入口都在，且都从 proAdminGuard 拿门（"同一把 token、同一套留痕门"这句要靠结构成立，不靠注释）',
     [adminFiles.map((p) => path.relative(root, p)), adminFiles.filter((p) => !/proAdminGuard/.test(codeOf(p))).map((p) => path.relative(root, p))],
     [['functions\\admin\\pro-anomaly.js', 'functions\\admin\\pro-refunds.js'], []])
-  check('8.11b 而这两个文件里没有一份自己写的凭证比较（定长比较在别处还有正当用途：探针、推送验签，所以只数 admin 目录）',
+  check('8.11b 而这两个文件里没有一份自己写的凭证比较（定长比较在别处还有正当用途：推送验签，所以只数 admin 目录）',
     adminFiles.filter((p) => /charCodeAt/.test(codeOf(p))).map((p) => path.relative(root, p)), [])
 }
 
