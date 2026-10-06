@@ -75,6 +75,7 @@ const defaultStub = () => ({
   orderInsertRows: [{ id: 'an-1' }], // representation 回几行＝"到底落没落成"，调用方要数
   orderInsertStatus: 201,
   orderInsertConflict: null, // { code:'23505', message:'…pro_orders_out_trade_no_key…' } ⇒ 单号已有行
+  orderRowQueue: null, // 非 null 时按序供给每次订单读（每次给一个数组），见 fetch 桩那条注释
 })
 const reset = () => {
   calls = []
@@ -100,6 +101,12 @@ globalThis.fetch = async (url, options) => {
     return mk(body && body.status === 'refunded' ? stub.refundedPatchRows : stub.patchRows, 200)
   }
   if (u.includes('/rest/v1/pro_orders') && method === 'GET') {
+    // ⚠️ `orderRowQueue`：每次读给一个**数组**（E-41 那条"撞号⇒立刻重试"要的就是
+    //   "第一读没这行、第二读有这行"这个形状）。取空就回 []，不抛。
+    if (stub.orderRowQueue !== null) {
+      const next = stub.orderRowQueue.shift()
+      return mk(next === undefined ? [] : next)
+    }
     return mk(stub.orderRows === null ? [stub.orderRow] : stub.orderRows)
   }
   if (u.includes('/rest/v1/pro_refund_requests') && method === 'PATCH') {
@@ -311,11 +318,31 @@ check('3.13 🔴 道具不在价表 ⇒ 零写＋应答非 0（🔴 不编金额
   [d.code, anomalyPosts().length], [1, 0])
 
 reset()
+// ⚠️ 这一格原来是"撞号 ⇒ 应答非 0"那一支。E-41 丙 之后撞号会**就地重试入账**，那个形状已经由 3.20／3.21
+//   分别接走（重试读到行／读不到行的两种都有）；而"撞号但仍读不到行"是个自相矛盾的桩状态
+//   （撞 unique 就说明那行在），拿它当场景只会测一个现实中不存在的分支。⇒ 这一格改成管**另一种失败**：
+//   插取证行时库侧报错（非撞号）⇒ 没落成落点 ⇒ 应答非 0、且**不去重试入账**（没行就没地址）。
 stub.orderRows = []
+stub.orderInsertStatus = 500
+d = await deliver()
+check('3.14 🔴 插取证行被库侧拒绝（非撞号）⇒ 应答非 0、不重试入账：没落成地址就绝不停推',
+  [d.code, anomalyPosts().length, ledgerPosts().length, queryCalls().length], [1, 1, 0, 1])
+
+reset()
+// 第一读没这行（⇒ 去插取证行、撞号），第二读有这行（⇒ 立刻按那一行走正常入账）
+stub.orderRowQueue = [[], [orderRow()]]
 stub.orderInsertConflict = { code: '23505', message: 'duplicate key value violates unique constraint "pro_orders_out_trade_no_key"' }
 d = await deliver()
-check('3.14 撞 out_trade_no unique ⇒ 不插第二次，且应答**非 0**（那一行其实存在 ⇒ 让重推走正常入账，这里不许停推）',
-  [d.code, anomalyPosts().length], [1, 1])
+check('3.20 🔴 撞号之后重试读到了那一行、平台答已付 ⇒ 当场入账、应答 0（幂等闸门在 pro_ledger.order_id unique，重试做不出双份）',
+  [d.code, anomalyPosts().length, ledgerPosts().length, notifyCalls().length, queryCalls().length], [0, 1, 1, 1, 2])
+
+reset()
+stub.orderRowQueue = [[], [orderRow()]]
+stub.orderInsertConflict = { code: '23505', message: 'duplicate key value violates unique constraint "pro_orders_out_trade_no_key"' }
+stub.queryBody = { errcode: 0, order: { status: 1 } } // 平台说这张单还开着、还没付
+d = await deliver()
+check('3.21 重试也答不出"已付" ⇒ 零账本、应答非 0（没落成落点之前绝不停推，与 3.12/3.13 同一侧）',
+  [d.code, ledgerPosts().length, notifyCalls().length, anomalyPosts().length], [1, 0, 0, 1])
 
 reset()
 stub.orderRows = []

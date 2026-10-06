@@ -104,6 +104,21 @@ export async function onRequestPost(context) {
         console.error('[pro-push] trace threw:', JSON.stringify({ code: (err && err.code) || 'unknown' }))
       }
       const traced = t.outcome === 'traced'
+      // ✅ E-41（owner 判＝丙）：撞 `out_trade_no` unique ＝ **那一行其实存在**（我们读的时候没有、插的时候有了
+      //   ⇒ 下单那次写入比推送晚落地）。有行就有入账可能，所以**就地再判一次**，而不是把结论推给"下一次重推"——
+      //   "重推会自己补"这句在 2026-10-05 真机已被降级过（三条失败的退款推送一条都没再来）。
+      //   幂等由 `pro_ledger.order_id` 那条 unique 兜着：重跑一次做不出双份权益，`already` 按成功处理。
+      if (t.outcome === 'exists') {
+        let again = { outcome: 'query_error', stage: 'retry_threw' }
+        try {
+          again = await creditOrder(env, f.outTradeNo)
+        } catch (err) {
+          console.error('[pro-push] retry after conflict threw:', JSON.stringify({ code: (err && err.code) || 'unknown' }))
+        }
+        const credited = again.outcome === 'credited' || again.outcome === 'already'
+        console.error('[pro-push] deliver raced with our own insert:', JSON.stringify({ outTradeNo: f.outTradeNo, trace: t.outcome, retry: again.outcome, replied: credited ? 0 : 1 }))
+        return xml(pushReplyXml({ ok: credited }))
+      }
       // 🔴 error 级：每一次都是"钱可能进了平台而我们连单都没有"，不是常规流量（tail 里要跳出来）
       console.error('[pro-push] deliver without a local order:', JSON.stringify({ outTradeNo: f.outTradeNo, trace: t.outcome, reason: t.reason || null, queryOutcome: t.queryOutcome || null, replied: traced ? 0 : 1 }))
       return xml(pushReplyXml({ ok: traced }))
