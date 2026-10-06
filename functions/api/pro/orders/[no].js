@@ -17,7 +17,7 @@
 //   对不上时回 `no_such_order`（404）而不是 403——存在性本身也是别人的信息。
 import { json } from '../../../_lib/supabase.js'
 import { readProFlags, getAccountOpenid } from '../../../_lib/proCoverage.js'
-import { getOrderRow, PENDING_ORDER_FRESH_MS } from '../../../_lib/proStore.js'
+import { getOrderRow, closePendingOrder, PENDING_ORDER_FRESH_MS } from '../../../_lib/proStore.js'
 import { creditOrder } from '../../../_lib/proCredit.js'
 import { catalogEntry } from '../../../_lib/proCatalog.js'
 
@@ -74,6 +74,34 @@ export async function onRequestGet(context) {
     if (credit.outcome === 'credited' || credit.outcome === 'already') {
       status = 'paid'
       paidAt = credit.paidAt || paidAt
+    }
+    // ✅ 甲′（E-41，owner 2026-10-07 判）：平台**自己**答"这张单已关闭"（status 6）⇒ 当场把这行写成 `closed`。
+    //   为什么只认这一档：`closed` 的语义是"没付过"，只有平台亲口答已关闭才配得上写它。
+    //   · `not_found`（查无此单）**不触发**——虚拟支付的订单是"拉起收银台那一刻"才在平台侧存在的，
+    //     从没拉起的单平台本来就查不到；拿"平台没记录"冒充"平台判过死"就是伪造状态列。
+    //   · `unpaid`（status 0/1 还开着）**更不能**——那张单还付得进去。
+    //   买到的东西有两件：列表那一侧的隐藏依据从"我们猜的 24 小时"换成"平台说的一句话"（E-39 那条残余
+    //   因此收窄，刚取消的单几秒内就不该再挂在人的眼前），以及库里少挂一天未决单（A4 的分母更准）。
+    if (credit.outcome === 'closed') {
+      let matched = false
+      try {
+        matched = (await closePendingOrder(env, outTradeNo)).matched
+      } catch (err) {
+        console.error('[pro/orders:get] close threw:', (err && err.code) || 'unknown')
+      }
+      if (matched) {
+        status = 'closed'
+      } else {
+        // 没改到行＝有人先动了它（推送刚记成 paid／人工已收口）⇒ **重读一次再报**。
+        // 🔴 绝不能库里已是 paid、这里却回端上「已取消，没有扣款」——那正是这条链上最坏的那句话
+        //   （6.4：报"没扣款"会让人再付一遍）。重读失败就维持原状，最多让人多等一轮。
+        try {
+          const fresh = await getOrderRow(env, outTradeNo)
+          if (fresh) status = String(fresh.status)
+        } catch (err) {
+          console.error('[pro/orders:get] re-read after losing the race:', (err && err.code) || 'unknown')
+        }
+      }
     }
   }
 

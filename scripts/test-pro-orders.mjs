@@ -782,7 +782,10 @@ check('11.7 /api/pro/orders 只有一份路由文件（GET 与 POST 同在 order
 const closePatchSites = files.filter((f) => /status=eq\.pending/.test(codeOf.get(f)) && /'closed'/.test(codeOf.get(f))).map(rel)
 check('11.8 关旧单只发生在带 status=eq.pending 的 PATCH 上，且只有一个实现处', closePatchSites, ['functions/_lib/proStore.js'])
 const closeCallers = files.filter((f) => /closePendingOrder/.test(codeOf.get(f))).map(rel).sort()
-check('11.8b closePendingOrder 的调用点只有下单端点（推送侧接上时在这里加第二个）', closeCallers, ['functions/_lib/proStore.js', 'functions/api/pro/orders/index.js'])
+// 🔴 第二个调用点是 E-41（甲′）接上的：`orders/[no].js` 在**平台亲口答"这张单已关闭"**之后把这行写成 closed。
+//   这一格原来就写着"推送侧接上时在这里加第二个"——现在来的不是推送侧，是补查侧，同一条边界同一件事：
+//   多一个调用点就多一个"谁有权把订单置成没付过"的入口，所以它必须被数着，不许悄悄加。
+check('11.8b closePendingOrder 的调用点只有下单端点与确认态补查两处', closeCallers, ['functions/_lib/proStore.js', 'functions/api/pro/orders/[no].js', 'functions/api/pro/orders/index.js'])
 
 // 🔴 未付单那个窗口只许有一处定义：补查那一侧（`[no].js`）与列表可见性这一侧读**同一个导出值**。
 //   谁在 `[no].js` 里再打一个字面量，两处就会漂，而漂成的形状正是甲要消灭的那句话——

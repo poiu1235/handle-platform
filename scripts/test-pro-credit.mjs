@@ -59,6 +59,7 @@ const orderRow = (over = {}) => ({
 const defaultStub = () => ({
   orderRow: orderRow(),
   orderRows: null, // 非 null 时覆盖（空数组＝库里没这单）
+  orderRowQueue: null, // 非 null 时按序供给每次 GET（同一次请求里读两次的场景，见 fetch 桩那条注释）
   orderReadStatus: 200,
   ledgerRows: [],
   ledgerReadStatus: 200,
@@ -119,6 +120,14 @@ globalThis.fetch = async (url, options) => {
   }
   if (u.includes('/rest/v1/pro_orders') && method === 'GET') {
     if (stub.orderReadStatus !== 200) return mk({ message: 'order read boom' }, stub.orderReadStatus)
+    // ⚠️ `orderRowQueue`（E-41 甲′ 那一族要用）：**同一次请求里读两次**的场景（第一次读到 pending、
+    //   去写 closed 时匹配 0 行 ⇒ 重读一次看它现在到底是什么状态）。桩原来是单值的，
+    //   那种"两次读给出不同行"的形状就测不了——而它正是这条链上最坏那句话的发生地。
+    //   队列取空就回 []（端点会 404，看得见；不抛，免得崩掉整张表）。
+    if (stub.orderRowQueue !== null) {
+      const next = stub.orderRowQueue.shift()
+      return mk(next === undefined ? [] : [next])
+    }
     return mk(stub.orderRows === null ? [stub.orderRow] : stub.orderRows)
   }
   throw new Error('未预期的出网目标：' + u)
@@ -549,6 +558,53 @@ reset()
 res = await runGet(NO, {}, {})
 check('8.16 没有会话身份⇒401 且零出网', [res.status, calls.length], [401, 0])
 
+// ── 8.17…8.24 甲′（E-41）：平台亲口答"已关闭"就当场把这行写成 closed ─────────────
+// 🔴 这一族判的核心不是"能不能写"，而是**哪三种答案不许写**：`not_found` 与 `unpaid` 都还是"说不准"，
+//   把它们写成 `closed` ＝拿"平台没记录／还开着"冒充"平台判过死"，而 `closed` 的语义是"没付过"。
+reset()
+stub.queryBody = { errcode: 0, order: { status: 6 } }
+res = await runGet()
+check('8.17 🔴 平台答"已关闭"⇒ 库里写成 closed、响应也回 closed（刚取消的单不该再挂着「待支付」给人看）',
+  [res.body.status, res.body.queryOutcome, res.body.credited], ['closed', 'closed', false])
+check('8.18 那一次 PATCH 带 status=eq.pending（与推送撞上时匹配 0 行，绝不把已付单改回未付）',
+  urlAt(orderPatches()).includes('status=eq.pending'), true)
+check('8.19 只写这一行：零账本、零发货告知（closed 不是入账）',
+  [orderPatches().length, ledgerPosts().length, notifyCalls().length], [1, 0, 0])
+
+reset()
+stub.queryBody = { errcode: 0, order: { status: 6 } }
+stub.patchRows = [] // 有人先把这行记成 paid ⇒ 我们那次 PATCH 匹配 0 行
+// 🔴 队列是**三次**读，不是两次：这一条链上一共读三回——① 端点按单号取行、② `creditOrder` 自己又读一次
+//   （它只认库里的行，不接调用方传进来的行）、③ 写不成之后重读。前两次都要给 pending，否则 ② 一读到 paid
+//   就直接走"补账本"那一支，回的是 `credited` 而不是 `closed`，这一格测的就不再是那个并发窗口了。
+//   （第一版我就这么读错过一次：got 是 ["paid","credited"]，症状对、场景错。）
+stub.orderRowQueue = [orderRow(), orderRow(), orderRow({ status: 'paid', paid_at: PAID_ISO })]
+res = await runGet()
+check('8.20 🔴 反向：匹配 0 行时**重读一次再报**，回 paid——绝不能对已付的人说"已取消，没有扣款"',
+  [res.body.status, res.body.queryOutcome, ledgerPosts().length], ['paid', 'closed', 0])
+
+reset()
+stub.queryBody = { errcode: 268490002, errmsg: '数据不存在' }
+res = await runGet()
+check('8.21 🔴 查无此单**不**写成 closed（订单是"拉起收银台那一刻"才在平台侧存在的，从没拉起本来就查不到）',
+  [res.body.status, res.body.queryOutcome, orderPatches().length], ['pending', 'not_found', 0])
+
+reset()
+stub.queryBody = { errcode: 0, order: { status: 1 } }
+res = await runGet()
+check('8.22 平台答"未付"（status 0/1 还开着）⇒ 不写 closed，那张单还付得进去',
+  [res.body.status, orderPatches().length], ['pending', 0])
+
+reset()
+stub.orderRow = orderRow({ status: 'closed' })
+res = await runGet()
+check('8.23 已经是 closed 的行⇒不打平台也不再 PATCH（四笔账里的频次：这一支只对"pending 且新鲜"生效）',
+  [res.body.status, res.body.queried, orderPatches().length, queryCalls().length], ['closed', false, 0, 0])
+
+// 🔴 静态那一半（"写 closed 只许在 proStore 一处"）挪到第 9 节的 9.9——`JS`／`read` 那两个 helper
+//   在第 9 节才定义，放在这里会 ReferenceError 把整张表崩掉（崩一次就一个红格都看不见，
+//   这条纪律本仓已记过：缺定义要红，不该崩）。
+
 // ── 9. 静态闸：4.6 的"唯一写模块"与 6.2 的"只认查单" ────────────────────────
 const JS = []
 ;(function walk(dir) {
@@ -575,6 +631,13 @@ check('9.5 creditOrder 只在 proCredit 里定义一次', JS.filter((p) => /expo
 check('9.6 🔴 打 `/xpay/*` 的调用点只有 proXpay.js 一处（别人不许绕过分类器自己发、自己读 status）', outside(/uri:\s*'\/xpay\//, 'proXpay.js'), [])
 check('9.7 "已付/未付"的数值判定只发生在 classifyQueryResult 里一处', JS.filter((p) => /Number\(order\.status\)/.test(read(p))).map((p) => path.relative(root, p)), ['functions\\_lib\\proXpay.js'])
 check('9.8 🔴 发货告知只有一个调用方（proCredit）⇒ 端点里不许出现第二个"我认为该发货了"的实现', JS.filter((p) => /xpayNotifyProvideGoods/.test(read(p))).map((p) => path.relative(root, p)).sort(), ['functions\\_lib\\proCredit.js', 'functions\\_lib\\proXpay.js'])
+// 甲′（E-41）静态那一半：写 `status:'closed'` 这个动作只许在 proStore（端点调 closePendingOrder）。
+// ⚠️ 期望里那两个是**真实形状**，不是"我以为只有两个"：`admin/pro-anomaly.js` 那一处命中的是它
+//   **响应体**里的 `status: 'closed'`（把收口结果回给调用方），不是写库——所以这条门管的是"新增写库点"，
+//   它不是一句恒真：任何第三处出现都会红。（拿 `body: { status: 'closed'` 当锚点更严，但一改格式就假红。）
+check('9.9 🔴 出现 `status: \'closed\'` 的文件只有 proStore（写库）与 pro-anomaly（响应体）两处',
+  JS.filter((p) => /status:\s*'closed'/.test(read(p))).map((p) => path.relative(root, p).replace(/\\/g, '/')).sort(),
+  ['functions/_lib/proStore.js', 'functions/admin/pro-anomaly.js'])
 
 const failed = results.filter((x) => !x.ok)
 for (const x of failed) console.log(`✗ ${x.name}\n    got  ${JSON.stringify(x.got)}\n    want ${JSON.stringify(x.want)}`)
